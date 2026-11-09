@@ -133,6 +133,19 @@ class SourceReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(Error, "must increase"):
             release_plan(self.root, "owner/repository")
 
+    def test_ancillary_changes_are_included_in_the_next_source_release(self):
+        self.version("45.0.1.1", "Initial PVE version")
+        (self.root / "README").write_text("updated instructions\n")
+        self.commit("Improve documentation")
+        self.assertEqual(len(release_plan(self.root, "owner/repository")), 1)
+        (self.root / "runtime").write_text("system fix\n")
+        self.commit("Fix system behavior")
+        self.version("45.0.1.2", "Release the system fix")
+        plan = release_plan(self.root, "owner/repository")
+        self.assertEqual(len(plan), 2)
+        self.assertIn("Improve documentation", plan[1]["notes"])
+        self.assertIn("Fix system behavior", plan[1]["notes"])
+
     def test_publication_skips_existing_versions_and_preserves_the_commit_range(self):
         self.version("45.0.1.1", "Initial PVE version")
         self.version("45.0.1.2", "Fix the loader")

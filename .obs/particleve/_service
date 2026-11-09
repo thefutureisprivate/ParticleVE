@@ -2,9 +2,12 @@
   <service name="obs_scm">
     <param name="scm">git</param>
     <param name="url">https://github.com/thefutureisprivate/particleve.git</param>
-    <param name="revision">main</param>
+    <param name="revision">build</param>
     <param name="filename">particleve</param>
-    <param name="versionformat">45.0.1.2</param>
+    <param name="versionformat">@PARENT_TAG@</param>
+    <param name="match-tag">v[0-9]*.[0-9]*.[0-9]*.[0-9]*</param>
+    <param name="versionrewrite-pattern">v(.*)</param>
+    <param name="versionrewrite-replacement">\1</param>
     <param name="extract">.obs/particleve/particleve.spec</param>
     <param name="extract">.obs/fedora/x86-64/mkosi.conf</param>
   </service>

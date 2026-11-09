@@ -31,13 +31,15 @@ for name, pattern, replacement in (
     content, count = re.subn(pattern, replacement, path.read_text(), flags=re.M)
     require(count == 1, f"expected exactly one version declaration in {name}")
     files[path] = content.encode()
-path = root / ".obs/particleve/_service"
-service = ET.fromstring(path.read_bytes())
-fields = service.findall("./service[@name='obs_scm']/param[@name='versionformat']")
-require(len(fields) == 1, "the unified source service needs one version format")
-fields[0].text = version
-ET.indent(service)
-files[path] = ET.tostring(service) + b"\n"
+service = ET.parse(root / ".obs/particleve/_service")
+for name, value in {
+    "versionformat": "@PARENT_TAG@",
+    "match-tag": "v[0-9]*.[0-9]*.[0-9]*.[0-9]*",
+    "versionrewrite-pattern": "v(.*)",
+    "versionrewrite-replacement": r"\1",
+}.items():
+    fields = service.findall(f"./service[@name='obs_scm']/param[@name='{name}']")
+    require(len(fields) == 1 and fields[0].text == value, "OBS must derive versions from source tags")
 if args.command == "check":
     require(
         str(source_key(version)[0]) == read_json(root / "sources.lock.json")["fedora"],

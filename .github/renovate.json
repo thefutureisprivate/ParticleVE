@@ -19,12 +19,12 @@
         "/^sources\\.lock\\.json$/"
       ],
       "matchStrings": [
-        "\"url\": \"https://github\\.com/(?<depName>systemd/mkosi|fwupd/fwupd-efi)\\.git\",\\n(?<indentation> *)\"revision\": \"(?<currentDigest>[a-f0-9]{40})\",\\n *\"version\": \"(?<version>[^\"\\n]+)\""
+        "\"url\": \"https://github\\.com/(?<depName>systemd/mkosi|fwupd/fwupd-efi)\\.git\",\\n(?<indentation> *)\"revision\": \"(?<revision>[a-f0-9]{40})\",\\n *\"version\": \"(?<version>[^\"\\n]+)\""
       ],
-      "datasourceTemplate": "github-releases",
-      "versioningTemplate": "regex:^v?(?<major>\\d+)(?:\\.(?<minor>\\d+))?(?:\\.(?<patch>\\d+))?(?<prerelease>~.*)?$",
-      "autoReplaceStringTemplate": "\"url\": \"https://github.com/{{{depName}}}.git\",\n{{{indentation}}}\"revision\": \"{{{newDigest}}}\",\n{{{indentation}}}\"version\": \"{{{replace '^v' '' newValue}}}\"",
-      "currentValueTemplate": "{{#if (equals depName \"systemd/mkosi\")}}v{{/if}}{{{version}}}"
+      "datasourceTemplate": "custom.github-source-tags",
+      "versioningTemplate": "regex:^v?(?<major>\\d+)(?:\\.(?<minor>\\d+))?(?:\\.(?<patch>\\d+))?(?<prerelease>~[^@]+)?(?:@[a-f0-9]{40})?$",
+      "autoReplaceStringTemplate": "\"url\": \"https://github.com/{{{depName}}}.git\",\n{{{indentation}}}\"revision\": \"{{{replace '^.*@' '' newValue}}}\",\n{{{indentation}}}\"version\": \"{{{replace '^v' '' (replace '@[a-f0-9]{40}$' '' newValue)}}}\"",
+      "currentValueTemplate": "{{#if (equals depName \"systemd/mkosi\")}}v{{/if}}{{{version}}}@{{{revision}}}"
     },
     {
       "customType": "regex",
@@ -32,12 +32,12 @@
         "/^\\.obs/(?:mkosi|fwupd-efi)/[^/]+\\.spec$/"
       ],
       "matchStrings": [
-        "# renovate: depName=(?<depName>systemd/mkosi|fwupd/fwupd-efi)\\n%global upstream_commit (?<currentDigest>[a-f0-9]{40})\\nName:[ \\t]+[^\\n]+\\nVersion:[ \\t]+(?<version>[^\\n]+)"
+        "# renovate: depName=(?<depName>systemd/mkosi|fwupd/fwupd-efi)\\n%global upstream_commit (?<revision>[a-f0-9]{40})\\nName:[ \\t]+[^\\n]+\\nVersion:[ \\t]+(?<version>[^\\n]+)"
       ],
-      "datasourceTemplate": "github-releases",
-      "versioningTemplate": "regex:^v?(?<major>\\d+)(?:\\.(?<minor>\\d+))?(?:\\.(?<patch>\\d+))?(?<prerelease>~.*)?$",
-      "autoReplaceStringTemplate": "# renovate: depName={{{depName}}}\n%global upstream_commit {{{newDigest}}}\nName:           {{{replace '^.*/' '' depName}}}\nVersion:        {{{replace '^v' '' newValue}}}",
-      "currentValueTemplate": "{{#if (equals depName \"systemd/mkosi\")}}v{{/if}}{{{version}}}"
+      "datasourceTemplate": "custom.github-source-tags",
+      "versioningTemplate": "regex:^v?(?<major>\\d+)(?:\\.(?<minor>\\d+))?(?:\\.(?<patch>\\d+))?(?<prerelease>~[^@]+)?(?:@[a-f0-9]{40})?$",
+      "autoReplaceStringTemplate": "# renovate: depName={{{depName}}}\n%global upstream_commit {{{replace '^.*@' '' newValue}}}\nName:           {{{replace '^.*/' '' depName}}}\nVersion:        {{{replace '^v' '' (replace '@[a-f0-9]{40}$' '' newValue)}}}",
+      "currentValueTemplate": "{{#if (equals depName \"systemd/mkosi\")}}v{{/if}}{{{version}}}@{{{revision}}}"
     }
   ],
   "packageRules": [
@@ -46,12 +46,16 @@
         "systemd/mkosi",
         "fwupd/fwupd-efi"
       ],
-      "allowedVersions": "/^v?\\d+(?:\\.\\d+){0,2}$/",
+      "allowedVersions": "/^v?\\d+(?:\\.\\d+){0,2}@[a-f0-9]{40}$/",
       "prPriority": 10,
       "prBodyNotes": [
         "The source lock and RPM recipe must advance together. CI checks immutable release tags and downstream patches; OBS package builds and signed-image acceptance are required before signed-image publication."
       ],
-      "pinDigests": true
+      "pinDigests": false,
+      "description": "The version@commit coordinate is already immutable; advance it only to stable upstream tags.",
+      "matchDatasources": [
+        "custom.github-source-tags"
+      ]
     },
     {
       "matchPackageNames": [
@@ -67,5 +71,13 @@
       "groupName": "fwupd-efi source and RPM recipe",
       "groupSlug": "fwupd-efi"
     }
-  ]
+  ],
+  "customDatasources": {
+    "github-source-tags": {
+      "defaultRegistryUrlTemplate": "https://api.github.com/repos/{{packageName}}/tags?per_page=100",
+      "transformTemplates": [
+        "{'sourceUrl': 'https://github.com/{{packageName}}', 'releases': [$.{'version': name & '@' & commit.sha}]}"
+      ]
+    }
+  }
 }

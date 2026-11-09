@@ -2,7 +2,7 @@
   "obs_project": "home:thefutureisprivate:particleve",
   "obs_user": "thefutureisprivate",
   "source_repository": "https://github.com/thefutureisprivate/particleve.git",
-  "source_branch": "main",
+  "source_branch": "build",
   "fedora_project": "Fedora:45",
   "fedora_base_repository": "standard",
   "fedora_updates_repository": "update",

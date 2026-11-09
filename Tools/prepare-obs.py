@@ -70,4 +70,4 @@ atomic_write(
     f"name: particleve\nversion: {version}\ntree: {tree}\n".encode(),
     0o644,
 )
-print(f"Prepared exact Git tree {tree}; automatic obs_scm will use main after the branch is published.")
+print(f"Prepared exact Git tree {tree}; automatic obs_scm follows the checked build ref.")
