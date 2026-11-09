@@ -8,6 +8,8 @@
     <param name="extract">.obs/mkosi/mkosi.spec</param>
     <param name="extract-rename">.obs/mkosi/mkosi.spec:mkosi.recipe</param>
     <param name="extract">.obs/mkosi/mkosi-obs-continuation.patch</param>
+    <param name="extract">.obs/mkosi/mkosi-initrd-module-indexes.patch</param>
+    <param name="extract">.obs/mkosi/mkosi-build-metadata.patch</param>
     <param name="extract">.obs/mkosi/mkosi-entrypoint.py</param>
     <param name="extract">sources.lock.json</param>
     <param name="extract">Sources/particleve/package_sources.py</param>

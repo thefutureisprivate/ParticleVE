@@ -11,7 +11,12 @@ Source2:        package_sources.py
 Source3:        mkosi.recipe
 Source4:        mkosi-entrypoint.py
 Patch0:         mkosi-obs-continuation.patch
+Patch1:         mkosi-initrd-module-indexes.patch
+Patch2:         mkosi-build-metadata.patch
 BuildArch:      noarch
+BuildRequires:  gcc
+BuildRequires:  kmod
+BuildRequires:  cpio
 BuildRequires:  python3-devel
 BuildRequires:  python3-setuptools
 BuildRequires:  python3-setuptools-scm
@@ -29,6 +34,7 @@ Requires:       perl-Config-IniFiles
 Requires:       bubblewrap
 Requires:       erofs-utils
 Requires:       cryptsetup
+Requires:       kmod
 Requires:       particleve-build-tools
 
 # Record installed bytes after Fedora's BRP transformations, including bytecode.
@@ -38,16 +44,18 @@ Requires:       particleve-build-tools
 
 %description
 Upstream mkosi at the exact revision recorded in sources.lock.json, with the
-ParticleVE native OBS verification toolchain and a narrow signing-continuation fix.
+ParticleVE native OBS verification toolchain, signing-continuation fixes, and
+module indexes regenerated for the selected initrd contents.
 
 %prep
 %autosetup -p1 -n mkosi-%{upstream_commit}
 
 %build
-python3 -m build --wheel --no-isolation
+PYTHONWARNINGS=error python3 -W error -m build --wheel --no-isolation
 
 %check
 bash -n mkosi/resources/mkosi-obs/mkosi.build
+PYTHONPATH=. python3 -W error tests/test_initrd_module_indexes.py
 
 %install
 python3 -m installer --destdir=%{buildroot} dist/*.whl

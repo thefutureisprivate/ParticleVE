@@ -40,6 +40,9 @@ for unit in systemd-sysext.service systemd-sysext.socket systemd-confext.service
             ksm.service ksmtuned.service systemd-rfkill.service systemd-rfkill.socket; do
     ln -sf /dev/null "/usr/lib/systemd/system/$unit"
 done
+# ParticleVE owns radio state. Retain the upstream device tag and unrelated
+# activations, but remove the request for its masked save/restore socket.
+sed -i 's/, ENV{SYSTEMD_WANTS}+="systemd-rfkill\.socket"//g' /usr/lib/udev/rules.d/99-systemd.rules
 # Only configured links may obtain addresses; no generic DHCP fallback or trim job.
 ln -sf /dev/null /usr/lib/systemd/network/89-ethernet.network
 ln -sf /dev/null /usr/lib/systemd/system/fstrim.timer

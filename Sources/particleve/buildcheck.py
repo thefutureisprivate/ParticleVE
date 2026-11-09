@@ -14,9 +14,14 @@ from .provenance import implementation_digest, upstream_inputs, verify_package, 
 from .security import TPM_PROFILE, check_privileges, kernel_baseline
 
 
-def check_tpm_factory_config(root):
+def check_factory_links(root):
     """Exercise fresh-root materialization, where packaged /etc files are absent."""
-    names = ("swtpm_setup.conf", "swtpm-localca.conf", "swtpm-localca.options")
+    names = (
+        "swtpm_setup.conf",
+        "swtpm-localca.conf",
+        "swtpm-localca.options",
+        "udisks2/udisks2.conf",
+    )
     require(
         read_json(root / "usr/lib/particleve/tpm-profile.json") == TPM_PROFILE,
         "fresh virtual TPM provisioning profile changed",
@@ -34,6 +39,7 @@ def check_tpm_factory_config(root):
         factory = probe / "usr/share/factory/etc"
         factory.mkdir(parents=True)
         for name in names:
+            (factory / name).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(root / "usr/share/factory/etc" / name, factory / name)
         run(
             [
@@ -50,7 +56,38 @@ def check_tpm_factory_config(root):
             target = link.readlink()
             target = probe / str(target).lstrip("/") if target.is_absolute() else link.parent / target
             require(target.resolve().is_relative_to(probe), "factory configuration link escapes its root")
-            require(target.read_bytes() == (factory / name).read_bytes(), "wrong TPM factory configuration")
+            require(target.read_bytes() == (factory / name).read_bytes(), "wrong factory configuration")
+
+
+def check_resolver_defaults(root):
+    """The unprivileged resolver must traverse and read its public defaults."""
+    relative = Path("usr/lib/systemd/resolved.conf.d/50-particleve.conf")
+    for parent in reversed(relative.parents[:-1]):
+        directory = root / parent
+        require(
+            directory.is_dir() and directory.stat().st_mode & 0o005 == 0o005,
+            "resolver defaults directory is not publicly readable/searchable: " + str(parent),
+        )
+    require((root / relative).stat().st_mode & 0o004, "resolver defaults are not publicly readable")
+
+
+def check_radio_rules(root):
+    for path in (root / "usr/lib/udev/rules.d").glob("*.rules"):
+        require(
+            all(
+                "systemd-rfkill.socket" not in line.split("#", 1)[0] for line in path.read_text().splitlines()
+            ),
+            "udev requests the masked native radio-state owner: " + str(path),
+        )
+    run(
+        [
+            "udevadm",
+            "verify",
+            "--no-summary",
+            root / "usr/lib/udev/rules.d/71-particleve-radio.rules",
+            root / "usr/lib/udev/rules.d/99-systemd.rules",
+        ]
+    )
 
 
 def source_revision(directory):
@@ -265,7 +302,9 @@ def root_check(root, *, tree="usr", output=None, source_dir=None):
             "usr/lib/particleve/particleve_vmspawn.pp",
         ):
             require((root / path).exists(), f"missing runtime artifact: {path}")
-        check_tpm_factory_config(root)
+        check_factory_links(root)
+        check_resolver_defaults(root)
+        check_radio_rules(root)
         for name in (
             "systemd/system/chronyd-restricted.service.d/50-particleve.conf",
             "systemd/ntp-units.d/50-chronyd.list",

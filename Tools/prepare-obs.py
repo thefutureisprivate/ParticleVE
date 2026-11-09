@@ -42,6 +42,9 @@ with tempfile.TemporaryDirectory() as temporary:
     directory = Path(temporary)
     root = directory / f"particleve-{version}"
     root.mkdir()
+    # Git does not track directory modes. A private caller umask must not turn
+    # public /usr overlay directories into root-only daemon configuration.
+    root.chmod(0o755)
     with tarfile.open(fileobj=io.BytesIO(archive)) as source:
         for member in source.getmembers():
             relative = Path(member.name)
@@ -50,6 +53,7 @@ with tempfile.TemporaryDirectory() as temporary:
             target.parent.mkdir(parents=True, exist_ok=True)
             if member.isdir():
                 target.mkdir(exist_ok=True)
+                target.chmod(0o755)
             elif member.issym():
                 target.symlink_to(member.linkname)
             else:

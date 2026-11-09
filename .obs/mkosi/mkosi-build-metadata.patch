@@ -1,0 +1,30 @@
+Subject: [PATCH] Declare current wheel license and explicit resource ownership
+
+Use SPDX license metadata and the existing explicit resource globs. Remove the
+obsolete LICENSE manifest entry; its file was moved to LICENSES upstream.
+No compiler or Python diagnostic is suppressed.
+
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -11,7 +11,8 @@
+ description = "Build Bespoke OS Images"
+ readme = "README.md"
+ requires-python = ">=3.9"
+-license = {text = "LGPL-2.1-or-later"}
++license = "LGPL-2.1-or-later"
++license-files = ["LICENSES/LGPL-2.1-or-later.txt"]
+ 
+ [project.optional-dependencies]
+ bootable = [
+@@ -25,6 +26,7 @@
+ mkosi-addon = "mkosi.addon:main"
+ 
+ [tool.setuptools]
++include-package-data = false
+ packages = [
+     "mkosi",
+     "mkosi.distribution",
+--- a/MANIFEST.in
++++ /dev/null
+@@ -1 +0,0 @@
+-include LICENSE

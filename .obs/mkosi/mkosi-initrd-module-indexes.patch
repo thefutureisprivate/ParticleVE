@@ -1,0 +1,199 @@
+Subject: [PATCH] Regenerate indexes for the selected kernel module initrd
+
+The runtime module indexes include modules excluded from the initrd. Copy the
+selected files into private workspace, regenerate their native indexes, and
+preserve the original runtime tree. Test real kmod alias resolution, source
+identity, cleanup, public directory modes, and reproducible output.
+
+--- a/mkosi/__init__.py
++++ b/mkosi/__init__.py
+@@ -1569,23 +1569,47 @@
+         return kmods
+ 
+     with complete_step("Building kernel modules initrd"):
+-        make_cpio(
+-            context.root,
+-            kmods,
+-            files=required_kernel_modules(
++        files = required_kernel_modules(
++            context,
++            kver,
++            modules_include=finalize_kernel_modules_include(
+                 context,
+-                kver,
+-                modules_include=finalize_kernel_modules_include(
+-                    context,
+-                    include=context.config.kernel_modules_initrd_include,
+-                    host=context.config.kernel_modules_initrd_include_host,
+-                ),
+-                modules_exclude=context.config.kernel_modules_initrd_exclude,
+-                firmware_include=context.config.firmware_include,
+-                firmware_exclude=context.config.firmware_exclude,
++                include=context.config.kernel_modules_initrd_include,
++                host=context.config.kernel_modules_initrd_include_host,
+             ),
+-            sandbox=context.sandbox,
+-        )
++            modules_exclude=context.config.kernel_modules_initrd_exclude,
++            firmware_include=context.config.firmware_include,
++            firmware_exclude=context.config.firmware_exclude,
++        )
++
++        # The runtime indexes describe the complete module tree. Rebuild them in
++        # a private copy of the selected initrd files, without changing the runtime.
++        with (
++            tempfile.TemporaryDirectory(prefix="kernel-modules-", dir=context.workspace) as temporary,
++            umask(~0o755),
++        ):
++            root = Path(temporary)
++            run(
++                [
++                    "cpio", "--pass-through", "--make-directories", "--preserve-modification-time",
++                    "--quiet", "--null", "--directory", workdir(context.root, context.sandbox),
++                    workdir(root, context.sandbox),
++                ],
++                input="\0".join(os.fspath(p) for p in sorted(files)),
++                sandbox=context.sandbox(options=[
++                    "--ro-bind", context.root, workdir(context.root, context.sandbox),
++                    "--bind", root, workdir(root, context.sandbox),
++                ]),
++            )  # fmt: skip
++            run(
++                [
++                    "depmod", "--all", "--basedir", workdir(root, context.sandbox),
++                    "--moduledir", "/usr/lib/modules", kver,
++                ],
++                sandbox=context.sandbox(options=["--bind", root, workdir(root, context.sandbox)]),
++            )  # fmt: skip
++            normalize_mtime(root, context.config.source_date_epoch)
++            make_cpio(root, kmods, sandbox=context.sandbox)
+ 
+         if context.config.distribution.is_apt_distribution():
+             # Older Debian and Ubuntu releases do not compress their kernel modules, so we compress the
+--- /dev/null
++++ b/tests/test_initrd_module_indexes.py
+@@ -0,0 +1,124 @@
++# SPDX-License-Identifier: LGPL-2.1-or-later
++
++import hashlib
++import os
++import subprocess
++import tempfile
++import unittest
++from pathlib import Path
++from types import SimpleNamespace
++
++from mkosi import build_kernel_modules_initrd
++from mkosi.distribution import Distribution
++from mkosi.run import nosandbox
++
++
++class InitrdModuleIndexTests(unittest.TestCase):
++    def command(self, *arguments, **kwargs):
++        result = subprocess.run(arguments, capture_output=True, check=True, timeout=30, **kwargs)
++        self.assertEqual(result.stderr, b"")
++        return result.stdout
++
++    def test_indexes_describe_selected_modules_without_changing_runtime(self):
++        with tempfile.TemporaryDirectory() as temporary:
++            directory = Path(temporary)
++            root = directory / "root"
++            version = "6.0.0-pve-test"
++            modules = root / "usr/lib/modules" / version
++            modules.mkdir(parents=True)
++            (root / "lib").symlink_to("usr/lib")
++            for name in ("kept", "omitted"):
++                source = directory / f"{name}.c"
++                source.write_text(
++                    '__attribute__((used, section(".modinfo")))\n'
++                    f'const char alias[] = "alias=platform:pve-{name}";\n'
++                    '__attribute__((used, section(".modinfo")))\n'
++                    f'const char module_name[] = "name=pve_{name}";\n'
++                )
++                self.command(
++                    "cc", "-Wall", "-Wextra", "-Werror", "-c", source, "-o", modules / f"pve_{name}.ko"
++                )
++            (modules / "modules.order").write_text("pve_kept.ko\npve_omitted.ko\n")
++            (modules / "modules.builtin").touch()
++            (modules / "modules.builtin.modinfo").touch()
++            self.command("depmod", "--all", "--basedir", root, version)
++            (modules / "pve_omitted.ko").unlink()
++            before = {
++                p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in modules.iterdir() if p.is_file()
++            }
++            self.assertIn("pve_omitted.ko", (modules / "modules.dep").read_text())
++
++            config = SimpleNamespace(
++                kernel_modules_initrd_include=(),
++                kernel_modules_initrd_include_host=False,
++                kernel_modules_initrd_exclude=(),
++                firmware_include=(),
++                firmware_exclude=(),
++                distribution=Distribution.fedora,
++                split_artifacts=(),
++                source_date_epoch=1000000000,
++            )
++            archives = []
++            previous_umask = os.umask(0o077)
++            try:
++                for number in range(2):
++                    workspace = directory / f"workspace-{number}"
++                    workspace.mkdir()
++                    context = SimpleNamespace(
++                        root=root, workspace=workspace, config=config, sandbox=nosandbox
++                    )
++                    archive = build_kernel_modules_initrd(context, version)
++                    archives.append(archive.read_bytes())
++                    self.assertEqual(list(workspace.iterdir()), [archive])
++            finally:
++                os.umask(previous_umask)
++            self.assertEqual(archives[0], archives[1])
++            output = directory / "output"
++            output.mkdir()
++            self.command("cpio", "--extract", "--make-directories", "--quiet", input=archives[0], cwd=output)
++            (output / "lib").symlink_to("usr/lib")
++            kept = output / "usr/lib/modules" / version
++            self.assertEqual((kept / "modules.dep").read_text(), "pve_kept.ko:\n")
++            self.assertEqual((output / "usr").stat().st_mode & 0o777, 0o755)
++            self.assertEqual((output / "usr/lib").stat().st_mode & 0o777, 0o755)
++            self.assertEqual(
++                self.command(
++                    "modprobe",
++                    "--dirname",
++                    output,
++                    "--set-version",
++                    version,
++                    "--resolve-alias",
++                    "platform:pve-kept",
++                ),
++                b"pve_kept\n",
++            )
++            omitted = subprocess.run(
++                [
++                    "modprobe",
++                    "--dirname",
++                    output,
++                    "--set-version",
++                    version,
++                    "--resolve-alias",
++                    "platform:pve-omitted",
++                ],
++                capture_output=True,
++                check=False,
++                timeout=30,
++            )
++            self.assertEqual(omitted.returncode, 1)
++            self.assertEqual(omitted.stdout, b"")
++            self.assertEqual(
++                omitted.stderr.decode().strip(),
++                "modprobe: FATAL: Module platform:pve-omitted not found in directory "
++                f"{output}/lib/modules/{version}",
++            )
++            after = {
++                p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in modules.iterdir() if p.is_file()
++            }
++            self.assertEqual(before, after)
++
++
++if __name__ == "__main__":
++    unittest.main()
