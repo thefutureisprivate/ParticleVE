@@ -17,7 +17,10 @@ from pathlib import Path
 from .common import Error, canonical, lock, read_json, require, run, write_json
 
 VARIABLE = Path("/sys/firmware/efi/efivars/ParticleVEStorage-59a481c6-fbbc-4d82-8617-37eae6ebdf21")
-SESSION = Path("/run/particleve-admission.json")
+# Keep atomic session replacement and the shared lock in one writable runtime
+# directory. The monitor must not need write access to the rest of /run.
+RUNTIME = Path("/run/particleve-admission")
+SESSION = RUNTIME / "session.json"
 
 
 def validate(record):
@@ -248,7 +251,7 @@ def watch():
     Transient I/O faults also fence the live dm target: reconnecting hardware
     cannot make the old replica readable again through that mapping.
     """
-    with lock("/run/particleve-admission"):
+    with lock(RUNTIME):
         session = read_json(SESSION)
         record = load()
         require(record == session["witness"] and record["active"], "storage session witness changed")
@@ -335,7 +338,7 @@ def recover(role, confirmation):
 
 def readmit(manifest, role):
     """Only finalized foreground replacement may introduce the freshly erased member."""
-    with lock("/run/particleve-admission"):
+    with lock(RUNTIME):
         _readmit(manifest, role)
 
 

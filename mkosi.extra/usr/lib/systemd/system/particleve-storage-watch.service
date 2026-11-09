@@ -12,3 +12,36 @@ StartLimitBurst=12
 Type=oneshot
 ExecStart=/usr/libexec/particleve-storage-admission watch
 TimeoutStartSec=30s
+# SYS_ADMIN owns Btrfs/DM inspection and fencing. The one-file writer needs
+# LINUX_IMMUTABLE and NET_ADMIN for bubblewrap's private loopback setup; its
+# final handoff retains only LINUX_IMMUTABLE. No host networking is needed.
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_LINUX_IMMUTABLE CAP_NET_ADMIN
+NoNewPrivileges=yes
+PrivateNetwork=yes
+ProtectSystem=strict
+ReadOnlyPaths=/run
+ReadWritePaths=/run/particleve-admission /sys/firmware/efi/efivars/ParticleVEStorage-59a481c6-fbbc-4d82-8617-37eae6ebdf21
+ProtectHome=yes
+PrivateTmp=yes
+# UUID discovery needs /dev links. Permit mapped-device inspection/control,
+# while denying raw-disk and KVM device opens.
+DevicePolicy=closed
+DeviceAllow=/dev/mapper/control rw
+DeviceAllow=block-device-mapper r
+ProtectProc=invisible
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=mnt pid net ipc uts
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service @mount
+LimitCORE=0
+UMask=0077

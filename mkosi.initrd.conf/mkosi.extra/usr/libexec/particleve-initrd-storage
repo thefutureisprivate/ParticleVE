@@ -5,7 +5,7 @@ udevadm settle --timeout=30
 mkdir -p /run/particleve-root-probe /sysroot
 # Authority is committed outside Btrfs before ANY member is opened or scanned.
 /usr/libexec/particleve-storage-admission begin
-session=/run/particleve-admission.json
+session=/run/particleve-admission/session.json
 mapfile -t roles < <(jq -er '.witness.allowed[]' "$session")
 [[ ${#roles[@]} -ge 1 && ${#roles[@]} -le 2 ]]
 mapped=()

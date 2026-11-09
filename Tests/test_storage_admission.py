@@ -75,6 +75,26 @@ class AdmissionTests(unittest.TestCase):
             with self.assertRaises(Error):
                 admission.load()
 
+    def test_begin_creates_a_private_runtime_session_after_the_witness_commit(self):
+        record = witness()
+        events = []
+        with tempfile.TemporaryDirectory() as tmp:
+            session = Path(tmp) / "admission/session.json"
+            with (
+                patch.object(admission, "SESSION", session),
+                patch.object(admission, "load", return_value=record),
+                patch.object(admission.Path, "exists", return_value=True),
+                patch.object(admission, "disk_sequence", return_value="42"),
+                patch.object(admission, "_write_existing", side_effect=lambda r: events.append(r.copy())),
+            ):
+                admission.begin()
+            observed = read_json(session)
+            self.assertEqual(observed["witness"], events[0])
+            self.assertTrue(observed["witness"]["active"])
+            self.assertEqual(observed["diskseq"], {"a": "42", "b": "42"})
+            self.assertEqual(session.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(session.parent.stat().st_mode & 0o777, 0o700)
+
     def test_shutdown_cannot_mark_clean_while_any_btrfs_subvolume_is_writable(self):
         record = admission.choose(witness(), ["a", "b"])
         with (

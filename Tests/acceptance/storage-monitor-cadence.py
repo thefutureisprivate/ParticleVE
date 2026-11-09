@@ -12,7 +12,9 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("service", type=Path, help="selected particleve-storage-watch.service")
 args = parser.parse_args()
 assert os.geteuid() == 0, "run only in a disposable native systemd fixture"
-config = configparser.ConfigParser(interpolation=None)
+# DeviceAllow is intentionally repeated in the service. Only Unit limits are
+# parsed here; the selected Service section is retained verbatim below.
+config = configparser.ConfigParser(interpolation=None, strict=False)
 config.optionxform = str
 config.read(args.service)
 limits = {name: config["Unit"][name] for name in ("StartLimitIntervalSec", "StartLimitBurst")}
@@ -26,16 +28,24 @@ assert all(not path.exists() for path in paths), "refusing to replace an existin
 
 
 def run(*command, check=True):
-    return subprocess.run(command, check=check, capture_output=True, text=True)
+    return subprocess.run(command, check=check, capture_output=True, text=True, timeout=30)
 
 
 try:
     for case in ("default", "selected"):
         policy = "" if case == "default" else "".join(f"{key}={value}\n" for key, value in limits.items())
+        service = "Type=oneshot\nExecStart=/usr/bin/true\n"
+        if case == "selected":
+            service = args.service.read_text().split("[Service]\n", 1)[1]
+            service = (
+                "\n".join(
+                    "ExecStart=/usr/bin/true" if line.startswith("ExecStart=") else line
+                    for line in service.splitlines()
+                )
+                + "\n"
+            )
         (directory / f"{prefix}-{case}.service").write_text(
-            "[Unit]\nDescription=Inert ParticleVE cadence regression\n"
-            + policy
-            + "[Service]\nType=oneshot\nExecStart=/usr/bin/true\n"
+            "[Unit]\nDescription=Inert ParticleVE cadence regression\n" + policy + "[Service]\n" + service
         )
         (directory / f"{prefix}-{case}.timer").write_text(
             "[Timer]\nOnActiveSec=1s\nOnUnitInactiveSec=1s\nAccuracySec=100ms\n"
