@@ -1,5 +1,5 @@
 Name:           particleve
-Version:        45.0.1.1
+Version:        45.0.1.2
 Release:        1%{?dist}
 Summary:        ParticleVE host installation and maintenance coordinator
 License:        LGPL-2.1-or-later
@@ -8,6 +8,7 @@ BuildArch:      noarch
 BuildRequires:  python3 >= 3.14
 BuildRequires:  gnupg2
 BuildRequires:  coreutils
+BuildRequires:  git-core
 BuildRequires:  openssh-clients
 BuildRequires:  selinux-policy-devel
 BuildRequires:  make

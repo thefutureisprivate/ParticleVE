@@ -4,7 +4,7 @@
     <param name="url">https://github.com/thefutureisprivate/particleve.git</param>
     <param name="revision">main</param>
     <param name="filename">particleve</param>
-    <param name="versionformat">45.0.1.1</param>
+    <param name="versionformat">45.0.1.2</param>
     <param name="extract">.obs/particleve/particleve.spec</param>
     <param name="extract">.obs/fedora/x86-64/mkosi.conf</param>
   </service>
