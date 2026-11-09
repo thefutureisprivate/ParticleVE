@@ -71,33 +71,29 @@ def baseline(*, proc=Path("/proc"), sysfs=Path("/sys")):
     return {"ksm": observed, "core_handling": configuration(), "suid_dumpable": 0}
 
 
-def process_policy(pid, *, proc=Path("/proc"), qemu=False):
-    directory = proc / str(pid)
-    limits = re.findall(
-        r"^Max core file size\s+(\S+)\s+(\S+)\s+bytes\s*$", (directory / "limits").read_text(), re.M
-    )
+def process_policy(process, *, qemu=False):
+    limits = re.findall(r"^Max core file size\s+(\S+)\s+(\S+)\s+bytes\s*$", process.read_text("limits"), re.M)
     require(limits == [("0", "0")], "VM process core limits are not both zero")
-    mask = (directory / "coredump_filter").read_text().strip()
+    mask = process.read_text("coredump_filter", 64).strip()
     require(re.fullmatch(r"0{1,16}", mask), "VM core filter is not empty")
     if qemu:
         # Only mapping metadata is read; no process-memory contents are opened
         # or exported. Refuse an incomplete or excessively large observation.
-        with (directory / "smaps").open("rb") as stream:
-            maps = stream.read(MAX_SMAPS + 1)
-        require(len(maps) <= MAX_SMAPS, "QEMU mapping observation exceeds its bound")
+        maps = process.read_bytes("smaps", MAX_SMAPS)
         mappings = re.findall(rb"^[0-9a-f]+-[0-9a-f]+ ", maps, re.M)
         flags = re.findall(rb"^VmFlags:[ \t]*(.*)$", maps, re.M)
         require(mappings and len(mappings) == len(flags), "QEMU mapping observation is incomplete")
         require(all(b"mg" not in line.split() for line in flags), "QEMU memory is registered for KSM merging")
         sharing = re.findall(rb"^KSM:[ \t]+(\d+) kB$", maps, re.M)
-        stats = directory / "ksm_stat"
-        if stats.exists():
+        try:
+            stats = process.read_text("ksm_stat")
+        except FileNotFoundError:
+            require(not sharing, "QEMU KSM accounting interface is missing")
+        else:
             require(len(sharing) == len(mappings), "QEMU KSM observation is incomplete")
             require(all(value == b"0" for value in sharing), "QEMU has merged memory pages")
-            counts = re.findall(r"^ksm_(zero_pages|merging_pages) (\d+)$", stats.read_text(), re.M)
+            counts = re.findall(r"^ksm_(zero_pages|merging_pages) (\d+)$", stats, re.M)
             require(
                 len(counts) == 2 and dict(counts) == {"zero_pages": "0", "merging_pages": "0"},
                 "QEMU retains KSM-shared or KSM-zero pages",
             )
-        else:
-            require(not sharing, "QEMU KSM accounting interface is missing")

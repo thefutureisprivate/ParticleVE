@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .common import require, run
 from .memoryprivacy import process_policy
+from .processes import observe
 
 MACHINES = Path("/var/lib/machines")
 RUNTIME = Path("/run/particleve-vm")
@@ -58,28 +59,25 @@ def qemu_arguments(arguments):
     return result
 
 
-def verify_qemu_sandbox(pid, *, proc=Path("/proc")):
-    directory = proc / str(pid)
-    values = dict(
-        line.split(":", 1) for line in (directory / "status").read_text().splitlines() if ":" in line
-    )
+def verify_qemu_sandbox(process):
+    values = process.status()
     require(
-        values.get("Seccomp", "").strip() == "2"
-        and int(values.get("Seccomp_filters", "0")) > 0
-        and values.get("NoNewPrivs", "").strip() == "1",
+        values.get("Seccomp") == "2"
+        and re.fullmatch(r"[1-9][0-9]{0,9}", values.get("Seccomp_filters", ""))
+        and values.get("NoNewPrivs") == "1",
         "QEMU syscall filtering is not active",
     )
-    args = (directory / "cmdline").read_bytes().rstrip(b"\0").decode().split("\0")
+    args = process.arguments()
     require(args.count("-sandbox") == 1 and qemu_arguments(args) == args, "QEMU's own sandbox is missing")
     require(
         all(
-            int(values.get(field, "-1").strip(), 16) == 0
+            re.fullmatch(r"0{1,16}", values.get(field, ""))
             for field in ("CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb")
         )
-        and not values.get("Groups", "missing").strip(),
+        and values.get("Groups") == "",
         "QEMU retained capabilities or supplementary groups",
     )
-    process_policy(pid, proc=proc, qemu=True)
+    process_policy(process, qemu=True)
 
 
 def check_unit_contract(unit):
@@ -295,22 +293,26 @@ def qemu_handoff(arguments):
     os.execv(QEMU_PRIVILEGES[0], [*QEMU_PRIVILEGES, "/usr/bin/qemu-kvm", *arguments])
 
 
-def verify_processes(processes):
+def verify_processes(processes, *, proc=Path("/proc")):
     categories = None
     types = set()
     for entry in processes:
-        current = Path(f"/proc/{entry['pid']}/attr/current").read_text()
-        kind = current.split(":")[2]
-        require(
-            kind in (CONTROLLER, "svirt_t", "swtpm_t"), "VM unit contains an unexpected or unconfined process"
-        )
-        pair = context(current, kind)
-        if categories is None:
-            categories = pair
-        require(pair == categories, "VM processes have different MCS categories")
-        types.add(kind)
-        if kind == "svirt_t":
-            verify_qemu_sandbox(entry["pid"])
-        else:
-            process_policy(entry["pid"])
+        with observe(entry["pid"], proc=proc, starttime=entry["starttime"]) as process:
+            current = process.read_text("attr/current", 4096)
+            parts = current.split(":")
+            require(len(parts) >= 3, "invalid VM SELinux context")
+            kind = parts[2]
+            require(
+                kind in (CONTROLLER, "svirt_t", "swtpm_t"),
+                "VM unit contains an unexpected or unconfined process",
+            )
+            pair = context(current, kind)
+            if categories is None:
+                categories = pair
+            require(pair == categories, "VM processes have different MCS categories")
+            types.add(kind)
+            if kind == "svirt_t":
+                verify_qemu_sandbox(process)
+            else:
+                process_policy(process)
     require(CONTROLLER in types and "svirt_t" in types, "VM controller or confined QEMU is missing")

@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from particleve import memoryprivacy
 from particleve.common import Error
+from particleve.processes import observe
 
 CORE = "[Coredump]\nStorage=none\nProcessSizeMax=0\nEnterNamespace=no\n"
 LIMITS = "DefaultLimitCORE=0\nDefaultLimitCORESoft=0\n"
@@ -160,29 +161,41 @@ class MemoryPrivacyTests(unittest.TestCase):
                 (directory / "limits").write_text(f"Max core file size {soft} {hard} bytes\n")
                 (directory / "coredump_filter").write_text(mask)
                 (directory / "smaps").write_text(maps)
-                with self.subTest(soft=soft, hard=hard, mask=mask, maps=maps):
+                with (
+                    self.subTest(soft=soft, hard=hard, mask=mask, maps=maps),
+                    observe(123, proc=proc) as process,
+                ):
                     if allowed:
-                        memoryprivacy.process_policy(123, proc=proc, qemu=True)
+                        memoryprivacy.process_policy(process, qemu=True)
                     else:
                         with self.assertRaises(Error):
-                            memoryprivacy.process_policy(123, proc=proc, qemu=True)
+                            memoryprivacy.process_policy(process, qemu=True)
             (directory / "limits").write_text("Max core file size 0 0 bytes\n")
             (directory / "coredump_filter").write_text("00000000")
             (directory / "smaps").write_text(SMAPS)
-            with patch.object(memoryprivacy, "MAX_SMAPS", 10), self.assertRaisesRegex(Error, "bound"):
-                memoryprivacy.process_policy(123, proc=proc, qemu=True)
+            with (
+                observe(123, proc=proc) as process,
+                patch.object(memoryprivacy, "MAX_SMAPS", 10),
+                self.assertRaisesRegex(Error, "bound"),
+            ):
+                memoryprivacy.process_policy(process, qemu=True)
             for contents in (
                 "",
                 "ksm_zero_pages 1\nksm_merging_pages 0\n",
                 "ksm_zero_pages 0\nksm_merging_pages 1\n",
             ):
                 stats.write_text(contents)
-                with self.subTest(contents=contents), self.assertRaisesRegex(Error, "KSM"):
-                    memoryprivacy.process_policy(123, proc=proc, qemu=True)
+                with (
+                    self.subTest(contents=contents),
+                    observe(123, proc=proc) as process,
+                    self.assertRaisesRegex(Error, "KSM"),
+                ):
+                    memoryprivacy.process_policy(process, qemu=True)
             # A kernel deliberately built without KSM has neither interface.
             stats.unlink()
             (directory / "smaps").write_text(SMAPS.replace("KSM: 0 kB\n", ""))
-            memoryprivacy.process_policy(123, proc=proc, qemu=True)
+            with observe(123, proc=proc) as process:
+                memoryprivacy.process_policy(process, qemu=True)
 
 
 if __name__ == "__main__":

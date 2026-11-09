@@ -27,6 +27,7 @@ from particleve.confinement import (
     verify_processes,
     verify_qemu_sandbox,
 )
+from particleve.processes import observe
 
 
 class ConfinementTests(unittest.TestCase):
@@ -261,7 +262,10 @@ class ConfinementTests(unittest.TestCase):
                 ("2", "1", "1", []),
                 ("2", "1", "1", ["-sandbox", "off"]),
             ):
-                with self.subTest(mode=mode, filters=filters, arguments=arguments):
+                with (
+                    self.subTest(mode=mode, filters=filters, arguments=arguments),
+                    observe(123, proc=proc) as observation,
+                ):
                     (process / "status").write_text(
                         f"Seccomp: {mode}\nSeccomp_filters: {filters}\nNoNewPrivs: {nnp}\n"
                         + "\n".join(
@@ -271,19 +275,33 @@ class ConfinementTests(unittest.TestCase):
                     )
                     (process / "cmdline").write_bytes("\0".join(["qemu", *arguments]).encode())
                     if mode == "2" and nnp == "1" and arguments == qemu_arguments([]):
-                        verify_qemu_sandbox(123, proc=proc)
+                        verify_qemu_sandbox(observation)
                     else:
                         with self.assertRaises(Error):
-                            verify_qemu_sandbox(123, proc=proc)
+                            verify_qemu_sandbox(observation)
             for field, value in (("CapEff", "1"), ("CapBnd", "1"), ("Groups", "0")):
                 (process / "status").write_text(
-                    "Seccomp: 2\nSeccomp_filters: 1\nNoNewPrivs: 1\nGroups:\n"
-                    + "\n".join(f"{key}: 0" for key in ("CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"))
-                    + f"\n{field}: {value}\n"
+                    "\n".join(
+                        f"{key}: {selected}"
+                        for key, selected in (
+                            {
+                                "Seccomp": "2",
+                                "Seccomp_filters": "1",
+                                "NoNewPrivs": "1",
+                                "Groups": "",
+                                **dict.fromkeys(("CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"), "0"),
+                            }
+                            | {field: value}
+                        ).items()
+                    )
                 )
                 (process / "cmdline").write_bytes("\0".join(["qemu", *qemu_arguments([])]).encode())
-                with self.subTest(field=field), self.assertRaisesRegex(Error, "retained"):
-                    verify_qemu_sandbox(123, proc=proc)
+                with (
+                    self.subTest(field=field),
+                    observe(123, proc=proc) as observation,
+                    self.assertRaisesRegex(Error, "retained"),
+                ):
+                    verify_qemu_sandbox(observation)
 
     def test_handoff_rejects_foreign_unlabelled_and_failed_console_labels(self):
         target = f"system_u:object_r:{PTY_TYPE}:s0:c10,c20"
@@ -378,21 +396,26 @@ class ConfinementTests(unittest.TestCase):
         ):
             with (
                 self.subTest(last=last),
-                patch.object(
-                    Path,
-                    "read_text",
-                    side_effect=[
-                        f"system_u:system_r:{CONTROLLER}:s0:c10,c20",
-                        "system_u:system_r:svirt_t:s0:c10,c20",
-                        last,
-                    ],
-                ),
+                tempfile.TemporaryDirectory() as tmp,
                 patch("particleve.confinement.verify_qemu_sandbox"),
                 patch("particleve.confinement.process_policy"),
             ):
-                processes = [{"pid": n} for n in (1, 2, 3)]
+                proc = Path(tmp)
+                for pid, label in enumerate(
+                    (
+                        f"system_u:system_r:{CONTROLLER}:s0:c10,c20",
+                        "system_u:system_r:svirt_t:s0:c10,c20",
+                        last,
+                    ),
+                    1,
+                ):
+                    directory = proc / str(pid)
+                    (directory / "attr").mkdir(parents=True)
+                    (directory / "attr/current").write_text(label)
+                    (directory / "stat").write_text(f"{pid} (vm) S " + "0 " * 18 + "1\n")
+                processes = [{"pid": n, "starttime": 1} for n in (1, 2, 3)]
                 if ":swtpm_t:s0:c10,c20" in last:
-                    verify_processes(processes)
+                    verify_processes(processes, proc=proc)
                 else:
                     with self.assertRaises(Error):
-                        verify_processes(processes)
+                        verify_processes(processes, proc=proc)

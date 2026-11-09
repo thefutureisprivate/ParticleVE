@@ -17,6 +17,7 @@ TOOLS_MODULES = (
     "provenance",
     "package_sources",
     "security",
+    "processes",
     "landlock",
     "kernelruntime",
     "consoles",

@@ -96,22 +96,22 @@ class ProcessInspectionTests(unittest.TestCase):
 
     def test_only_confirmed_disappearance_is_absence(self):
         for failure in (FileNotFoundError(), ProcessLookupError()):
-            with patch("particleve.vms.Path.read_text", side_effect=failure):
+            with patch("particleve.processes.os.open", side_effect=failure):
                 self.assertIsNone(process_identity(123))
         for failure in (PermissionError(), OSError(errno.EIO, "I/O error")):
             with (
                 self.subTest(failure=failure),
-                patch("particleve.vms.Path.read_text", side_effect=failure),
+                patch("particleve.processes.os.open", side_effect=failure),
                 self.assertRaises(type(failure)),
             ):
                 process_identity(123)
         for content in ("truncated", "123 (qemu) S", "123 (qemu) " + " ".join(["S"] + ["0"] * 18 + ["bad"])):
-            with (
-                self.subTest(content=content),
-                patch("particleve.vms.Path.read_text", return_value=content),
-                self.assertRaisesRegex(Error, "cannot parse"),
-            ):
-                process_identity(123)
+            with self.subTest(content=content), tempfile.TemporaryDirectory() as tmp:
+                proc = Path(tmp)
+                (proc / "123").mkdir()
+                (proc / "123/stat").write_text(content)
+                with self.assertRaisesRegex(Error, "cannot parse"):
+                    process_identity(123, proc=proc)
 
 
 class AddressAssessmentTests(unittest.TestCase):

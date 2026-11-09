@@ -227,7 +227,7 @@ def execute(args):
                 },
                 "privileged_files": check_privileges("/"),
                 "vm_processes": [
-                    process_evidence(process["pid"])
+                    process_evidence(process)
                     for vm in LinuxVMs().inventory(inhibited=False)
                     for process in vm["processes"]
                 ],

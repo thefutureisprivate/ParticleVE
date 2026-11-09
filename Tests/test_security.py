@@ -489,10 +489,19 @@ PubkeyAcceptedAlgorithms sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@opens
             )
             (process / "status").write_text("\n".join(f"{field}: 0" for field in fields))
             (process / "attr/current").write_text("system_u:system_r:svirt_t:s0:c10,c20\0")
+            (process / "stat").write_text("123 (qemu) S " + "0 " * 18 + "1\n")
             (process / "cmdline").write_bytes(
                 b"qemu\0-fw_cfg\0name=opt/io.systemd.credentials,string=DO-NOT-EXPORT\0-sandbox\0on\0"
             )
-            result = process_evidence(123, proc=proc)
+            result = process_evidence({"pid": 123, "starttime": 1}, proc=proc)
             self.assertNotIn("DO-NOT-EXPORT", json.dumps(result))
             self.assertEqual(result["security_options"]["-sandbox"], ["on"])
             self.assertEqual(result["namespaces"]["user"], "user:[12345]")
+            with patch("particleve.security.MAX_NAMESPACES", 0), self.assertRaisesRegex(Error, "bound"):
+                process_evidence({"pid": 123, "starttime": 1}, proc=proc)
+            (process / "fd/0").symlink_to("/dev/null")
+            with patch("particleve.security.MAX_FDS", 0), self.assertRaisesRegex(Error, "bound"):
+                process_evidence({"pid": 123, "starttime": 1}, proc=proc)
+            (process / "cmdline").write_bytes(b"qemu\0-cpu\0" + b"x" * 65537 + b"\0")
+            with self.assertRaisesRegex(Error, "evidence bound"):
+                process_evidence({"pid": 123, "starttime": 1}, proc=proc)

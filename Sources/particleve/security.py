@@ -9,6 +9,7 @@ import struct
 from pathlib import Path
 
 from .common import Error, capture_bounded, hash_file, read_json, require, run
+from .processes import MAX_FDS, MAX_NAMESPACES, observe
 
 KERNEL_REQUIRED = (
     "MEMFD_CREATE",
@@ -360,11 +361,7 @@ def apply_image_privileges(root):
     return check_privileges(root)
 
 
-def process_evidence(pid, *, proc=Path("/proc")):
-    directory = proc / str(pid)
-    status = dict(
-        line.split(":", 1) for line in (directory / "status").read_text().splitlines() if ":" in line
-    )
+def process_evidence(identity, *, proc=Path("/proc")):
     fields = (
         "Uid",
         "Gid",
@@ -378,28 +375,36 @@ def process_evidence(pid, *, proc=Path("/proc")):
         "Seccomp",
         "Seccomp_filters",
     )
-    args = (directory / "cmdline").read_bytes().rstrip(b"\0").decode().split("\0")
-    # Native credentials and fw_cfg arguments can contain secrets. Record only
-    # security-relevant options, never the complete command/environment or FDs.
-    options = {}
-    for option in ("-sandbox", "-accel", "-machine", "-cpu", "-run-with"):
-        options[option] = [args[i + 1] for i, arg in enumerate(args[:-1]) if arg == option]
-    devices = set()
-    for fd in (directory / "fd").iterdir():
-        try:
-            info = fd.stat()
-        except FileNotFoundError:
-            continue
-        if stat.S_ISCHR(info.st_mode):
-            devices.add(f"{os.major(info.st_rdev)}:{os.minor(info.st_rdev)}")
-    return {
-        "pid": pid,
-        "status": {field: status[field].strip() for field in fields},
-        "selinux": (directory / "attr/current").read_text().rstrip("\0\n"),
-        "namespaces": {p.name: p.readlink().as_posix() for p in (directory / "ns").iterdir()},
-        "character_devices": sorted(devices),
-        "security_options": options,
-    }
+    with observe(identity["pid"], proc=proc, starttime=identity["starttime"]) as process:
+        status = process.status()
+        require(all(field in status for field in fields), "incomplete process security status")
+        args = process.arguments()
+        # Native credentials and fw_cfg arguments can contain secrets. Record
+        # only security-relevant options, never the full argv/environment/FDs.
+        options = {}
+        for option in ("-sandbox", "-accel", "-machine", "-cpu", "-run-with"):
+            options[option] = [args[i + 1] for i, arg in enumerate(args[:-1]) if arg == option]
+        require(
+            sum(len(value.encode("utf-8")) for values in options.values() for value in values) <= 65536,
+            "process security options exceed their evidence bound",
+        )
+        devices = set()
+        for fd in process.entries("fd", MAX_FDS):
+            try:
+                info = process.stat("fd/" + fd)
+            except FileNotFoundError:
+                continue  # A live task may close a descriptor during inspection.
+            if stat.S_ISCHR(info.st_mode):
+                devices.add(f"{os.major(info.st_rdev)}:{os.minor(info.st_rdev)}")
+        return identity | {
+            "status": {field: status[field] for field in fields},
+            "selinux": process.read_text("attr/current", 4096).rstrip("\0\n"),
+            "namespaces": {
+                name: process.readlink("ns/" + name) for name in process.entries("ns", MAX_NAMESPACES)
+            },
+            "character_devices": sorted(devices),
+            "security_options": options,
+        }
 
 
 def firmware_evidence():

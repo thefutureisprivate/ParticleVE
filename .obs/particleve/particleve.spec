@@ -1,5 +1,5 @@
 Name:           particleve
-Version:        45.0.1.3
+Version:        45.0.1.4
 Release:        1%{?dist}
 Summary:        ParticleVE host installation and maintenance coordinator
 License:        LGPL-2.1-or-later
@@ -88,7 +88,7 @@ install -d %{buildroot}%{_prefix}/lib/particleve-build/particleve
 install -m0644 Sources/particleve/__init__.py Sources/particleve/common.py Sources/particleve/config.py Sources/particleve/release.py \
     Sources/particleve/kernels.py Sources/particleve/buildartifacts.py Sources/particleve/contracts.py Sources/particleve/provenance.py \
     Sources/particleve/package_sources.py Sources/particleve/security.py Sources/particleve/landlock.py Sources/particleve/kernelruntime.py \
-    Sources/particleve/consoles.py Sources/particleve/versioning.py \
+    Sources/particleve/consoles.py Sources/particleve/versioning.py Sources/particleve/processes.py \
     %{buildroot}%{_prefix}/lib/particleve-build/particleve/
 install -D -m0755 Tools/obs-postoutput %{buildroot}%{_libexecdir}/particleve-obs-postoutput
 PYTHONPATH=Sources python3 Tools/package-identity.py --root %{buildroot} \

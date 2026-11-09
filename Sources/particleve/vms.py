@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .common import Deferred, Error, atomic_write, read_json, require, run, sync_dir, write_json
 from .confinement import verify_processes
+from .processes import observe
 
 UNIT = re.compile(r"systemd-vmspawn@[A-Za-z0-9_.:\\-]+\.service\Z")
 GATE = Path("/run/particleve/vm-start-inhibited")
@@ -19,15 +20,12 @@ def properties(command, name, fields):
     return dict(line.split("=", 1) for line in text.splitlines() if "=" in line)
 
 
-def process_identity(pid):
+def process_identity(pid, *, proc=Path("/proc")):
     try:
-        # comm may contain spaces/parentheses; starttime is field 22 after the final ')'.
-        tail = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()
-        return {"pid": int(pid), "starttime": int(tail[19])}
+        with observe(pid, proc=proc) as process:
+            return process.identity()
     except FileNotFoundError, ProcessLookupError:
         return None
-    except (ValueError, IndexError) as exc:
-        raise Error(f"cannot parse process identity for PID {pid}") from exc
 
 
 def unit_state(unit):
@@ -78,7 +76,9 @@ def qemu_processes():
         except FileNotFoundError, ProcessLookupError:
             continue
         if binary.startswith("qemu-system-") or binary == "qemu-kvm":
-            require((identity := process_identity(path.parent.name)) is not None, "QEMU inventory changed")
+            require(
+                (identity := process_identity(int(path.parent.name))) is not None, "QEMU inventory changed"
+            )
             result.append(identity)
     return result
 
