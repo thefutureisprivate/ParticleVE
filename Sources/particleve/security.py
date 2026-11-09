@@ -8,7 +8,7 @@ import stat
 import struct
 from pathlib import Path
 
-from .common import hash_file, read_json, require, run
+from .common import Error, capture_bounded, hash_file, read_json, require, run
 
 KERNEL_REQUIRED = (
     "MEMFD_CREATE",
@@ -403,13 +403,21 @@ def process_evidence(pid, *, proc=Path("/proc")):
 
 
 def firmware_evidence():
-    firmware = run(["fwupdmgr", "security", "--json"], check=False, timeout=60)
-    data = json.loads(firmware.stdout)
+    firmware = capture_bounded(["fwupdmgr", "security", "--json"], timeout=60, maximum_bytes=256 * 1024)
+    require(not firmware.stderr.strip(), "fwupd security inspection produced diagnostics")
+    try:
+        data = json.loads(firmware.stdout)
+    except (ValueError, RecursionError) as exc:
+        raise Error("invalid fwupd security observation") from exc
+    require(type(data) is dict, "invalid fwupd security response")
     if firmware.returncode:
         require(type(data.get("Error")) is dict, "unknown fwupd security failure")
         return {"available": False, "reason": data["Error"], "attributes": []}
-    attributes = data.get("HostSecurityAttributes")
-    require(type(attributes) is list and attributes, "unknown/empty fwupd security attributes")
+    attributes = data.get("SecurityAttributes")
+    require(
+        type(attributes) is list and attributes and all(type(attribute) is dict for attribute in attributes),
+        "unknown/empty fwupd security attributes",
+    )
     return {"available": True, "attributes": attributes}
 
 

@@ -14,5 +14,5 @@ parser.add_argument("--obs-sources", type=Path, help="OBS source directory conta
 parser.add_argument("--component", choices=("integration", "build-tools"), required=True)
 args = parser.parse_args()
 if args.obs_sources is not None:
-    verify_obs_sources(args.obs_sources, args.source)
+    verify_obs_sources(args.obs_sources, args.source, rpm=True)
 record_package(args.root, args.source, args.component)

@@ -114,6 +114,16 @@ class OBSSourceIdentityTests(unittest.TestCase):
         self.bridge.unlink()
         verify_obs_sources(self.outer, self.source)
 
+    def test_native_rpm_transformations_preserve_version_but_do_not_authorize_the_image_recipe(self):
+        self.recipe.write_text("Version: 45.0.1.2\nRelease: 13.1\nBuildRequires: python3\n")
+        verify_obs_sources(self.outer, self.source, rpm=True)
+        with self.assertRaisesRegex(ValueError, "differs from"):
+            mkosi_args([f"--directory={self.source}", "--image-version=1.1"])
+        for content in ("", "Version: 45.0.1.2\nVersion: 45.0.1.2\n", "Version: %{source_version}\n"):
+            self.recipe.write_text(content)
+            with self.subTest(content=content), self.assertRaises(ValueError):
+                verify_obs_sources(self.outer, self.source, rpm=True)
+
     def test_rpm_identity_entry_point_rejects_mismatches_before_recording_payloads(self):
         script = Path(__file__).resolve().parents[1] / "Tools/package-identity.py"
         arguments = [
@@ -128,6 +138,7 @@ class OBSSourceIdentityTests(unittest.TestCase):
             str(self.outer),
         ]
         with patch("sys.argv", arguments), patch("particleve.provenance.record_package") as record:
+            self.recipe.write_text("Version: 45.0.1.2\nRelease: 13.1\nBuildRequires: python3\n")
             runpy.run_path(str(script), run_name="__main__")
             record.assert_called_once()
             record.reset_mock()

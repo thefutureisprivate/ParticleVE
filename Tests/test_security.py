@@ -261,28 +261,76 @@ PubkeyAcceptedAlgorithms sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@opens
     def test_firmware_evidence_keeps_individual_attributes_and_does_not_turn_unavailable_into_pass(self):
         error = {"Error": {"Code": 10, "Message": "HSI unavailable for unprivileged hypervisor"}}
         with patch(
-            "particleve.security.run", return_value=SimpleNamespace(returncode=1, stdout=json.dumps(error))
+            "particleve.security.capture_bounded",
+            return_value=SimpleNamespace(returncode=1, stdout=json.dumps(error), stderr=""),
         ):
             self.assertEqual(
                 firmware_evidence(), {"available": False, "reason": error["Error"], "attributes": []}
             )
-        attrs = [{"AppstreamId": "org.fwupd.hsi.Kernel.Lockdown", "HsiResult": "locked"}]
+        # Native firmware can report the same attribute for several devices.
+        # Preserve the individual records rather than collapsing by identifier.
+        attrs = [
+            {"AppstreamId": "org.fwupd.hsi.Mtd.Locked", "HsiResult": "locked", "Guid": "fixture-a"},
+            {"AppstreamId": "org.fwupd.hsi.Mtd.Locked", "HsiResult": "not-locked", "Guid": "fixture-b"},
+        ]
         with patch(
-            "particleve.security.run",
+            "particleve.security.capture_bounded",
             return_value=SimpleNamespace(
                 returncode=0,
-                stdout=json.dumps({"HostSecurityAttributes": attrs, "HostSecurityId": "not-an-assertion"}),
+                stdout=json.dumps({"SecurityAttributes": attrs, "SecurityEvents": []}),
+                stderr="",
             ),
         ):
             self.assertEqual(firmware_evidence(), {"available": True, "attributes": attrs})
         with (
             patch(
-                "particleve.security.run",
-                return_value=SimpleNamespace(returncode=0, stdout='{"HostSecurityAttributes":[]}'),
+                "particleve.security.capture_bounded",
+                return_value=SimpleNamespace(returncode=0, stdout='{"SecurityAttributes":[]}', stderr=""),
             ),
             self.assertRaisesRegex(Error, "empty"),
         ):
             firmware_evidence()
+
+    def test_malformed_firmware_observations_fail_without_partial_evidence(self):
+        for content in (
+            "{",
+            "null",
+            "[]",
+            '{"SecurityAttributes":[null]}',
+            '{"HostSecurityAttributes":[{}]}',
+            "[" * 2000,
+        ):
+            with (
+                self.subTest(content=content[:40]),
+                patch(
+                    "particleve.security.capture_bounded",
+                    return_value=SimpleNamespace(returncode=0, stdout=content, stderr=""),
+                ),
+                self.assertRaises(Error),
+            ):
+                firmware_evidence()
+
+    def test_firmware_child_output_and_diagnostics_are_bounded_before_json_parsing(self):
+        attributes = [{"AppstreamId": "org.fwupd.hsi.Kernel.Lockdown", "HsiResult": "locked"}]
+        response = json.dumps({"SecurityAttributes": attributes})
+        with tempfile.TemporaryDirectory() as name:
+            command = Path(name) / "fwupdmgr"
+            command.touch(mode=0o700)
+            with patch.dict(os.environ, {"PATH": name + os.pathsep + os.environ["PATH"]}):
+                command.write_text(f"#!{sys.executable}\nprint({response!r})\n")
+                self.assertEqual(firmware_evidence(), {"available": True, "attributes": attributes})
+                for descriptor in (1, 2):
+                    command.write_text(
+                        f"#!{sys.executable}\nimport os\nos.write({descriptor}, b'x' * (256 * 1024 + 1))\n"
+                    )
+                    with self.subTest(descriptor=descriptor), self.assertRaisesRegex(Error, "size limit"):
+                        firmware_evidence()
+                command.write_text(
+                    f"#!{sys.executable}\nimport sys\nprint({response!r})\n"
+                    "print('warning', file=sys.stderr)\n"
+                )
+                with self.assertRaisesRegex(Error, "diagnostics"):
+                    firmware_evidence()
 
     def test_missing_kernel_facility_fails_without_requiring_force_mode_in_stock_config(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -45,7 +45,7 @@ def bump(value, part, *, owner_approved=False, fedora=None):
     return result
 
 
-def verify_obs_sources(directory, source):
+def verify_obs_sources(directory, source, *, rpm=False):
     """Keep the Git-managed OBS recipe consistent with the full source archive.
 
     Explicitly prepared local sources have no SCM-bridge identity to compare.
@@ -62,7 +62,19 @@ def verify_obs_sources(directory, source):
             raise ValueError("OBS recipe is too large")
         return data
 
-    if recipe(directory / "particleve.spec") != recipe(source / ".obs/particleve/particleve.spec"):
+    native = recipe(directory / "particleve.spec")
+    if rpm:
+        # OBS substitutes dependencies and the native Release before rpmbuild.
+        # Version still owns the check-in counter. The image worker receives the
+        # unmodified recipe and must additionally compare every original byte.
+        versions = re.findall(r"^Version:[ \t]+(\S+)[ \t]*$", native.decode(), re.M)
+        if len(versions) != 1:
+            raise ValueError("native RPM recipe must declare exactly one PVE version")
+        source_key(versions[0])
+        if versions[0] != read_version(source):
+            raise ValueError("native RPM recipe differs from the PVE source version")
+        return
+    if native != recipe(source / ".obs/particleve/particleve.spec"):
         raise ValueError("OBS recipe differs from the PVE source archive")
 
 

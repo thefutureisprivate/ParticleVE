@@ -1,5 +1,5 @@
 Name:           particleve
-Version:        45.0.1.2
+Version:        45.0.1.3
 Release:        1%{?dist}
 Summary:        ParticleVE host installation and maintenance coordinator
 License:        LGPL-2.1-or-later
