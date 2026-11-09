@@ -36,7 +36,6 @@ class BuildSigningTests(unittest.TestCase):
                 {"user.validatefs.gpt_label": b"ParticleVE_45.0.1.5-1.1\0"},
                 {"user.validatefs.gpt_label": b"PVE_45.0.1.5-1.1\0other\0"},
                 {"user.validatefs.gpt_label": b"PVE_45.0.1.5-1.1\0\0"},
-                {"user.validatefs.gpt_label": b"x" * 4097},
                 {"user.validatefs.mount_point": b"/sysroot/usr\0"},
                 {"user.validatefs.gpt_type_uuid": TYPES["root"].encode()},
                 {"user.validatefs.mount_point": None},
@@ -54,6 +53,23 @@ class BuildSigningTests(unittest.TestCase):
                     else:
                         with self.assertRaisesRegex(Error, "mount constraint"):
                             verify_mount_constraints(root, "45.0.1.5-1.1")
+
+    def test_oversized_kernel_attribute_is_rejected_without_filesystem_capacity_assumptions(self):
+        values = {
+            "user.validatefs.mount_point": b"/usr",
+            "user.validatefs.gpt_label": b"x" * 4097,
+            "user.validatefs.gpt_type_uuid": b"\0".join(
+                TYPES[kind].encode() for kind in ("usr", "verity", "verity_sig")
+            ),
+        }
+        # A worker's per-inode xattr space may be smaller than this value.
+        # Exercise the kernel-response boundary independently of that limit.
+        with (
+            patch("particleve.buildartifacts.os.listxattr", return_value=list(values)),
+            patch("particleve.buildartifacts.os.getxattr", side_effect=lambda _root, name: values[name]),
+            self.assertRaisesRegex(Error, "gpt_label"),
+        ):
+            verify_mount_constraints(Path("/unused"), "45.0.1.5-1.1")
 
     def test_final_stage_rejects_the_native_label_mismatch_before_publishing(self):
         with tempfile.TemporaryDirectory(dir=Path.cwd()) as temporary:
