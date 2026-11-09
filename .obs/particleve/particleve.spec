@@ -91,8 +91,10 @@ install -m0644 Sources/particleve/__init__.py Sources/particleve/common.py Sourc
     Sources/particleve/consoles.py Sources/particleve/versioning.py \
     %{buildroot}%{_prefix}/lib/particleve-build/particleve/
 install -D -m0755 Tools/obs-postoutput %{buildroot}%{_libexecdir}/particleve-obs-postoutput
-PYTHONPATH=Sources python3 Tools/package-identity.py --root %{buildroot} --component integration
-PYTHONPATH=Sources python3 Tools/package-identity.py --root %{buildroot} --component build-tools
+PYTHONPATH=Sources python3 Tools/package-identity.py --root %{buildroot} \
+    --component integration --obs-sources %{_sourcedir}
+PYTHONPATH=Sources python3 Tools/package-identity.py --root %{buildroot} \
+    --component build-tools --obs-sources %{_sourcedir}
 
 %files
 %license LICENSE

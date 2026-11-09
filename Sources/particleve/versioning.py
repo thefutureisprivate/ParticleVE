@@ -45,6 +45,27 @@ def bump(value, part, *, owner_approved=False, fedora=None):
     return result
 
 
+def verify_obs_sources(directory, source):
+    """Keep the Git-managed OBS recipe consistent with the full source archive.
+
+    Explicitly prepared local sources have no SCM-bridge identity to compare.
+    The bridge commit covers only its packaging subdirectory, so compare the
+    recipe itself: a racing source version must not borrow an older counter.
+    """
+    if not (directory / "_scmsync.obsinfo").exists():
+        return
+
+    def recipe(path):
+        with path.open("rb") as file:
+            data = file.read(65537)
+        if len(data) > 65536:
+            raise ValueError("OBS recipe is too large")
+        return data
+
+    if recipe(directory / "particleve.spec") != recipe(source / ".obs/particleve/particleve.spec"):
+        raise ValueError("OBS recipe differs from the PVE source archive")
+
+
 def mkosi_args(arguments):
     """Compose the full identity before upstream mkosi parses configuration.
 
@@ -57,6 +78,7 @@ def mkosi_args(arguments):
     options, _ = parser.parse_known_args(arguments)
     if not (options.directory / "particleve.version").exists() or options.image_version is None:
         return list(arguments)
+    verify_obs_sources(options.directory.parent, options.directory)
     source = read_version(options.directory)
     value = options.image_version
     if OBS_COUNTERS.fullmatch(value):

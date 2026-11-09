@@ -2,6 +2,7 @@ import contextlib
 import io
 import json
 import os
+import runpy
 import subprocess
 import tempfile
 import unittest
@@ -12,7 +13,7 @@ from unittest.mock import patch
 from particleve.common import Error
 from particleve.config import version_key
 from particleve.layout import calculate, sfdisk_script
-from particleve.versioning import bump, mkosi_args, source_key
+from particleve.versioning import bump, mkosi_args, source_key, verify_obs_sources
 from Tests.fixtures import devices, host, release
 from Tools.source_releases import main as publish_releases
 from Tools.source_releases import release_plan
@@ -70,6 +71,70 @@ class VersionTests(unittest.TestCase):
             self.assertEqual(len(parts[0]["label"].encode("utf-16-le")), 72)
             self.assertEqual(len({part["type"] for part in parts}), 3)
             sfdisk_script(disk)
+
+
+class OBSSourceIdentityTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.outer = Path(temporary.name)
+        self.source = self.outer / "particleve"
+        self.source.mkdir()
+        (self.source / "particleve.version").write_text("45.0.1.2\n")
+        self.bridge = self.outer / "_scmsync.obsinfo"
+        self.recipe = self.outer / "particleve.spec"
+        self.archive_recipe = self.source / ".obs/particleve/particleve.spec"
+        self.archive_recipe.parent.mkdir(parents=True)
+        self.bridge.write_text("commit: " + "a" * 40 + "\n")
+        (self.outer / "particleve.obsinfo").write_text("commit: " + "b" * 40 + "\n")
+        self.recipe.write_text("Version: 45.0.1.2\n")
+        self.archive_recipe.write_bytes(self.recipe.read_bytes())
+
+    def test_matching_checkout_retains_native_obs_counters_on_all_signing_rounds(self):
+        args = [f"--directory={self.source}", "--image-version=1.3", "build"]
+        result = mkosi_args(args)
+        self.assertEqual(result[1], "--image-version=45.0.1.2-1.3")
+        self.assertEqual(mkosi_args(result), result)
+
+    def test_racing_source_update_is_rejected_on_initial_and_continuation_rounds(self):
+        self.recipe.write_text("Version: 45.0.1.1\n")
+        for version in ("1.1", "45.0.1.2-1.1"):
+            with self.subTest(version=version), self.assertRaisesRegex(ValueError, "differs from"):
+                mkosi_args([f"--directory={self.source}", "--image-version=" + version])
+
+    def test_incomplete_mismatched_and_oversized_recipe_fails(self):
+        self.archive_recipe.unlink()
+        with self.assertRaises(FileNotFoundError):
+            verify_obs_sources(self.outer, self.source)
+        for content in ("", "Version: 45.0.1.3\n", "x" * 65537):
+            with self.subTest(content=content[:40]):
+                self.archive_recipe.write_text(content)
+                with self.assertRaises(ValueError):
+                    verify_obs_sources(self.outer, self.source)
+        self.bridge.unlink()
+        verify_obs_sources(self.outer, self.source)
+
+    def test_rpm_identity_entry_point_rejects_mismatches_before_recording_payloads(self):
+        script = Path(__file__).resolve().parents[1] / "Tools/package-identity.py"
+        arguments = [
+            str(script),
+            "--root",
+            str(self.outer / "payload"),
+            "--source",
+            str(self.source),
+            "--component",
+            "integration",
+            "--obs-sources",
+            str(self.outer),
+        ]
+        with patch("sys.argv", arguments), patch("particleve.provenance.record_package") as record:
+            runpy.run_path(str(script), run_name="__main__")
+            record.assert_called_once()
+            record.reset_mock()
+            self.recipe.write_text("Version: 45.0.1.3\n")
+            with self.assertRaisesRegex(ValueError, "differs from"):
+                runpy.run_path(str(script), run_name="__main__")
+            record.assert_not_called()
 
 
 class SourceReleaseTests(unittest.TestCase):
