@@ -324,3 +324,57 @@ class ReportingTests(unittest.TestCase):
                     and details["alerts_limited"]
                     and details["oom_events"]["limited"]
                 )
+
+    def test_current_quarantined_versions_remain_reportable_and_numerically_bounded(self):
+        versions = [
+            "44.9.9.9-999.999",
+            "45.0.1.8-1.2",
+            "45.0.1.8-1.10",
+            "45.0.1.8-2.1",
+            "45.0.1.8-9.9",
+            "45.0.1.8-10.1",
+            "45.0.1.9-1.1",
+            "45.0.1.10-1.1",
+            "45.0.2.0-1.1",
+            "45.1.0.0-1.1",
+            "46.0.0.0-1.1",
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            backend = Mock()
+            backend.directory = Path(temporary)
+            backend.manifest = {"installation_uuid": "owned"}
+            backend.current_version.return_value = "45.0.1.7-1.1"
+            backend.boot_id.return_value = "owned-boot"
+            backend.check_time.return_value = {}
+            backend.check_storage.return_value = {
+                "free_bytes": 100,
+                "reserve_bytes": 10,
+                "swap_degraded": 0,
+                "swap_sync_action": "idle",
+            }
+            backend.check_resources.return_value = {
+                "memory": {},
+                "physical_disks": [],
+                "pressure": {},
+                "oom_events": {"events": [], "limited": False},
+                "alerts": [],
+                "alerts_limited": False,
+                "virtual_machines": [],
+            }
+            write_json(
+                backend.directory / "state.json",
+                {"schema": 1, "rejected": dict.fromkeys(reversed(versions), "failed boot")},
+            )
+            with (
+                patch("particleve.reporting.journal", return_value={"events": [], "limited": False}),
+                patch("particleve.vms.LinuxVMs.inventory", return_value=[]),
+                patch("particleve.bootloaders.Loaders.load", return_value={"rejected": []}),
+            ):
+                report = snapshot(backend)
+            self.assertEqual(report["result"], "attention")
+            self.assertEqual(report["details"]["quarantined_releases"], versions[-8:])
+            self.assertEqual(
+                [check["name"] for check in report["checks"] if check["result"] != "pass"],
+                ["quarantined_releases"],
+            )
+            self.assertLessEqual(len(canonical(report)), MAX_REPORT)

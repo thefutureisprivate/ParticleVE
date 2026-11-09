@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .common import Error, canonical, capture_bounded, digest, hash_file, read_json, require, run
-from .config import VERSION, https_url, integer
+from .config import https_url, integer, version_key
 from .coordinator import Coordinator
 from .landlock import confine_filesystem
 
@@ -193,9 +193,8 @@ def snapshot(backend, *, maximum_update_check_age_seconds=172800, now=None):
             checks.append({"name": name, "result": "attention", "detail": str(exc)[:256]})
     state = Coordinator(backend.directory, backend).load()
     rejected = state["rejected"]
-    require(all(VERSION.fullmatch(v) for v in rejected), "invalid rejected-release identity")
     checks.append({"name": "quarantined_releases", "result": "attention" if rejected else "pass"})
-    details["quarantined_releases"] = sorted(rejected, key=lambda v: tuple(map(int, v.split("."))))[-8:]
+    details["quarantined_releases"] = sorted(rejected, key=version_key)[-8:]
     from .bootloaders import Loaders
 
     loaders = Loaders(backend).load()["rejected"]
