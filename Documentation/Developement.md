@@ -206,7 +206,7 @@ revision, package identities, configuration, and diagnostics when reproducing it
 
 | Build or check | Coverage and local entry points |
 | --- | --- |
-| [Integration RPM](../.obs/particleve/particleve.spec) | Python unittest with warnings as errors and SELinux policy compilation. Source checks use `make check`; the package build also verifies its native build requirements. |
+| [Integration RPM](../.obs/particleve/rpm.spec) | Python unittest with warnings as errors and SELinux policy compilation. Source checks use `make check`; the package build also verifies its native build requirements. |
 | [Pinned mkosi RPM](../.obs/mkosi/mkosi.spec) | Exact upstream, recipe, and patch identity; installed-payload records; shell syntax checks for the OBS signing continuation. |
 | [fwupd EFI helper RPM](../.obs/fwupd-efi/fwupd-efi.spec) | Compiler diagnostics, retained SBAT/SBOM sections, payload identity, and separate PE signing. |
 | [Image build](../.obs/fedora/x86-64/mkosi.conf) | Runtime/initrd/tools dependencies, package origins, installed identities, security inventory, and required kernel, storage, and KVM support. |

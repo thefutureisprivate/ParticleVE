@@ -3,7 +3,7 @@
 import uuid
 
 from .common import digest, require
-from .config import VERITY_SIGNATURE_SIZE
+from .config import VERITY_SIGNATURE_SIZE, version_key
 
 MIB = 1024**2
 GIB = 1024**3
@@ -15,6 +15,11 @@ TYPES = {
     "raid": "a19d880f-05fc-4d3b-a006-743f0f84911e",
     "root": "4f68bce3-e8cd-4db1-96e7-fbcaf984b709",
 }
+
+
+def os_label(version):
+    version_key(version)
+    return "PVE_" + version
 
 
 def align(value):
@@ -99,7 +104,7 @@ def calculate(config, devices, release):
         for slot in ("a", "b"):
             for kind in ("verity_sig", "verity", "usr"):
                 # The partition type GUID distinguishes the three OS payloads.
-                label = "PVE_" + release["version"] if slot == "a" else "_empty"
+                label = os_label(release["version"]) if slot == "a" else "_empty"
                 part_uuid = artifacts[kind]["partition_uuid"] if slot == "a" else None
                 add(f"{slot}_{kind}", sizes[kind], kind, label, part_uuid)
         add("state", state, "root", f"ParticleVE-state-{selected['role']}")

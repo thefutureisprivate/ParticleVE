@@ -16,7 +16,7 @@ from particleve.config import https_url, integer, version_key
 from particleve.release import checksums, verify_directory
 
 PACKAGES = {
-    "particleve": ("Fedora_45", "particleve", "particleve"),
+    "particleve": ("Fedora_45", "particleve:rpm", "particleve"),
     "mkosi": ("Fedora_45", "mkosi", "particleve-build-inputs"),
     "fwupd-efi": ("Fedora_45", "fwupd-efi", "particleve-build-inputs"),
     "image": ("Fedora_45_images", "particleve", "particleve"),
@@ -184,10 +184,13 @@ def collect(site, keyring, certificate, *, grace_seconds=7200, previous=None):
         "builds": f"{api}/build/{project}/_result?arch=x86_64",
         "maintainers": source + "/_meta",
         **{
-            label: f"{source}/{package}/_service:obs_scm:{info}.obsinfo?rev=latest&expand=1"
+            label: f"{source}/{package.split(':', 1)[0]}/_service:obs_scm:{info}.obsinfo?rev=latest&expand=1"
             for label, (_, package, info) in PACKAGES.items()
         },
-        **{label + ":access": f"{source}/{package}/_meta" for label, (_, package, _) in PACKAGES.items()},
+        **{
+            label + ":access": f"{source}/{package.split(':', 1)[0]}/_meta"
+            for label, (_, package, _) in PACKAGES.items()
+        },
     }
     with ThreadPoolExecutor(max_workers=4) as workers:
         pending = {

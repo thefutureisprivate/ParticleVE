@@ -198,6 +198,7 @@ class UpstreamProvenanceTests(unittest.TestCase):
                 with (
                     patch.dict("os.environ", OUTPUTDIR=str(output)),
                     patch("particleve.buildartifacts.extract_security_metadata", side_effect=extract),
+                    patch("particleve.buildartifacts.verify_mount_constraints"),
                     patch("particleve.buildartifacts.verify_package"),
                     patch("particleve.buildartifacts.verify_upstream_package", side_effect=check),
                     self.assertRaisesRegex(Error, "expected source and patches"),

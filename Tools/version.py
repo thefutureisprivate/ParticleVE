@@ -8,7 +8,7 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 from particleve.common import atomic_write, read_json, require
-from particleve.versioning import bump, read_version, source_key
+from particleve.versioning import OBS_RECIPE, bump, read_version, source_key
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("command", choices=("check", "sync", "patch", "minor", "major", "fedora"))
@@ -24,7 +24,7 @@ if args.command not in ("check", "sync"):
 files = {}
 for name, pattern, replacement in (
     ("mkosi.conf", r"^ImageVersion=.*$", f"ImageVersion={version}-0.0"),
-    (".obs/particleve/particleve.spec", r"^Version:.*$", f"Version:        {version}"),
+    (str(OBS_RECIPE), r"^Version:.*$", f"Version:        {version}"),
     ("pyproject.toml", r'^version = ".*"$', f'version = "{version}"'),
 ):
     path = root / name

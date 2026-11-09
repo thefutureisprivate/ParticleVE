@@ -1,7 +1,11 @@
 Release: <CI_CNT>.<B_CNT>
 Prefer: systemd-udev systemd-boot
 Prefer: -systemd-standalone-repart -systemd-boot-unsigned
+%if "%_repository" == "Fedora_45"
+BuildFlags: onlybuild:mkosi onlybuild:fwupd-efi onlybuild:particleve:rpm
+%endif
 %if "%_repository" == "Fedora_45_images"
+BuildFlags: onlybuild:particleve excludebuild:particleve:rpm
 Type: mkosi
 Repotype: checksumsfile:rawsig staticlinks
 Patterntype: none

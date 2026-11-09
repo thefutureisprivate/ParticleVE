@@ -86,6 +86,7 @@ class PackageProvenanceTests(unittest.TestCase):
         with (
             patch.dict("os.environ", OUTPUTDIR=str(output)),
             patch("particleve.buildartifacts.extract_security_metadata", side_effect=extract),
+            patch("particleve.buildartifacts.verify_mount_constraints"),
             self.assertRaisesRegex(Error, "does not match the image"),
         ):
             postoutput()

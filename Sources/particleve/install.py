@@ -23,7 +23,7 @@ from .common import (
     run,
     write_json,
 )
-from .layout import MIB, calculate, sfdisk_script
+from .layout import MIB, calculate, os_label, sfdisk_script
 from .linux import Linux
 from .release import verify_directory
 
@@ -530,7 +530,7 @@ def replace(
         if part["role"].startswith("a_"):
             kind = part["role"][2:]
             part["uuid"] = release["artifacts"][kind]["partition_uuid"]
-            part["label"] = f"PVE_{release['version']}"
+            part["label"] = os_label(release["version"])
             require(part["size"] >= release["artifacts"][kind]["size"], "current OS does not fit")
         elif part["role"].startswith("b_"):
             part["label"] = "_empty"

@@ -10,12 +10,35 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from .common import atomic_write, hash_file, read_json, require, run, write_json
+from .common import Error, atomic_write, hash_file, read_json, require, run, write_json
 from .config import VERITY_SIGNATURE_SIZE, VERSION
 from .kernels import verify_modules
+from .layout import TYPES, os_label
 from .provenance import verify_package, verify_upstream_package
 from .release import inspect_uki, validate
 from .security import check_privileges, kernel_baseline
+
+
+def verify_mount_constraints(root, version):
+    """The verity-protected constraints must permit the deployed slot geometry."""
+    expected = {
+        "user.validatefs.mount_point": {b"/usr"},
+        "user.validatefs.gpt_label": {os_label(version).encode()},
+        "user.validatefs.gpt_type_uuid": {TYPES[kind].encode() for kind in ("usr", "verity", "verity_sig")},
+    }
+    try:
+        names = {name for name in os.listxattr(root) if name.startswith("user.validatefs.")}
+        require(names == expected.keys(), "missing or unknown protected filesystem mount constraints")
+        for name, values in expected.items():
+            value = os.getxattr(root, name)
+            # Native repart uses NUL-separated strings, optionally terminated
+            # by one NUL. An empty/extra choice must not broaden the contract.
+            require(
+                0 < len(value) <= 4096 and set(value.removesuffix(b"\0").split(b"\0")) == values,
+                "protected filesystem mount constraint differs from installed slots: " + name,
+            )
+    except OSError as exc:
+        raise Error("cannot inspect protected filesystem mount constraints") from exc
 
 
 def extract_security_metadata(image, destination):
@@ -156,6 +179,7 @@ def postoutput():
         work = Path(temporary)
         root = work / "usr"
         extract_security_metadata(usr[0], root)
+        verify_mount_constraints(root, version)
         verification = read_json(root / "lib/particleve/verification.json")
         view = work / "view"
         view.mkdir()

@@ -8,6 +8,7 @@ NUMBER = r"(?:0|[1-9][0-9]{0,5})"
 SOURCE_VERSION = re.compile(rf"({NUMBER})\.({NUMBER})\.({NUMBER})\.({NUMBER})\Z")
 OBS_COUNTERS = re.compile(rf"({NUMBER})\.({NUMBER})\Z")
 VERSION = re.compile(rf"({NUMBER})\.({NUMBER})\.({NUMBER})\.({NUMBER})-({NUMBER})\.({NUMBER})\Z")
+OBS_RECIPE = Path(".obs/particleve/rpm.spec")
 
 
 def source_key(value):
@@ -62,7 +63,7 @@ def verify_obs_sources(directory, source, *, rpm=False):
             raise ValueError("OBS recipe is too large")
         return data
 
-    native = recipe(directory / "particleve.spec")
+    native = recipe(directory / OBS_RECIPE.name)
     if rpm:
         # OBS substitutes dependencies and the native Release before rpmbuild.
         # Version still owns the check-in counter. The image worker receives the
@@ -74,7 +75,7 @@ def verify_obs_sources(directory, source, *, rpm=False):
         if versions[0] != read_version(source):
             raise ValueError("native RPM recipe differs from the PVE source version")
         return
-    if native != recipe(source / ".obs/particleve/particleve.spec"):
+    if native != recipe(source / OBS_RECIPE):
         raise ValueError("OBS recipe differs from the PVE source archive")
 
 

@@ -24,7 +24,8 @@ class PublicationTests(unittest.TestCase):
                 f'<status package="{package}" code="succeeded"/></result>'
                 for repository, package, _ in PACKAGES.values()
             )
-            + "</resultlist>"
+            + '<result repository="Fedora_45" arch="x86_64">'
+            '<status package="particleve" code="excluded"/></result>' + "</resultlist>"
         )
         manifest = {"sources": {"particleve": "a" * 40}, "version": "45.0.1.1-87.2", "artifacts": {}}
 
@@ -46,6 +47,7 @@ class PublicationTests(unittest.TestCase):
             result = collect(site, "unused", "unused")
         self.assertEqual(result["result"], "pass")
         self.assertFalse(any("/image/" in call.args[0] for call in requests.call_args_list))
+        self.assertFalse(any("/particleve:rpm/" in call.args[0] for call in requests.call_args_list))
 
     def report(self, *, age=60, sources=None, statuses=None, published=None):
         now = datetime(2026, 11, 8, tzinfo=UTC)
@@ -197,8 +199,9 @@ class PublicationTests(unittest.TestCase):
         site = read_json(Path(__file__).resolve().parent.parent / ".obs/site.json")
         owner = '<person userid="' + site["obs_user"] + '" role="maintainer"/>'
         for _, package, _ in PACKAGES.values():
+            source_package = package.split(":", 1)[0]
 
-            def fetch(url, selected=package, **_kwargs):
+            def fetch(url, selected=source_package, **_kwargs):
                 if url.endswith("/" + selected + "/_meta"):
                     return b'<package><person userid="unexpected" role="maintainer"/></package>'
                 if url.endswith("/_meta"):

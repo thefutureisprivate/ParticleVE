@@ -5,6 +5,7 @@ from pathlib import Path
 from .common import atomic_write, canonical, digest, hash_file, read_json, require
 from .package_sources import COMPONENTS, source_identity
 from .package_sources import verify_package as verify_source_package
+from .versioning import OBS_RECIPE
 
 TOOLS_MODULES = (
     "__init__",
@@ -13,6 +14,7 @@ TOOLS_MODULES = (
     "release",
     "kernels",
     "buildartifacts",
+    "layout",
     "contracts",
     "provenance",
     "package_sources",
@@ -45,7 +47,7 @@ def inputs(source):
         *(source / name for name in SCRIPTS),
         source / "Tools/obs-postoutput",
         source / "Tools/package-identity.py",
-        source / ".obs/particleve/particleve.spec",
+        source / OBS_RECIPE,
         source / ".obs/particleve/security-policy.json",
         source / ".obs/particleve/selinux/particleve_vmspawn.te",
         source / ".obs/particleve/selinux/particleve_vmspawn.fc",

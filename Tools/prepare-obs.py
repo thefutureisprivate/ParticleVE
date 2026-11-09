@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 
 from particleve.common import atomic_write, require, run
-from particleve.versioning import source_key
+from particleve.versioning import OBS_RECIPE, source_key
 
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument("--tree", required=True, help="exact Git commit or tree object")
@@ -29,7 +29,8 @@ with tarfile.open(fileobj=io.BytesIO(archive)) as source:
     source_key(version)
     for name, destination in (
         (".obs/fedora/x86-64/mkosi.conf", package / "mkosi.conf"),
-        (".obs/particleve/particleve.spec", package / "particleve.spec"),
+        (str(OBS_RECIPE), package / OBS_RECIPE.name),
+        (".obs/particleve/_multibuild", package / "_multibuild"),
     ):
         atomic_write(destination, source.extractfile(name).read(), 0o644)
     with tarfile.open(package / f"particleve-{version}.tar.xz", "w:xz") as output:
