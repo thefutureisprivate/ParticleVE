@@ -1,5 +1,8 @@
 import copy
 import unittest
+from contextlib import nullcontext
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from particleve import install
@@ -75,3 +78,46 @@ class PartitionIdentityTests(unittest.TestCase):
             patch("particleve.install.inventory.block_tree", return_value=[]),
         ):
             install.validate_plan(config, manifest, proposed, proposed["confirmation"])
+
+    def test_transfer_waits_for_final_partition_identity_and_propagates_queue_failure(self):
+        for queue_failure in (False, True):
+            state = {"written": False, "settled": False}
+            acquiring = copy.deepcopy(self.parts)
+            acquiring[0]["parttype"] = "ac8558b5-455e-4869-8c5e-d8272455c06a"
+
+            def native(args, *, state=state, queue_failure=queue_failure, **kwargs):
+                if args[0] == "udevadm":
+                    self.assertTrue(state["written"])
+                    self.assertEqual(args, ["udevadm", "settle", "--timeout=120"])
+                    self.assertGreater(kwargs["timeout"], 120)
+                    if queue_failure:
+                        raise Error("udev queue did not settle")
+                    state["settled"] = True
+                elif args[-2:] == ["update", self.release["version"]]:
+                    state["written"] = True
+
+            with (
+                self.subTest(queue_failure=queue_failure),
+                TemporaryDirectory() as directory,
+                patch(
+                    "particleve.linux.tempfile.TemporaryDirectory",
+                    return_value=nullcontext(directory),
+                ),
+                patch("particleve.linux.run", side_effect=native),
+                patch(
+                    "particleve.linux.inventory.block_tree",
+                    side_effect=lambda _, state=state, acquiring=acquiring: (
+                        self.parts if state["settled"] else acquiring
+                    ),
+                ),
+                patch("particleve.linux.hash_file", return_value="a" * 64),
+            ):
+                self.backend.cache = Path(directory) / "releases"
+                self.assertFalse(self.backend.verify_disk("a", self.release, boot=False))
+                if queue_failure:
+                    with self.assertRaisesRegex(Error, "udev queue did not settle"):
+                        self.backend.transfer("a", self.release, "45.0.1.4-1.1")
+                    self.assertFalse(self.backend.verify_disk("a", self.release, boot=False))
+                else:
+                    self.backend.transfer("a", self.release, "45.0.1.4-1.1")
+                    self.assertTrue(self.backend.verify_disk("a", self.release, boot=False))

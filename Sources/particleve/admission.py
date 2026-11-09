@@ -5,10 +5,14 @@ must not authorize itself using its own stale copy of installation.json.
 """
 
 import array
+import errno
 import fcntl
+import itertools
 import json
 import os
 import re
+import stat
+import struct
 import sys
 import time
 import uuid
@@ -244,6 +248,65 @@ def mounts(record):
     return sorted(selected, key=lambda m: len(m["target"]))
 
 
+def member_errors(record, target, mapper):
+    """Read kernel counters for this mapping without inspecting a replacement target."""
+    expected = Path(mapper).resolve(strict=True)
+    require(stat.S_ISBLK(expected.stat().st_mode), "storage member is not a block device")
+    fd = os.open(target, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        # Linux UAPI: FS_INFO is 1024 bytes with fsid at offset 16. Bind all
+        # following ioctls to this open filesystem, independently of sysfs paths.
+        info = bytearray(1024)
+        fcntl.ioctl(fd, 0x8400941F, info, True)
+        require(
+            str(uuid.UUID(bytes=bytes(info[16:32]))) == record["btrfs_uuid"], "storage filesystem changed"
+        )
+        directory = Path("/sys/fs/btrfs", record["btrfs_uuid"], "devinfo")
+        entries = list(itertools.islice(directory.iterdir(), 4))
+        require(1 <= len(entries) <= 3, "unexpected Btrfs device inventory")
+        ids = []
+        for entry in entries:
+            require(re.fullmatch(r"[0-9]{1,20}", entry.name), "invalid Btrfs device ID")
+            devid = int(entry.name)
+            require(str(devid) == entry.name and devid < 2**64, "invalid Btrfs device ID")
+            if devid:
+                ids.append(devid)  # Device 0 is the unadmitted replacement target.
+        require(len(ids) == len(set(ids)), "duplicate Btrfs device ID")
+        matches = []
+        for devid in ids:
+            # DEV_INFO is a 4096-byte in/out buffer: devid at 0, path at 3072.
+            device = bytearray(4096)
+            struct.pack_into("=Q", device, 0, devid)
+            try:
+                fcntl.ioctl(fd, 0xD000941E, device, True)
+            except OSError as exc:
+                if exc.errno == errno.ENODEV:
+                    continue  # An unselected member can disappear during replacement.
+                raise
+            require(struct.unpack_from("=Q", device)[0] == devid, "Btrfs device identity changed")
+            path = bytes(device[3072:])
+            require(b"\0" in path, "unterminated Btrfs device path")
+            path = path.split(b"\0", 1)[0].decode()
+            if path:
+                require(Path(path).is_absolute(), "invalid Btrfs device path")
+                if Path(path).resolve() == expected:
+                    matches.append(devid)
+        require(len(matches) == 1, "admitted Btrfs mapping is unavailable or ambiguous")
+        # GET_DEV_STATS is 1032 bytes (including its historical padding). Request
+        # the five u64 counters with flags=0: this must never reset them. An
+        # all-device query races the removal of device 0 at replacement completion.
+        stats = bytearray(1032)
+        struct.pack_into("=QQQ", stats, 0, matches[0], 5, 0)
+        fcntl.ioctl(fd, 0xC4089434, stats, True)
+        require(
+            struct.unpack_from("=QQQ", stats) == (matches[0], 5, 0),
+            "incomplete Btrfs member error inventory",
+        )
+        return struct.unpack_from("=5Q", stats, 24)
+    finally:
+        os.close(fd)
+
+
 def watch():
     """Fence a failed mapping for this boot as well as quarantining future boots.
 
@@ -256,8 +319,7 @@ def watch():
         record = load()
         require(record == session["witness"] and record["active"], "storage session witness changed")
         require(record["allowed"], "no authoritative storage members remain; owner recovery required")
-        stats = run(["btrfs", "device", "stats", "--check", mounts(record)[0]["target"]], check=False)
-        require(stats.returncode in (0, 64), "cannot inspect per-device storage errors")
+        target = mounts(record)[0]["target"]
         failed = set()
         for role in record["allowed"]:
             try:
@@ -265,10 +327,10 @@ def watch():
                     failed.add(role)
             except OSError, Error:
                 failed.add(role)
+            if role in failed:
+                continue
             mapper = f"/dev/mapper/particleve-state-{role}"
-            counters = re.findall(r"^\[" + re.escape(mapper) + r"\]\.\w+\s+(\d+)\s*$", stats.stdout, re.M)
-            require(role in failed or len(counters) == 5, "incomplete Btrfs member error inventory")
-            if any(int(value) for value in counters):
+            if any(member_errors(record, target, mapper)):
                 failed.add(role)
         if not failed:
             return {"storage_admission": record["allowed"]}

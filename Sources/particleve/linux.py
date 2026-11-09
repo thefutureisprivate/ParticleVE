@@ -371,6 +371,9 @@ class Linux:
                 ],
                 timeout=3600,
             )
+            # sysupdate queues GPT-change events. lsblk reads partition identity
+            # from udev, which may still contain the temporary acquisition type.
+            run(["udevadm", "settle", "--timeout=120"], timeout=130)
 
     def expose_boot(self, role, release):
         with self.esp(role) as esp:

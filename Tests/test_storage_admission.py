@@ -252,23 +252,10 @@ class AdmissionTests(unittest.TestCase):
             path = Path(tmp) / "session"
             write_json(path, {"witness": record, "diskseq": {"a": "1", "b": "2"}})
             events = []
-            stats = "\n".join(
-                f"[/dev/mapper/particleve-state-{r}].{k} {int(r == 'a' and k == 'write_io_errs')}"
-                for r in ("a", "b")
-                for k in (
-                    "write_io_errs",
-                    "read_io_errs",
-                    "flush_io_errs",
-                    "corruption_errs",
-                    "generation_errs",
-                )
-            )
 
             def command(args, **kwargs):
                 events.append(args)
-                return SimpleNamespace(
-                    returncode=64 if args[0] == "btrfs" else 0, stdout=stats if args[0] == "btrfs" else "1000"
-                )
+                return SimpleNamespace(returncode=0, stdout="1000")
 
             with (
                 patch.object(admission, "SESSION", path),
@@ -276,6 +263,7 @@ class AdmissionTests(unittest.TestCase):
                 patch.object(admission, "load", return_value=record),
                 patch.object(admission, "mounts", return_value=[{"options": "rw", "target": "/"}]),
                 patch.object(admission, "disk_sequence", side_effect=["1", "2"]),
+                patch.object(admission, "member_errors", side_effect=[(1, 0, 0, 0, 0), (0,) * 5]),
                 patch.object(
                     admission, "save", side_effect=lambda r: events.append(["commit", r["allowed"]])
                 ),
@@ -310,6 +298,7 @@ class AdmissionTests(unittest.TestCase):
                     patch.object(admission, "load", return_value=record),
                     patch.object(admission, "mounts", return_value=[{"target": "/"}]),
                     patch.object(admission, "disk_sequence", side_effect=OSError("disk gone")),
+                    patch.object(admission, "member_errors") as counters,
                     patch.object(admission, "save", side_effect=OSError("firmware full")),
                     patch.object(admission, "run", side_effect=command),
                     self.assertRaisesRegex(Error, "reload failed" if reload_fails else "fenced"),
@@ -320,3 +309,37 @@ class AdmissionTests(unittest.TestCase):
                 )
                 self.assertEqual(["dmsetup", "resume", "particleve-state-b"] in commands, not reload_fails)
                 self.assertEqual(read_json(path), session)
+                counters.assert_not_called()
+
+    def test_watch_never_queries_quarantined_or_temporary_replacement_counters(self):
+        record = admission.choose(witness(), ["b"])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "session"
+            write_json(path, {"witness": record, "diskseq": {"b": "2"}})
+            with (
+                patch.object(admission, "SESSION", path),
+                patch.object(admission, "load", return_value=record),
+                patch.object(admission, "mounts", return_value=[{"target": "/"}]),
+                patch.object(admission, "disk_sequence", return_value="2"),
+                patch.object(admission, "member_errors", return_value=(0,) * 5) as counters,
+                patch.object(admission, "run") as command,
+                patch.object(admission, "save") as commit,
+            ):
+                self.assertEqual(admission.watch(), {"storage_admission": ["b"]})
+            counters.assert_called_once_with(record, "/", "/dev/mapper/particleve-state-b")
+            command.assert_not_called()
+            commit.assert_not_called()
+
+    def test_unavailable_admitted_counters_fail_without_claiming_a_clean_observation(self):
+        record = admission.choose(witness(), ["b"])
+        with (
+            patch.object(admission, "read_json", return_value={"witness": record, "diskseq": {"b": "2"}}),
+            patch.object(admission, "load", return_value=record),
+            patch.object(admission, "mounts", return_value=[{"target": "/"}]),
+            patch.object(admission, "disk_sequence", return_value="2"),
+            patch.object(admission, "member_errors", side_effect=OSError("device disappeared")),
+            patch.object(admission, "save") as commit,
+            self.assertRaises(OSError),
+        ):
+            admission.watch()
+        commit.assert_not_called()
