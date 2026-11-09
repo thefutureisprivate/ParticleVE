@@ -1,0 +1,56 @@
+From: ParticleVE maintainers
+Subject: Complete native OBS signing continuations without stale partition copies
+
+The initial build exports split partitions before signatures are attached.
+The continuation must recreate those outputs after inserting the verity
+signature. Remove only the current DDI's standard split names, preserving the
+DDI itself and other images. Keep all cryptographic verification unchanged.
+Copy overlapping artifact patterns once and create/prune empty hash classes
+so optional absent signature kinds do not emit diagnostics or schedule empty
+signing rounds. Reproduced with ParticleVE's native OBS signing continuation
+and file-backed repart regeneration; bash syntax is checked by the RPM build.
+
+--- a/mkosi/resources/mkosi-obs/mkosi.build
++++ b/mkosi/resources/mkosi-obs/mkosi.build
+@@ -17,7 +17,7 @@
+ echo "Signed files to be attached:"
+ cpio -t </usr/src/packages/SOURCES/hashes.cpio.rsasign.sig
+ cpio -t </usr/src/packages/SOURCES/hashes.cpio.rsasign
+-mkdir -p hashes
++mkdir -p hashes/{ukis,kernels,bootloaders,pcrs,roothashes,authvars}
+ pushd hashes
+ cpio -idm </usr/src/packages/SOURCES/hashes.cpio.rsasign.sig
+ cpio -idm </usr/src/packages/SOURCES/hashes.cpio.rsasign
+@@ -35,7 +35,10 @@
+ certutil -A -d sql:"$nss_db" -n cert -t CT,CT,CT -i /usr/src/packages/SOURCES/_projectcert.crt
+ openssl x509 -inform PEM -in /usr/src/packages/SOURCES/_projectcert.crt -outform DER -out _projectcert.cer
+ 
+-cp -r /usr/src/packages/SOURCES/"$IMAGE_ID"* /usr/src/packages/SOURCES/*raw* /usr/src/packages/SOURCES/*efi* "$OUTPUTDIR" || true
++# Each source is copied once even when it matches multiple artifact patterns.
++find /usr/src/packages/SOURCES -mindepth 1 -maxdepth 1 \
++    \( -name "$IMAGE_ID*" -o -name '*raw*' -o -name '*efi*' \) \
++    -exec cp -r --target-directory="$OUTPUTDIR" -- {} +
+ rm -f "$OUTPUTDIR/hashes.cpio.rsasign*" "$OUTPUTDIR"/*.sha*
+ 
+ # First step: if there are UKI signatures, attach them
+@@ -212,6 +215,11 @@
+ 
+     if jq -r '.SplitArtifacts[]' "$MKOSI_CONFIG" | grep -q partitions; then
+         # Need to recreate the split artifact and compress it if needed
++        # These copies precede signature insertion. repart refuses to overwrite
++        # them, so remove only this DDI's split outputs before regenerating them.
++        rm -f "$OUTPUTDIR/$(basename "${SIG%roothash.sig}")"usr-*.raw \
++            "$OUTPUTDIR/$(basename "${SIG%roothash.sig}")"root-*.raw \
++            "$OUTPUTDIR/$(basename "${SIG%roothash.sig}")"esp.raw
+         ARGS+=(--split=yes)
+         split=1
+     fi
+@@ -288,7 +296,7 @@
+ rm -rf hashes/authvars
+ 
+ # Final step: if there are any hashes staged, prepare for the next stage
+-rmdir --ignore-fail-on-non-empty hashes
++find hashes -depth -type d -empty -delete
+ if [ -d hashes ]; then
+     pushd hashes
+     find . -type f | cpio -H newc -o >"$OUTPUTDIR/hashes.cpio.rsasign"

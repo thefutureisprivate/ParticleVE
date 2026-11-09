@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "resolved_on": "2026-11-06",
+  "fedora": "45",
+  "systemd_repository": "https://download.opensuse.org/repositories/system:/systemd:/stable/Fedora_45/",
+  "sources": {
+    "particleos": {
+      "url": "https://github.com/systemd/particleos.git",
+      "revision": "b605add797ba65853eb79f8170c4a5743a6f4b1f"
+    },
+    "mkosi": {
+      "url": "https://github.com/systemd/mkosi.git",
+      "revision": "a6753e508681aa162cef4e5183f1a728c11c4d78",
+      "version": "28~devel"
+    },
+    "fwupd_efi": {
+      "url": "https://github.com/fwupd/fwupd-efi.git",
+      "revision": "ffeaa10aed8e91f5b8feaefc51faf71b3d034fd3",
+      "version": "1.9"
+    }
+  },
+  "compatibility": "candidate inputs; image build, signing and hardware acceptance are release gates"
+}

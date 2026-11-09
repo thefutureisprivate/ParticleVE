@@ -1,0 +1,21 @@
+<project name="home:thefutureisprivate:particleve">
+  <title>ParticleVE</title>
+  <description>⸭ An image-based, secure hypervisor, built on top of Fedora Linux.</description>
+  <person userid="thefutureisprivate" role="maintainer" />
+  <repository name="Fedora_45" rebuild="transitive" block="all">
+    <path project="system:systemd:stable" repository="Fedora_45" />
+    <path project="openSUSE:Tools" repository="Fedora_45" />
+    <path project="Fedora:45" repository="update" />
+    <path project="Fedora:45" repository="standard" />
+    <arch>x86_64</arch>
+  </repository>
+  <repository name="Fedora_45_images" rebuild="transitive" block="all">
+    <path project="home:thefutureisprivate:particleve" repository="Fedora_45" />
+    <path project="system:systemd:stable" repository="fedora_45_images" />
+    <path project="system:systemd:stable" repository="Fedora_45" />
+    <path project="openSUSE:Tools" repository="Fedora_45" />
+    <path project="Fedora:45" repository="update" />
+    <path project="Fedora:45" repository="standard" />
+    <arch>x86_64</arch>
+  </repository>
+</project>

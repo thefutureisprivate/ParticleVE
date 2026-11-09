@@ -1,0 +1,8 @@
+[particleve-packages]
+name=ParticleVE packages
+baseurl=https://download.opensuse.org/repositories/home:/thefutureisprivate:/particleve/Fedora_45
+gpgcheck=1
+enabled=1
+priority=1
+includepkgs=particleve-* fwupd-efi*
+gpgkey=file:///usr/share/pki/rpm-gpg/particleve-packages.asc

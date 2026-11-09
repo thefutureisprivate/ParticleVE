@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=78"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "particleve"
+version = "45.0.1.1"
+description = "ParticleOS headless hypervisor integration"
+requires-python = ">=3.14"
+license = "LGPL-2.1-or-later"
+
+[project.scripts]
+particleve = "particleve.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "Sources"}
+packages = ["particleve"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 110
+src = ["Sources", "."]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

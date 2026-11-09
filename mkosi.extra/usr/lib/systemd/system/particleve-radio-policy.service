@@ -1,0 +1,58 @@
+[Unit]
+Description=Enforce the installation's RFKill radio allowlist
+DefaultDependencies=no
+BindsTo=sys-devices-virtual-misc-rfkill.device
+Requires=systemd-modules-load.service
+After=systemd-modules-load.service sys-devices-virtual-misc-rfkill.device local-fs.target
+Before=network-pre.target shutdown.target
+Wants=network-pre.target
+Conflicts=shutdown.target
+
+[Service]
+Type=notify
+DynamicUser=yes
+User=particleve-radio
+ExecStart=/usr/libexec/particleve-radio-policy
+OpenFile=/dev/rfkill:rfkill-control
+LoadCredential=radio-policy:/etc/particleve/radio-policy.json
+# Expose only this verified capability record while /usr/lib/modules is hidden.
+LoadCredential=kernel-config:/usr/lib/modules/%v/config
+NotifyAccess=main
+WatchdogSec=30s
+Restart=on-failure
+RestartSec=1s
+TimeoutStartSec=15s
+TimeoutStopSec=5s
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+UMask=0077
+LimitCORE=0
+CoredumpFilter=0
+MemoryHigh=32M
+MemoryMax=64M
+TasksMax=4
+CPUQuota=10%
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+# The executor needs this one open before entering the private /dev namespace.
+DeviceAllow=/dev/rfkill rw
+ProtectProc=invisible
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=Bound host boot assessment including failed dependencies
+
+[Timer]
+OnBootSec=10min
+Unit=particleve-boot-failed.service
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

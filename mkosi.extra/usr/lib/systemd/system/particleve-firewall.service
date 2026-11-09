@@ -1,0 +1,15 @@
+[Unit]
+Description=ParticleVE host management input filtering
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target sshd.socket shutdown.target
+Wants=network-pre.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/particleve apply-firewall
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

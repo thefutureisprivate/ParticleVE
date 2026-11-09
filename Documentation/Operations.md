@@ -1,0 +1,921 @@
+# Installation and operation
+
+Start with the [README](../README.md) for product scope and the
+[architecture](Architecture.md) for ownership, lifecycle, and security invariants.
+This guide covers installation, administration, host maintenance, and the
+supported interface for externally configured VMs. Use
+[troubleshooting and recovery](Troubleshooting.md) for an unexpected outcome and
+[commissioning](Commissioning.md) before enabling automatic OS work.
+
+## Contents
+
+- [Configuration and recovery](#configuration-and-recovery)
+- [Authenticated time and DNS](#authenticated-time-and-dns)
+- [Installation](#installation)
+- [Physical interfaces and radio policy](#physical-interfaces-and-radio-policy)
+- [Encryption and mirror admission](#encryption-and-mirror-admission)
+- [Administration and accounts](#administration-and-accounts)
+- [Persistent startup configuration](#persistent-startup-configuration)
+- [Operational reconfiguration](#operational-reconfiguration)
+- [VM storage and runtime](#vm-storage-and-runtime)
+- [Resource and storage health](#resource-and-storage-health)
+- [OS maintenance](#os-maintenance)
+- [Disk replacement](#disk-replacement)
+- [Supervised firmware maintenance](#supervised-firmware-maintenance)
+- [Bootloader trials and fallback](#bootloader-trials-and-fallback)
+- [External health reporting](#external-health-reporting)
+
+## Configuration and recovery
+
+New installations use configuration schema 2 and host-state contract v3.
+Earlier configurations and retained images have no conversion path in this
+host interface. Generic compatibility approval cannot override that contract change;
+existing user data and VM identities must not be converted by these procedures.
+
+## Authenticated time and DNS
+
+The `time` policy selects 2..8 NTS endpoints with at least two reviewed independent
+operators. The example names Cloudflare and Netnod; choose endpoints suitable
+for the installation. `trust=system` uses the OS CA store. Installation-specific
+NTS CAs require bounded public PEM certificates and `trust=installation`; these
+certificates form a separate chrony trust set. Keep private keys off the host.
+The native `chronyd-restricted.service` runs as chrony with only CAP_SYS_TIME,
+client-only operation, no UDP command listener, and encrypted `/var/lib/chrony`
+drift/NTS state. The general chronyd and timesyncd services and chrony-wait helper
+are masked. An unconfigured factory image has no time sources; installation
+supplies the reviewed NTS policy. Packaged DHCP/key/environment inputs are removed.
+The control observer drops to the chrony UID with no capabilities for each query.
+
+OS activation requires two authenticated agreeing operators, a sample/update
+age at most 300 seconds, an estimated error at most 0.5 seconds, and fresh NTS
+authentication evidence. A second check detects clock steps over one second
+during shutdown. The authenticated start time must still be inside the existing
+04:30 Europe/Berlin start window. Loss of trust defers activation before stopping
+VMs, or restores them if it occurs during shutdown. It never creates daytime
+catch-up. Synchronization failure produces reporting attention; daemon liveness
+and correct configuration suffice for VM startup.
+
+DNS uses resolved with strict DNS-over-TLS and DNSSEC. Every upstream has a
+numeric address and explicit certificate hostname. Certificates must chain to
+the OS trust store; no runtime private-DNS CA override or opportunistic transport
+is supported. Public resolvers handle the root route. Private resolvers have
+explicit per-link routing domains, no default route, and optional DNSSEC negative
+anchors confined to those domains. Resolved's documented built-in reserved/private
+negative anchors remain explicit in effective-policy checks. LLMNR and mDNS are
+disabled. Native machine status detects endpoint, transport, routing, DNSSEC and
+discovery drift independently of network reachability.
+
+A clock outside certificate validity can prevent both DoT and NTS bootstrap.
+Use the independent recovery console or numeric management address to correct
+the RTC from an owner-verified time source, then allow normal authentication to
+recover. The host does not disable certificate-time validation or select
+unauthenticated NTP. Include outages, disagreement, bad-RTC recovery, and certificate failures in
+the installation's commissioning evidence.
+
+## Installation
+
+Use an owner-controlled recovery environment with the required packaged tools,
+UEFI, Secure Boot, TPM2 with RSA4096, a firmware measured-boot log and KVM support. Copy `Tools/Examples/host.json` outside the
+checkout and configure stable whole-disk by-id paths and serials, permanent NIC
+MACs, network topology, management allowlists, SSH public keys, resource reserves
+and the real signed feed. Inspect a read-only preflight before preparing a plan.
+`render-network --output DIRECTORY` stages networkd configuration and a `host.nft`
+policy preview. At boot, `apply-firewall` renders the running image's policy from
+the bound host settings and sends it directly to nftables. Generic firewall fixes
+therefore follow the OS without replacing persistent installation settings.
+The host-input policy allows DHCP requests on native `vt-*` and broker `ns-*` TAPs;
+management SSH remains restricted to the configured management sources.
+Install the ParticleVE integration RPM from the owner-trusted OBS repository;
+it includes the public release-verification material. Authenticate its repository
+key independently before importing it. `fetch-release` verifies the signed index,
+complete artifact hashes, EFI signatures and UKI metadata before returning a
+release directory; it does not change installation disks.
+
+```sh
+particleve --config /run/host.json preflight
+particleve --config /run/host.json fetch-release --output /run/releases
+particleve --config /run/host.json plan --release-dir /run/releases/VERSION --output /run/install-plan.json
+```
+
+Review the complete plan, including serials, smaller-disk sizing and every
+partition. Installation deliberately erases both selected disks and requires the
+exact plan digest. No unselected device is a target. Keep an independent recovery
+passphrase in a root-owned mode-0600 regular file under `/run`; keep its durable
+copy off the host. Its file bytes must be printable ASCII without a trailing
+newline, so the same passphrase can unlock storage at the recovery console. Pass it using `install --recovery-key-file`, never a command-line
+secret value. Run `particleve install --help` for the required plan/confirmation
+arguments. Interrupted installations require owner recovery; they are not
+silently reformatted or migrated.
+
+## Physical interfaces and radio policy
+
+Preflight and the full `particleve security-status` observation include a bounded
+physical-interface inventory. It records USB device/interface classes and
+authorization state, RFKill software/hardware blocks, Thunderbolt domain security
+and DMA-protection attributes, PCI driver/group membership, IOMMU group types,
+and network-device ancestry. An unexposed sysfs bus is distinct from a present
+bus with no devices. Inventory failure or a device disappearing during a read
+fails the preflight check; it never becomes a successful empty inventory.
+The current bound is 4,096 nodes across all inspected interfaces and 1,024 bytes
+per attribute. The new `physical_interfaces` section omits descriptor blobs,
+serial/MAC/Thunderbolt UUID attributes, PCI configuration space and resource
+registers. Disk and fwupd discovery retain their separate metadata contracts. Kernel names and
+topology remain in this local owner report and can themselves encode identifiers.
+The routine external health report does not include this discovery dataset.
+Sysfs is live; an observation is not an atomic topology snapshot or a durable
+device-identity attestation.
+
+Discovery does not authorize, detach, block or enroll devices. Review required
+boot/storage paths, recovery input, management adapters and operational peripherals
+before selecting an enforcement policy. A USB hub or controller can carry several
+required functions. Vendor/product identifiers and class descriptors are supplied
+by the device and do not prove its authenticity. Never turn an automatically
+generated list of everything currently attached into a trusted peripheral policy.
+
+### Radio policy
+
+Fresh schema-2 configurations must explicitly select
+`physical.radios.allowed_types`. The example uses `[]`, blocking all RFKill
+types. Permitted canonical names are `wlan`, `bluetooth`, `ultrawideband`,
+`wimax`, `wwan`, `gps`, `fm` and `nfc`. Permission covers a radio type rather
+than authenticating a device. It does not configure Wi-Fi, Bluetooth or cellular
+connections, install their connection managers, or authorize a peripheral.
+Preserve an independent console and reviewed wired recovery/management path.
+This is part of the fresh-install contract; there is no conversion
+of existing host configurations or stored identities.
+
+The signed command line sets `rfkill.default_state=0`. Before networkd starts,
+`particleve-radio-policy.service` establishes blocked global defaults and
+unblocks only the selected types. It then reconciles RFKill addition and change
+events, including persistent radios that retain their own reconnect state.
+Bounded read-only state reconciliation also repairs missed events when the
+kernel's finite notification queue overflows.
+Restarting the policy service does not first block an already permitted type.
+Denied radios require a software block even while hard-blocked. Allowed radios
+may subsequently remain manually or physically blocked; the service does not
+continuously undo a stricter block. Native systemd RFKill persistence is masked,
+and the deprecated kernel input handler is inhibited while the policy descriptor
+is open. Hardware-enforced blocks remain independent.
+
+PID 1 opens the root-only `/dev/rfkill` descriptor. The service runs as a private
+dynamic user with no capabilities, a private device namespace, AF_UNIX only
+and no persistent filesystem writes. It receives only the selected
+radio policy and verified kernel capability record through read-only credentials.
+A bounded event loop, driver-acknowledgment deadline and watchdog detect a policy
+that cannot settle; networkd waits for initial readiness. Host health rejects a
+stale/inactive policy service, changed configuration, broader device access,
+incorrect early defaults or an observed unblocked denied radio. A health failure
+does not itself reboot the host or stop running VMs.
+
+RFKill controls cooperating kernel drivers. Its userspace notification arrives
+after device registration, so this is not a guarantee of no transmission before
+userspace can block a persistent radio. Hardware lacking RFKill support requires
+reviewed firmware disablement or physical removal when it must remain unused.
+Test real switches, reconnects, startup and recovery on the selected hardware;
+the virtual-driver checks do not prove hardware transmitter behavior. The
+[kernel RFKill interface](https://docs.kernel.org/driver-api/rfkill.html) defines
+the separate hardware/software blocks and event interface.
+
+### USB authorization
+
+USBGuard is optional and unselected in the generic image; interface discovery
+does not install or activate it. A selected enforcement deployment needs a
+reviewed signed-image package/unit policy, explicit device rules and independent
+console recovery before activation. Review how its
+[present-device, controller and insertion policies](https://usbguard.github.io/documentation/configuration)
+treat boot storage and input. Per-installation enforcement and reconnect tests
+are required at commissioning; discovery output alone does not satisfy them.
+
+The native USBGuard evaluation used Fedora `1.1.4-7.fc45` and signed virtual
+USB controllers/gadgets. It confirmed permitted recovery-keyboard input, strict
+composite-interface matching, blocked unknown firmware identities and root-only
+IPC. It also found integration behavior requiring care: deleting a temporary
+rule rewrites the policy file, can persist other temporary rules, and does not
+deauthorize an already connected device. With an approved read-only baseline,
+deletion returned an error after changing the in-memory rule set. See the scoped
+[evaluation evidence and decision](Hardening.md#usb-authorization-evaluation).
+USBGuard adoption is deferred for the generic image. It remains uninstalled;
+selecting it needs a reviewed image/package/service policy, installation rules
+and real recovery/firmware tests. The evaluation did not qualify its production
+SELinux domain or protect a physical controller.
+
+For supervised firmware maintenance with a selected USB authorization policy,
+identify the normal and flashing-mode USB identities and interfaces from trusted
+device/plugin information before starting. Review only the narrow temporary
+authorization needed by that device and port, retain independent recovery, then
+update through the existing supervised fwupd procedure. Check normal-mode
+reconnection and remove the temporary authorization afterward, including failure
+and power-cycle recovery. The upstream
+[fwupd/USBGuard discussion](https://github.com/USBGuard/usbguard/discussions/620)
+describes devices reconnecting with a different bootloader VID/PID. Do not disable
+the whole guard or admit unrelated new devices during an update.
+
+For an installation that selects a reviewed USBGuard deployment, keep its approved baseline read-only,
+use explicit root-only IPC, `AuthorizedDefault=none` and
+`RestoreControllerDeviceState=false`, and apply the policy to present and
+inserted devices. Give every required boot/storage/recovery path a reviewed
+rule. Establish encrypted-root unlock and recovery input before selecting any
+global deny-at-boot parameter. USBGuard starts in userspace and is not preboot
+device authentication.
+
+Preauthorize a flashing transition only with a temporary rule scoped to the
+reviewed identifiers, port/topology and complete interface set. After fwupd has
+finished and the target is in its expected normal state, restart the guard from
+the approved baseline to revoke all temporary rules and connected exceptions.
+Review the complete temporary rule set first. Verify the baseline hash, absence
+of temporary rules, required-device I/O and denied-device rejection afterward.
+This method passed the virtual keyboard/serial tests; it requires selected-hardware
+validation before use. Keep all required operational peripherals in the reviewed
+baseline. Do not restart the guard while firmware writing or recovery still needs
+the temporary identity. Retain maintenance inhibition and independent recovery
+until the update or its recovery is complete. A command returning does not prove
+the firmware daemon is idle. Include failed updates, daemon interruption and
+normal-mode reconnection in the supervised acceptance record.
+
+### External PCIe and DMA
+
+Thunderbolt authorization, firmware security level and IOMMU DMA protection are
+reported separately. Group presence alone is not proof of isolation. The
+[kernel Thunderbolt documentation](https://docs.kernel.org/admin-guide/thunderbolt.html)
+also distinguishes PCIe tunnel authorization from DMA protection. Review boot and
+management dependencies before changing either; discovery never deauthorizes a
+live storage path. Select radio policy from actual installation requirements and
+test recovery after enforcement. A development machine's attached devices are
+not a policy for an uncommissioned target.
+
+## Encryption and mirror admission
+
+### TPM enrollment
+
+Each state partition is independently LUKS2 encrypted. On the first installed
+boot, enter the owner recovery passphrase at the console. From that verified
+normal boot, provide the passphrase file in `/run` and enroll PCR7 plus signed
+PCR11 authorization:
+
+```sh
+particleve enroll-tpm --recovery-key-file /run/owner-recovery-passphrase
+```
+
+Enrollment explicitly disables automatic pcrlock-policy discovery. It reads back
+the written token and requires SHA256 PCR7, signed PCR11, and no pcrlock or PIN
+before recording success. The public authorization key must match immutable
+project trust; commissioning repeats the live token checks. This is the selected
+disk-unlock policy; an unrelated
+machine pcrlock policy must not silently add an ESP-local credential dependency.
+Independent recovery slots remain intact. See the native
+[enrollment defaults](https://www.freedesktop.org/software/systemd/man/262/systemd-cryptenroll.html).
+
+The normal initrd has a five-minute boot deadline, cancelled at switch-root.
+Its timer survives emergency isolation. Root discovery allows up to four minutes
+for the independently encrypted state members and their owner recovery prompts.
+If it cannot reach the writable root and verified `/usr`, it requests another
+boot attempt before guest runtime access. Use the independent recovery environment
+for extended repair rather than waiting indefinitely in a failed normal initrd.
+
+### Writable storage and admission witness
+
+The recovery installer deliberately does not bind its own PCR7 measurements.
+Enrollment verifies both installed boot paths and retains all recovery slots.
+Reboot and prove unattended unlock from each disk before commissioning. Both mappings form a single Btrfs filesystem with RAID1 data and
+metadata. The writable root is never factory-reset or rewound during OS fallback.
+Upstream sysusers/tmpfiles initializes it and links generic configuration to
+`/usr/share/factory/etc`, allowing PAM/SSH/trust defaults to follow OS updates.
+Only installation-specific settings are written as persistent overrides.
+`/var` and `/var/lib/machines` are subvolumes. There is no separate home partition
+or VM volume manager. Swap alone uses md RAID1 followed by LUKS2 and block swap.
+Discard through encryption is selected explicitly with `storage.discard` and
+is not enabled automatically. Review its effects on storage behavior and
+information exposed below encryption, and record that decision at commissioning.
+
+The initrd reads a nonvolatile `ParticleVEStorage` firmware witness before
+opening or scanning state devices. It binds the installation and exact member
+UUIDs. Firmware must support a durable, read-back-verifiable variable of up to
+4 KiB. A missing member is persistently quarantined before degraded writes;
+returning it never opens its LUKS mapping or adds it to Btrfs or swap. A stale-only
+boot fails. Generic incremental Btrfs/md assembly is disabled, and state crypttab
+entries are `noauto`. Automatic activation requires a healthy, admitted pair.
+This is a fresh-install contract; older installations have no automatic migration.
+Keep the witness/installation identity in the independent recovery record.
+Runtime witness writes use a dedicated SELinux domain inside a private mount
+namespace. The root filesystem and firmware directory are read-only; only the
+existing witness file is writable. The writer retains only the capability needed
+to clear that file's immutable flag, requires no-new-privileges, and refuses to
+run outside this isolation. Runtime services cannot create firmware variables.
+
+### Unclean shutdown and failed members
+
+Every writable session marks the witness active. Late shutdown clears this only
+after all Btrfs mounts are read-only, device errors are absent and disk instances
+are unchanged. Any unclean session requires owner selection of one
+previously admitted authority. This also applies after a failed OS boot that
+already mounted the two-member root writable; boot counting cannot override
+uncertain NOCOW authority. From the independent recovery environment, with
+the installed Btrfs filesystem unmounted, review the installation UUID and the
+surviving data, then run the installed admission module:
+
+```sh
+/usr/libexec/particleve-storage-admission recover b INSTALLATION_UUID
+```
+
+This can only reduce authority to one previously admitted member. It never
+readmits a peer. If firmware reset erased the witness, stop and restore the
+owner-reviewed admission record; never derive authority from whichever old disk
+appears first. Recovery credentials alone do not prove which replica is current.
+
+A one-second monitor detects member-instance changes and Btrfs device errors,
+revokes the failed role in firmware and fences its live dm mapping with an error
+target. If firmware persistence fails, it still fences the mapping and retains
+the active marker so the next boot requires owner recovery. A failed target
+reload leaves the mapping suspended. Failure requests owner emergency recovery.
+NOCOW cannot detect arbitrary silent corruption, and monitoring has detection
+latency. Keep failed hardware disconnected until a degraded reboot confirms its
+quarantine; hot reconnection is not a supported recovery procedure.
+
+## Administration and accounts
+
+Root's home is `/root`, on the encrypted writable root. All non-root login
+accounts must be created through upstream `homectl`, using `--storage=subvolume`.
+For example, run interactively on the installed host:
+
+```sh
+homectl create alice --storage=subvolume --ssh-authorized-keys=@/run/alice.pub
+restorecon -RF /home/alice.homedir
+```
+
+Apply the label command immediately after creating the new, empty account and
+before its first login. Native Btrfs subvolume creation does not initialize its
+root's SELinux label; upstream homed does not restore it. The installed Fedora
+file-context policy supplies the home and record labels. This provisioning step
+applies only to the newly created home. Retained homes require a separately
+reviewed repair; updates do not recursively relabel user data.
+
+Store SSH keys in the user record, so lookup works while a home is inactive.
+The host's encryption protects subvolume storage. Native homed still requires
+the account's password to activate an inactive home. Non-root SSH therefore
+requires both a public key and password authentication through PAM; enter
+the password chosen by `homectl` when prompted. Root uses public-key authentication.
+SSH uses upstream `userdbctl ssh-authorized-keys` and PAM account/session checks.
+Classic non-root login accounts fail the homed account gate. System service
+accounts remain ordinary non-login accounts. `particleve check-users` audits the
+local passwd database without mistaking NSS-provided homed users for classic
+accounts. Test an inactive home, a fresh SSH connection and a host reboot before
+relying on remote administration. Keep independent console recovery available.
+
+### Hardware-backed administration
+
+Installation `admin_ssh_keys` accepts plain Ed25519 and FIDO2
+`sk-ssh-ed25519@openssh.com` / `sk-ecdsa-sha2-nistp256@openssh.com` public keys.
+It bounds the key list and validates each complete public-key encoding with native
+OpenSSH. Key options, certificates and multiline entries are rejected. These
+installation keys grant root recovery access; provision human homed keys separately.
+
+SSHD requires both user presence and user verification for FIDO2 signatures,
+including keys supplied through userdb. Select modern authenticators with PIN or
+biometric verification, and generate each credential on the owner's workstation
+with `ssh-keygen -t ed25519-sk -O verify-required` (or `-t ecdsa-sk` when the token
+supports P-256). The daemon's `PubkeyAuthOptions touch-required verify-required`
+also prevents a key record from opting out of presence or verification.
+[OpenSSH documents these options](https://man.openbsd.org/sshd_config#PubkeyAuthOptions).
+
+Enroll a separate credential on a spare authenticator before relying on the primary.
+For a new homed account, pass both public files using repeated
+`--ssh-authorized-keys=@/run/alice-primary.pub` and
+`--ssh-authorized-keys=@/run/alice-spare.pub` arguments to `homectl create`.
+This is upstream's [multiple-key user-record interface](https://www.freedesktop.org/software/systemd/man/262/homectl.html#--ssh-authorized-keys=KEYS).
+Keep the account password for cold-home activation. Verify a fresh connection with
+each authenticator, missing verification, and an inactive home. Confirm run0 and
+independent root/console recovery before relying on remote access. Actual PIN,
+biometric, spare-token and lost-token exercises remain physical commissioning gates.
+No update enrolls tokens or rewrites an existing user record.
+
+Do not copy a private key onto the host or use a human authenticator for unattended
+automation. Root's independent Ed25519 recovery key remains an owner-controlled
+route; the FIDO-only options do not affect software Ed25519 authentication. Keep
+that credential offline and separate from the human authenticators. Build refresh
+uses package-scoped OBS source-service tokens. Host reporting uses a distinct
+installation-scoped submission token. Neither needs an SSH login or run0 authority;
+workload automation remains external.
+
+SSH forwarding, tunnelling, X11 and agent forwarding are disabled. This reduces
+unused protocol features; an authorized shell can still run its own network
+client. The verified UKI sets `systemd.ssh_auto=no` to prevent automatic
+SSH-over-vsock and other generated listeners. SSH-over-vsock requires a separately
+reviewed explicit socket and access policy. The ordinary TCP SSH socket is governed
+by the image's IPv4/IPv6 management-input rules. `security-status` reports effective
+root/homed authentication policy and IP, Unix, vsock and socket-unit listeners.
+
+## Persistent startup configuration
+
+Host executable code, Python modules, libraries and policy normally come from
+the verified `/usr` image. Native sysext/confext and portable host-service
+activation are masked. Health checks require the visible `/usr` mount itself to
+be the read-only verified EROFS device, rather than merely finding a verity
+mapper underneath an overlay. Persistent local service executables, generators,
+PAM/udev/polkit code hooks and loader configuration must be absent, empty or
+links into verified `/usr`. Regular local systemd unit files are limited to
+owner-reviewed native VM instance drop-ins and the installer's two named serial
+console drop-ins. Both kinds are bound by commissioning. The external configuration manager
+has administrative authority and must use signed executables and private,
+reviewed data paths; guest storage is never a source of host code or settings.
+
+`particleve startup-inventory` reads descriptor-relative paths without following
+writable links and reports hashes/metadata without file contents. It rejects
+other-account writes, ACLs, hard links, executable configuration, special files,
+and links into writable state. Traditional library aliases must lead into `/usr`;
+the generated loader cache may reference only those verified library directories.
+The inventory is bounded to 4096 entries, 4 MiB per ordinary configuration file
+and 16 MiB total. Account databases and host/reporting credentials are checked
+as metadata without reading their contents; they are governed by the separate
+authentication policy. Transient password locks and update timestamps do not
+change approval. Commissioning binds approved settings before the initrd allows
+installed PID 1 to start. See [commissioning](Commissioning.md) before making
+intentional changes or selecting a retained image. The owner and privileged
+configuration manager remain trusted; this is not an offline root-compromise
+detector.
+
+## Operational reconfiguration
+
+Operational policy changes use an explicit reconfiguration transaction. Keep a
+copy of the previously bound host JSON before editing it. In persistent maintenance,
+with no pending update or replacement, review the proposed maintenance settings,
+normal RAM/pressure policy, minimum RAM and Btrfs reserve/metadata thresholds:
+
+```sh
+particleve maintenance enter --reason 'review operational policy'
+particleve reconfigure --previous-config /run/host-before.json --proposed /run/host-next.json
+particleve reconfigure --previous-config /run/host-before.json --proposed /run/host-next.json --confirm REVIEWED_PLAN_SHA256
+```
+
+The confirmed operation disables automatic OS timers, invalidates commissioning,
+and durably updates the configuration and installation binding. Before replacing
+either binding, its durable journal stores both complete configurations and the
+reviewed plan. If interrupted, including after reboot and loss of the `/run`
+inputs, review and finish the stored operation using its original confirmation:
+
+```sh
+particleve reconfigure --resume
+particleve reconfigure --resume --confirm ORIGINAL_REVIEWED_PLAN_SHA256
+```
+
+Recovery checks the original destination, configuration hashes, installation
+manifests and operational-policy limits. It accepts no replacement input files.
+Ordinary backend operations remain blocked until recovery completes. Maintenance
+stays active, and the changed binding needs new commissioning
+evidence. This operation changes operational policy only. Disk identities use
+`replace-disk`; layout, network, host identity, trust and access settings are outside
+this operation. `status` remains diagnostic when binding is invalid, and
+`disable-automation` works even with unreadable or invalid host JSON.
+
+## VM storage and runtime
+
+### Storage and persistent identity
+
+External configuration owns VM definitions and startup policy. Use the packaged
+`systemd-vmspawn@.service` template and keep machined registration/cgroup ownership
+intact. Place each raw image in its own externally created subvolume under
+`/var/lib/machines`. Keep that VM's persistent EFI variable store and optional
+swtpm state on ordinary CoW files in its subvolume. Set `chattr +C` on each empty
+raw disk file **before writing it**, then confirm attributes. Never apply NOCOW to
+the entire machines directory. NOCOW raw contents lose Btrfs data checksums and
+compression; scrub cannot detect or repair corruption in those contents. Normal
+host and EFI/vTPM files keep CoW/checksums. Use the exact packaged vmspawn/QEMU
+options supported by the release and record persistent-state paths in acceptance
+evidence. Guest workload provisioning and backups are outside ParticleVE.
+
+### SELinux and native launch
+
+Each newly provisioned VM needs a permanent, unique pair of SELinux MCS categories.
+External provisioning labels its root subvolume `virt_var_lib_t`, mode 0700 and
+owned by root; its raw disks, seed media and precreated EFI variable file use
+`svirt_image_t`. Its TPM directory uses `virt_var_lib_t`. All these labels carry
+the same pair, for example `s0:c10,c20`. Do not recursively relabel a running or
+retained VM. Changes to an existing VM's labels or auxiliary state need an
+explicit retained-data review; ParticleVE supplies no migration.
+
+The external instance drop-in must set the matching process context. The
+following launch excerpt assumes the raw disk and persistent EFI file already
+exist with the reviewed labels. Add installation-sized `MemoryHigh`, `MemoryMax`
+and `TasksMax` settings as described under [resource health](#resource-and-storage-health);
+this excerpt is not a complete VM definition:
+
+```ini
+[Service]
+SELinuxContext=system_u:system_r:particleve_vmspawn_t:s0:c10,c20
+ExecStart=
+ExecStart=/usr/libexec/particleve-vm-run %i /usr/bin/systemd-vmspawn --quiet --register=yes --keep-unit --machine=%i --image=/var/lib/machines/%i/disk.raw --efi-nvram-state=/var/lib/machines/%i/efi.vars --tpm=no --network-tap --pass-ssh-key=no --notify-ready=yes
+```
+
+The mandatory internal launch guard rejects missing/mismatched categories,
+duplicate category pairs, nonprivate directories, disabled enforcement and absent
+KVM before launching QEMU. It labels PID1's temporary per-VM runtime directory.
+Keep the packaged `PATH`: native vmspawn selects the guarded QEMU handoff there.
+New console PTYs initially receive a quarantine label inaccessible to guests;
+the handoff assigns the owning category pair to inherited console descriptors
+before executing the packaged QEMU, preserving native arguments and open file
+descriptors. Neither helper relabels retained VM storage.
+The packaged policy transitions QEMU into `svirt_t` and swtpm into
+`swtpm_t`, with MCS constraints on both. The trusted vmspawn controller has its
+own confined domain. Maintenance verifies actual process labels and category
+agreement; an unconfined or unexpected process blocks activation.
+
+The VM template permits only native host syscalls and the Unix, IPv4/IPv6,
+route/netlink, packet and vsock address families needed by its native setup and
+guest channels. It rejects AF_ALG and PF_KEY socket creation without changing
+homed's packaged AF_ALG policy. The launch guard rejects external widening or
+removal of these restrictions. This constrains the host process ABI and sockets;
+it does not restrict which software ABI a guest kernel supports. Local storage
+also requires the effective `virt_use_nfs`, `virt_use_samba` and
+`virt_use_execmem` SELinux booleans to remain disabled. Drift fails health checks
+and is reported through the health reporter; no boolean is silently changed.
+
+### Memory privacy and diagnostics
+
+The guarded QEMU handoff enforces `mem-merge=off,dump-guest-core=off` after
+native vmspawn's generated QEMU configuration. The host keeps KSM stopped and
+masks its optional activation/tuning services. Health requires zero ordinary
+shared-page and KSM-zero-page counters. It does not automatically unmerge a
+running host: that operation can exhaust memory. Runtime checks also inspect
+QEMU mapping metadata and per-process KSM accounting; a custom memory backend
+that remains mergeable fails the confinement check even when its machine-level
+properties look correct. Externally provisioned memory backends must satisfy
+the same privacy contract. No guest RAM contents or mapping addresses enter reports.
+The [kernel KSM interface](https://docs.kernel.org/admin-guide/mm/ksm.html)
+distinguishes a stopped scanner from pages that remain shared.
+
+Host system and user managers default to zero core limits. VM units and the
+reporter explicitly use zero hard/soft core limits and an empty core mapping
+filter; the QEMU handoff independently lowers the hard limit before execution.
+VM inspection checks controller, QEMU and auxiliary-process limits. Privilege-
+changing processes have `fs.suid_dumpable=0`. The selected native coredump handler
+remains bound to the reviewed kernel pipe protocol, with `Storage=none`,
+`ProcessSizeMax=0` and `EnterNamespace=no`. Crash metadata remains available;
+routine memory payloads are neither processed nor stored. Both handler settings
+are necessary even when process limits are zero, because a piped kernel handler
+does not use the ordinary file-core size limit.
+See the [native coredump policy](https://www.freedesktop.org/software/systemd/man/262/coredump.conf.html)
+and [QEMU machine properties](https://www.qemu.org/docs/master/system/invocation.html).
+
+For sensitive diagnostics, enter persistent maintenance with
+`particleve maintenance enter --reason 'owner-reviewed diagnostics'` and retain
+independent console access. Start with bounded journal and process metadata.
+Memory capture requires a separate owner-reviewed procedure naming its process,
+purpose, size bound, access and cleanup. Supply any additional debugger through
+a reviewed signed diagnostic release in the existing publication architecture;
+additional debugging packages require a narrow reviewed and tested image-policy exception.
+Do not execute a downloaded debugger from writable state or enable general crash
+collection. A targeted privileged debugger may capture the selected process
+explicitly while ordinary crash handling stays disabled. Keep such material in
+a root-only mode-0700 volatile directory under `/run`, with files mode 0600 and
+a bound that fits measured RAM headroom. Do not spill it to persistent storage
+or export it implicitly. Remove captures and temporary diagnostic settings,
+return to the ordinary signed image, reboot, and pass the normal health and
+commissioning checks before leaving maintenance. Removal is cleanup, not a
+claim of forensic erasure of previously captured data.
+
+The initrd copies the same reviewed dump-policy assets as the installed system,
+so early storage-unlock processes receive the policy before switch-root. Build
+checks bind both copies to their source content; there is one authored policy.
+
+### Kernel interfaces and service authority
+
+The kernel runtime policy is also shared by the initrd and installed OS.
+Health assessment checks effective sysctls and raw-device ownership; changing
+them is not a supported routine tuning path. Native host services retain their
+host ABI restriction while guests choose their own software ABI. The policy
+leaves privileged systemd BPF available and uses `vm.memfd_noexec=1`: unspecified
+memfds are sealed non-executable, while programs explicitly requesting
+`MFD_EXEC` remain supported. A change to value `2` needs separate compatibility
+validation. `userfaultfd` user-mode-only requests remain possible under the
+selected kernel-fault restriction, and own-process userspace perf remains
+available under Fedora's asserted value `2`.
+
+`kernel.kexec_load_disabled=1` is irreversible during a boot. Updates and owner
+recovery use the existing UEFI paths; do not substitute a kexec reboot or kdump
+workflow. A temporary diagnostic release that changes this policy must be
+reviewed, booted through UEFI, and retired through the same owner-controlled
+procedure as other diagnostic changes. Privileged tracing still requires
+`CAP_SYS_PTRACE`; do not grant it to a normal service or relax ptrace globally.
+The raw `/dev/mem` and `/dev/userfaultfd` nodes remain root-only and receive no
+kmem-group or seat access. Kernel strict-memory restrictions and lockdown still
+apply. See [the selected values and evidence](Hardening.md#stock-kernel-interface-policy).
+
+The scoped SELinux interface policy preserves the native VM/namespace brokers
+and removes user-namespace, PF_KEY and XFRM creation from general login/service
+domains. AF_ALG is retained for the verified cryptsetup kernel-crypto path in
+administrative and native root-service contexts. These are administrative
+interfaces; ordinary network services, QEMU and swtpm keep their confined
+domains. The effective-policy health gate includes permissive-domain flags and
+detects inconsistent observations during reload, without trusting a serialized
+policy hash as a substitute for effective decisions.
+
+Keep the template's private `/tmp` and `/var/tmp` bindings, launch/stop helpers,
+namespace-broker dependency and capability restriction when supplying external
+VM arguments. Native nsresourced allocates the TAP descriptor. The trusted launcher retains
+only `SETFCAP`, `SETGID`, `SETPCAP`, `SETUID`, `SYS_ADMIN` and `SYS_RESOURCE`, for
+labels, namespace maps, capability drops and native setup limits. The unit resets
+inherited capability declarations before selecting that set. Network
+administration and host ptrace are absent; the guard rejects an expanded set. The policy is compiled during the integration
+RPM build and incorporated into the image's factory policy; policy development
+tools are not runtime inputs.
+
+### Readiness and graceful shutdown
+
+The small supervisor remains the unit's main process while native vmspawn owns
+the VM and sends readiness/watchdog notifications. There is no automatic startup
+deadline. A stop during activation reaches the supervisor, which requests native
+ACPI poweroff and waits; it never forwards a termination signal to vmspawn/QEMU.
+Normal successful-start shutdown also retains the synchronous `ExecStop` helper.
+Both stop/abort deadlines are unbounded and automatic final SIGKILL is disabled.
+A refusing guest or failed inspection therefore needs owner assistance. Keep the
+supervised `ExecStart`, synchronous `ExecStop`, and packaged lifecycle settings
+when overriding VM arguments; the launch guard rejects bypasses. This is a changed
+external unit interface. Review existing definitions explicitly; no retained VM
+definitions, labels, disks or auxiliary files are migrated automatically.
+Automatic maintenance retains its separate bounded refusal/recovery transaction
+while the host is still running; it never enters host shutdown with live VMs.
+The selected native interface supports `--efi-nvram-state=PATH` for a persistent
+file and `--tpm-state=PATH` for a persistent directory. Keep both within that VM's
+subvolume, with normal CoW. TPM use is disabled in the base template. An enabled
+TPM requires explicit `--tpm=yes --tpm-state=/var/lib/machines/NAME/tpm` and an
+already provisioned, private state directory. The guard rejects implicit,
+transient, missing, hard-linked or foreign state. Test guest readiness notification,
+registration, disk/network I/O and restart persistence before commissioning.
+
+### Virtual TPM provisioning
+
+Provision each new virtual TPM before its first launch using the native tool
+and the verified image's profile. For a new VM assigned categories `c10,c20`:
+
+```sh
+install -d -m 0700 /var/lib/machines/NAME/tpm
+swtpm_setup --tpm2 --tpmstate /var/lib/machines/NAME/tpm \
+    --profile "$(cat /usr/lib/particleve/tpm-profile.json)" \
+    --profile-remove-disabled check --pcr-banks sha256 --createek --lock-nvram
+chcon -R system_u:object_r:virt_var_lib_t:s0:c10,c20 /var/lib/machines/NAME/tpm
+```
+
+Run this only for a new, empty state directory. Preserve its ordinary CoW and
+mode 0700. Native vmspawn then reuses that identity with `--not-overwrite`.
+Its own manufacturing path explicitly selects a built-in profile and bypasses
+the global configuration, so changing `/etc/swtpm_setup.conf` is ineffective.
+No launcher wrapper or conversion of existing state is used.
+
+The custom profile disables SHA1 signature
+generation and verification. With the selected OpenSSL/libtpms stack, the vendor's
+legacy profile emitted warnings and stalled the disposable guest in firmware;
+the custom profile booted successfully without those warnings. SHA1 PCR hashing
+is distinct from SHA1 signatures. This creation procedure never rewrites or converts retained
+TPM state; any proposed change to an existing VM's identity needs separate review.
+
+## Resource and storage health
+
+`particleve status` reports durable update/maintenance state, observed storage
+profiles, capacity, errors, swap redundancy, physical memory, host/VM pressure,
+VM cgroup usage and selected-disk SMART data. Fresh configurations explicitly
+declare `resources.minimum_available_ram_mib` for normal operation and
+`maintenance.minimum_available_ram_mib` for maintenance; the latter must be at
+least the former. The example's 512/1024 MiB values are starting points, not
+measured hardware minima. Kernel `MemAvailable` supplies headroom; neither swap
+capacity nor zswap is added to it. `resources.pressure_avg60_percent` declares
+CPU, memory and I/O thresholds for the kernel's 60-second moving `some` averages.
+Pressure means time with at least one task stalled, not a memory-utilization
+percentage or a guarantee of a particular latency. These settings are required
+by the schema-2 contract; there is no default insertion or migration
+of earlier installation data.
+
+External VM units must provide finite positive `MemoryHigh`, `MemoryMax` and
+`TasksMax`, with `MemoryHigh < MemoryMax`. Size them for the whole cgroup: QEMU,
+vmspawn, the supervisor, optional swtpm/virtiofsd, their threads, charged page
+cache and kernel overhead. The packaged template requires memory/task/I/O
+accounting. CPU usage is always accounted on cgroup v2; its deprecated
+`CPUAccounting=` knob is not used. External provisioning owns allocation values,
+CPU quotas, per-device I/O limits and startup/restart policy. For mirrored or
+stacked storage, identify and measure every originating device rather than
+assuming that one filesystem path discovers the full array. Kernel per-device
+statistics may include both mapper and physical layers; do not sum them into
+logical guest throughput.
+
+`OOMPolicy=kill` and the kernel's `memory.oom.group=1` make a kernel OOM fatal to
+the complete VM unit. The launch contract requires the ordinary `OOMScoreAdjust=0`
+instead of an OOM-exempt launcher. This is a hard-limit failure, with abrupt
+guest/TPM termination and possible uncommitted data loss; it is never a graceful
+shutdown or successful maintenance result. Ordinary stop and OS maintenance keep
+their existing ACPI/graceful path. After OOM, inspect the event, guest filesystem,
+EFI/TPM state and configured budget before restoring external restart policy.
+The `bounded-native-vmspawn-v2` interface replaces the earlier unit contract for
+fresh installations; no installed VM identity or data is converted.
+
+Status exposes current/peak cgroup memory, anon/file/kernel charges, task counts,
+CPU throttling, I/O devices/limits and PSI. Reporting includes bounded summaries,
+explicit detail-limit flags and cursor-derived OOM event identities without raw
+kernel messages or killed-process arguments. Sustained pressure, failed VM units,
+recent OOM events, policy drift or insufficient headroom mark attention and defer
+preparation/activation. They do not stop running guests. Normal headroom is an
+observed capacity requirement, not an automatic allocator or a reservation that
+can compensate for overcommitted external limits. Commission against measured
+host overhead, complete VM budgets and maintenance peaks. The running maxima
+check catches configurations that cannot leave even the normal reserve before
+host overhead is counted; passing it alone is insufficient.
+
+A reported SMART fault also defers preparation and activation before touching guests.
+SMART queries are read-only and use each recorded whole-disk identity. Device
+errors, unsupported transports and virtual disks with no SMART data appear as
+`unavailable`, never as passed. Record those monitoring gaps at commissioning;
+unavailable SMART alone does not block maintenance. Exit-status health bits follow
+the [upstream smartctl interface](https://github.com/smartmontools/smartmontools/blob/main/src/smartctl.8.in).
+Keep configured byte/percentage reserves available; degraded profiles, errors,
+resync, replacement or insufficient headroom defer automatic work. Root journal
+storage and update caches are bounded.
+
+## OS maintenance
+
+Automatic preparation fixes one signed release version, verifies both explicit
+disk targets and hashes raw readback before exposing either new UKI. Before a
+transfer, native sysupdate vacuum clears interrupted pending/partial OS resources
+using those same explicit-disk definitions and `ProtectVersion=` for the verified
+running release. Retrying an interrupted acquisition therefore keeps the running
+slots intact. Existing boot counts and non-OS ESP files are preserved. At 04:30 Berlin time the dedicated
+maintenance service rechecks eligibility before touching guests. It temporarily
+inhibits template starts/restarts, inventories actual units/machines/processes,
+sends ACPI poweroff and waits for actual process exits. Refusal, late/unexpected
+restarts, firmware staging or failed reboot queuing cancels activation. Only VMs
+stopped by this attempt are restored; failed restoration is durable and reported.
+No VM is force-killed. After a successful host reboot external startup policy
+applies; the coordinator does not enable or restore the last running set.
+
+Use `particleve recover-vms` to reconcile an interrupted attempt. Inspect reported
+late exits/restoration failures before retrying. Boot health assessment gates
+blessing; failed candidates exhaust bounded attempts and fall back. The retained
+OS quarantines failed releases before VM runtime access. Changed Btrfs/systemd/
+QEMU/firmware state contracts require explicit evidence that the retained OS can
+read current state; no writable-state or guest-state migration is automatic.
+Exact RPM versions remain in release provenance. The signed `persistent_state`
+object instead declares versioned filesystem, VM unit, label, raw-disk, EFI and
+vTPM interfaces. Package-only updates with the same declared contract are eligible
+without a local version-pair approval. Publishers must validate retained-OS access
+before retaining a contract across an upstream change; format-affecting changes
+must advance the appropriate interface and retain explicit compatibility review.
+The old package-version contract and the supervised-unit contract differ, so an
+older image cannot silently approve this transition or rewrite retained state.
+
+Before commissioning, supervised update acceptance uses `particleve prepare
+--manual`, then `particleve activate --manual`. Manual activation starts immediately
+and permits an uncommissioned host; it retains firmware exclusion, complete
+two-disk verification, a blessed fallback and graceful VM shutdown/restoration.
+It does not enable either automatic timer. The timer always uses plain `activate`
+and requires commissioning and the 04:30 window.
+
+Prolonged degraded operation does not create a maintenance bypass. `--manual`
+still requires the healthy, complete two-disk pair. Restore or explicitly rebuild
+the missing member and verify both boot paths before using that update route.
+Any security intervention that cannot wait for redundancy restoration needs a
+separate owner-reviewed recovery decision; this guide supplies no single-disk
+activation command or permission to relax the verified-update contract.
+
+## Disk replacement
+
+For disk replacement, enter persistent maintenance, physically identify the failed
+member and select its quarantined role. Boot from the sole admitted survivor. If the old state mapper remains after hot removal,
+reboot degraded before planning replacement; the preflight refuses before any
+journal or replacement write while that mapper exists. To erase and rebuild the
+exact returning disk, add `--rebuild-quarantined`; its by-id path and serial must
+match the quarantined role, and it must have no active holders. A different
+replacement requires the failed disk to stay disconnected.
+`replace-disk --role … --disk /dev/disk/by-id/… --serial …`
+first prints a deterministic reviewable erasing plan; the second invocation needs
+its exact confirmation and independent recovery-key file. It refreshes crypttab
+from the new LUKS identities, waits in the foreground for the Btrfs device copy,
+resynchronizes swap and provisions complete OS slots/ESP on the new disk. The
+ESP receives the retained validated loader, even if the running OS bundles a
+quarantined loader candidate. VMs are inhibited and stopped for the copy. Keep the
+owner session or transient service alive until it returns; large devices can take
+hours. Do not impose a short service runtime limit on that copy.
+`finalize-replacement` refuses completion until replacement/resync finish and all
+allocated Btrfs data/metadata/system profiles are RAID1 and device errors are
+clear. Only then does it readmit the freshly erased identities in firmware and
+restore the stopped VM set. Scrub, balance and healthy profiles alone never
+authorize an old NOCOW replica. Interrupted replacement
+requires owner review of its durable journal. Test both independent boot paths
+and run `enroll-tpm` under maintenance to refresh enrollment evidence for the
+changed LUKS device set. Recommission before enabling automation again.
+
+Losing the disk serving active verified `/usr` can interrupt operation even when
+writable RAID1 survives. Use the other firmware boot path or independent recovery
+environment, unlock surviving storage with the owner secret if TPM authorization
+is unavailable, and repair through the documented replacement path. Never enroll
+the recovery environment into normal unattended PCR authorization.
+
+## Supervised firmware maintenance
+
+Firmware metadata refresh may run automatically. Before staging/installing
+firmware, trust-database changes, or selecting a firmware reboot, enter:
+
+```sh
+particleve maintenance enter --reason 'supervised firmware maintenance'
+fwupdmgr get-devices
+fwupdmgr get-updates
+```
+
+The owner selects the update, ESP and reboot and verifies actual device results,
+Secure Boot and TPM unlock afterward. Unsupported devices/transports must be
+recorded. Capsule files and BootNext block OS work and are preserved. Leave using
+`particleve maintenance leave --reviewed` only after staged firmware is clear and
+health checks pass. No firmware installation command is scheduled automatically.
+
+## Bootloader trials and fallback
+
+Bootloader preparation stages a hash-addressed candidate under
+`EFI/ParticleVE/loaders/`; normal and removable-media loaders remain the last
+validated implementation. Activation uses a create-only firmware entry plus
+BootNext, preserving BootOrder. BootNext is consumed before execution. A hung
+loader can require an owner reset; select either disk's unchanged normal or
+removable-media loader afterward. A healthy new OS reached through the old
+loader quarantines the candidate hash instead of promoting it. Promotion requires
+matching BootCurrent, LoaderImageIdentifier, ESP and file hash after OS health
+assessment and native blessing. The retained loader blob and promotion journal
+survive OS cache cleanup and interrupted promotion.
+
+## External health reporting
+
+`particleve health-report` emits a bounded root-only observation without sending
+it. It checks the effective host baseline, mirror/resource health, actual native
+VM confinement, quarantined releases/loaders and update-check freshness. The
+report includes installation, image and boot identities. A bounded ten-minute
+SELinux window contains journal-record hashes, contexts, classes and permissions;
+it omits raw audit messages, paths, command lines and environment contents. The
+receiver can distinguish new/repeated records by those hashes. A full window is
+explicitly marked limited. Unknown disk health or an unavailable observation is
+reported as requiring attention. Reports are at most 64 KiB.
+
+For a commissioned installation, select an existing HTTPS collection endpoint and
+provision `/etc/particleve/reporting.json` from `Tools/Examples/reporting.json`. Replace
+the placeholder endpoint and select the update-check age threshold. This file
+must be root-owned, mode 0600, regular and not a symlink. Provision a separate
+random, installation-scoped bearer credential as the root-owned mode-0400 file
+`/etc/particleve/report-token`; do not reuse a human SSH, GitHub or OBS credential.
+The receiver must authenticate and validate schema/identity and the 64 KiB limit
+independently before storing JSON POSTs, and acknowledge only accepted
+observations with HTTP 200, 202 or 204 and at most 1 KiB of response data. Restrict
+that credential to submitting this installation's reports. Configure the selected
+receiver to authenticate the token and bind it to the expected installation UUID.
+
+TLS uses the system trust store and verifies the endpoint name and certificate
+time. To use an installation's private CA, set `private_ca` to true and provision
+`/etc/particleve/reporting-ca.pem` as a root-owned regular public file without
+group/world write access. Its content is included in the commissioning-policy
+binding. Redirects and proxy environment settings never forward the credential.
+Changing endpoint/age/CA policy requires reviewed commissioning evidence again;
+no existing commissioning record is silently upgraded. These are new diagnostic
+observations and eligibility checks, not storage, home, VM or identity migrations.
+
+```sh
+systemctl start particleve-report.service
+systemctl enable --now particleve-report.timer
+```
+
+The factory preset leaves this timer disabled. PID1 allocates a private dynamic
+service identity and a read-only credential mount. The trusted inspector first
+collects the report. Native `setpriv` then replaces it with the TLS sender under
+that dynamic UID, clearing all capability sets, supplementary groups and saved
+root identities. There is no privileged parent processing receiver responses.
+The report and public CA cross this boundary through a size-bounded, sealed,
+non-executable memory file; the bearer credential is read only after the handoff.
+The dynamic identity has no login, home or retained account. Human login accounts
+continue to use homed.
+
+The service has a read-only filesystem/proc view and bounded CPU, memory, process
+count and runtime. Its inspection/bootstrap capabilities cover status ioctls,
+process metadata and the one-way UID/capability drop. Mount, BPF, module-loading
+and process-memory syscalls are denied. The sender verifies its actual empty
+capability sets, private real/effective/saved UID/GID, no-new-privileges, seccomp
+and sealed input before reading its credential. A failed report only fails this
+independent service. It never stops a VM, changes update state, requests a reboot
+or invokes emergency isolation. Manual maintenance and OS-automation disable do
+not stop established reporting.
+
+The normal release client records actual authenticated feed-check success and
+failure in `release-check.json`. A failed check retains the previous success time;
+reading an already cached pending version never refreshes that timestamp. The
+reporter flags failed/stale checks on commissioned hosts. An uncommissioned
+installation explicitly reports that scheduled update-check freshness is not yet
+required. The external [publication check](Build.md) separately observes build
+failures/source lag, without trusting the installed host to monitor its producer.
+
+At the receiver, write the local receipt time separately from the supplied host
+observation. Retain the latest accepted report and trusted receipt time in this
+form, with the expected installation UUID configured outside the report:
+
+```json
+{"schema": 1, "received_at": "RECEIVER_UTC_TIME", "report": {"schema": 1, "installation_uuid": "EXPECTED_UUID", "result": "pass"}}
+```
+
+Run `PYTHONPATH=Sources:. python3 Tools/check-heartbeat.py --receipt RECEIVER_RECEIPT_FILE
+--installation-uuid EXPECTED_UUID` in the existing receiver's monitor. Its default
+maximum age is fifteen minutes for the five-minute sender cadence.
+The receipt must be a bounded regular file owned by the receiver user and not
+writable by other users; the checker refuses symlinks and oversized files.
+Alert on an attention result, missing file, wrong identity, future receipt or expired receipt;
+alert if this receiver-side check itself stops reporting. Never replace receipt
+time with the sender's clock or let silence retain a green status. Freshness proves
+recent receipt, not absence of host compromise. No additional permanent receiver
+or production machine is provisioned here.

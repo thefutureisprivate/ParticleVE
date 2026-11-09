@@ -1,0 +1,8 @@
+[Unit]
+Description=Bound failed candidate boots through upstream boot counting
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/particleve fail-boot
+TimeoutStartSec=60

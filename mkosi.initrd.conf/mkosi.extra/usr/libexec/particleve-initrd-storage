@@ -1,0 +1,46 @@
+#!/bin/bash
+set -euo pipefail
+trap 'printf "ParticleVE initrd storage failed at line %s\n" "$LINENO" >&2' ERR
+udevadm settle --timeout=30
+mkdir -p /run/particleve-root-probe /sysroot
+# Authority is committed outside Btrfs before ANY member is opened or scanned.
+/usr/libexec/particleve-storage-admission begin
+session=/run/particleve-admission.json
+mapfile -t roles < <(jq -er '.witness.allowed[]' "$session")
+[[ ${#roles[@]} -ge 1 && ${#roles[@]} -le 2 ]]
+mapped=()
+swap_members=()
+for role in "${roles[@]}"; do
+    state=$(jq -er --arg role "$role" '.witness.members[$role].state' "$session")
+    partition=/dev/disk/by-partuuid/$state
+    # A UUID alias must not conceal cloned/duplicate media.
+    [[ $(blkid -t "PARTUUID=$state" -o device | wc -l) == 1 ]]
+    expected=$(jq -er --arg role "$role" '.witness.members[$role].luks' "$session")
+    [[ $(cryptsetup luksUUID "$partition") == "$expected" ]]
+    /usr/lib/systemd/systemd-cryptsetup attach "particleve-state-$role" "$partition" - tpm2-device=auto
+    mapper=/dev/mapper/particleve-state-$role
+    [[ $(blkid -s UUID -o value "$mapper") == $(jq -er '.witness.btrfs_uuid' "$session") ]]
+    mapped+=("$mapper")
+    swap=$(jq -er --arg role "$role" '.witness.members[$role].swap' "$session")
+    test -b "/dev/disk/by-partuuid/$swap"
+    swap_members+=("/dev/disk/by-partuuid/$swap")
+done
+btrfs device scan "${mapped[@]}"
+options=ro,rescue=nologreplay
+[[ ${#mapped[@]} == 2 ]] || options+=,degraded
+mount -t btrfs -o "$options" "${mapped[0]}" /run/particleve-root-probe
+manifest=/run/particleve-root-probe/var/lib/particleve/installation.json
+/usr/libexec/particleve-storage-admission verify "$manifest"
+# Check persistent hooks before the installed PID 1 or a privileged service can
+# interpret /etc. A commissioned host also requires its owner-reviewed digest.
+/usr/libexec/particleve-storage-admission startup /run/particleve-root-probe
+swap_uuid=$(jq -er '.swap.md_uuid | select(type == "string" and test("^[0-9a-f]{8}(:[0-9a-f]{8}){3}$"))' "$manifest")
+printf 'HOMEHOST <ignore>\nAUTO -all\nARRAY /dev/md/particleve-swap UUID=%s\n' "$swap_uuid" > /run/particleve-mdadm.conf
+umount /run/particleve-root-probe
+options=rw,compress=zstd:1
+[[ ${#mapped[@]} == 2 ]] || options+=,degraded
+mount -t btrfs -o "$options" "${mapped[0]}" /sysroot
+# Incremental udev assembly is masked; only admitted swap members are supplied.
+mdadm --assemble --run --config=/run/particleve-mdadm.conf --uuid="$swap_uuid" /dev/md/particleve-swap "${swap_members[@]}"
+test -b /dev/md/particleve-swap
+[[ $(mdadm --detail --export /dev/md/particleve-swap | sed -n 's/^MD_UUID=//p') == "$swap_uuid" ]]

@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "endpoint": "https://monitor.example.invalid/particleve/health",
+  "maximum_update_check_age_seconds": 172800,
+  "private_ca": false
+}

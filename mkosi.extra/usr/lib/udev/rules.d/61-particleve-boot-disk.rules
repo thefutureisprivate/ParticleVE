@@ -1,0 +1,10 @@
+# Shared content-derived usr/verity UUIDs must resolve to the EFI boot disk.
+# Freeze native initrd boot-disk recognition in the per-boot udev database;
+# after switch-root, native root discovery describes the writable mirror instead.
+SUBSYSTEM!="block", GOTO="particleve_boot_disk_end"
+IMPORT{db}="PARTICLEVE_BOOT_DISK"
+ENV{DEVTYPE}=="disk", TEST=="/etc/initrd-release", ENV{ID_PART_GPT_AUTO_ROOT_DISK}=="1", ENV{PARTICLEVE_BOOT_DISK}="1"
+ENV{DEVTYPE}=="partition", IMPORT{parent}="PARTICLEVE_BOOT_DISK"
+# Keep the marker across udevadm's initrd-to-host database cleanup.
+ENV{PARTICLEVE_BOOT_DISK}=="1", OPTIONS+="link_priority=100", OPTIONS+="db_persist"
+LABEL="particleve_boot_disk_end"

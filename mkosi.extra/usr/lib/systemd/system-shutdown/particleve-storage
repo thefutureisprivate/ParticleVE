@@ -1,0 +1,4 @@
+#!/bin/bash
+# systemd runs this after remount/unmount, with /var unavailable. Failure leaves
+# the firmware witness dirty and requires deliberate owner recovery next boot.
+exec /usr/libexec/particleve-storage-admission finish

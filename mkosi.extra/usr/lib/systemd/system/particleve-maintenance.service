@@ -1,0 +1,12 @@
+[Unit]
+Description=Guard both boot disks and stop VMs before conditional OS reboot
+After=network-online.target particleve-runtime-ready.service
+Requires=particleve-runtime-ready.service
+OnFailure=particleve-maintenance-recover.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/particleve activate
+TimeoutStartSec=1h
+StateDirectory=particleve
+UMask=0077

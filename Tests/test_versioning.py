@@ -1,0 +1,193 @@
+import contextlib
+import io
+import json
+import os
+import subprocess
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from particleve.common import Error
+from particleve.config import version_key
+from particleve.layout import calculate, sfdisk_script
+from particleve.versioning import bump, mkosi_args, source_key
+from Tests.fixtures import devices, host, release
+from Tools.source_releases import main as publish_releases
+from Tools.source_releases import release_plan
+
+
+class VersionTests(unittest.TestCase):
+    def test_fix_feature_and_explicit_major_bumps(self):
+        self.assertEqual(bump("45.0.1.1", "patch"), "45.0.1.2")
+        self.assertEqual(bump("45.0.1.1", "minor"), "45.0.2.0")
+        with self.assertRaisesRegex(ValueError, "owner's explicit approval"):
+            bump("45.0.1.1", "major")
+        self.assertEqual(bump("45.0.1.1", "major", owner_approved=True), "45.1.0.0")
+        self.assertEqual(bump("45.3.4.5", "fedora", fedora=46), "46.3.0.0")
+
+    def test_all_six_numeric_components_order_releases(self):
+        versions = [
+            "45.0.1.1-87.2",
+            "45.0.1.1-87.10",
+            "45.0.1.1-88.1",
+            "45.0.1.2-1.1",
+            "45.0.2.0-1.1",
+            "45.1.0.0-1.1",
+            "46.0.0.0-1.1",
+        ]
+        self.assertEqual(sorted(reversed(versions), key=version_key), versions)
+        for value in ("87.2", "45.0.1.1-2", "45.0.01.1-87.2", "45.0.1.1-1000000.1", "45.0.1.1-87.2/../x"):
+            with self.subTest(value=value), self.assertRaises(Error):
+                version_key(value)
+
+    def test_obs_entry_composes_the_example_and_signing_rounds(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "particleve.version").write_text("45.0.1.1\n")
+            arguments = [f"--directory={root}", "--image-version=87.2", "build"]
+            self.assertEqual(mkosi_args(arguments)[1], "--image-version=45.0.1.1-87.2")
+            self.assertEqual(mkosi_args(mkosi_args(arguments)), mkosi_args(arguments))
+            with self.assertRaises(ValueError):
+                mkosi_args([f"--directory={root}", "--image-version=45.0.1.2-87.2"])
+            (root / "particleve.version").unlink()
+            self.assertEqual(mkosi_args(arguments), arguments)
+
+    def test_source_versions_are_canonical_and_bounded(self):
+        self.assertEqual(source_key("45.0.1.1"), (45, 0, 1, 1))
+        for value in ("45.0.1", "0.0.1.1", "45.00.1.1", "45.0.1.1-1.1", "45.0.1.1000000"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                source_key(value)
+
+    def test_long_versions_fit_gpt_and_payload_types_remain_distinct(self):
+        value = "45.0.999999.999999-999999.999999"
+        version_key(value)
+        result = calculate(host(), devices(), release(value))
+        for disk in result["devices"]:
+            parts = [part for part in disk["partitions"] if part["role"].startswith("a_")]
+            self.assertEqual({part["label"] for part in parts}, {"PVE_" + value})
+            self.assertEqual(len(parts[0]["label"].encode("utf-16-le")), 72)
+            self.assertEqual(len({part["type"] for part in parts}), 3)
+            sfdisk_script(disk)
+
+
+class SourceReleaseTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
+        self.git("init", "-q", "--initial-branch=main")
+        (self.root / "README").write_text("disposable upstream fixture\n")
+        self.commit("Upstream base")
+        base = self.git("rev-parse", "HEAD")
+        (self.root / "sources.lock.json").write_text(
+            json.dumps({"sources": {"particleos": {"revision": base}}})
+        )
+
+    def git(self, *arguments):
+        return subprocess.run(
+            ["git", "-C", str(self.root), *arguments],
+            env=self.env,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        ).stdout.strip()
+
+    def commit(self, subject):
+        self.git("add", ".")
+        self.git(
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-qm",
+            subject,
+        )
+
+    def version(self, value, subject):
+        (self.root / "particleve.version").write_text(value + "\n")
+        self.commit(subject)
+
+    def test_each_version_gets_its_own_commit_range(self):
+        self.version("45.0.1.1", "Initial PVE version")
+        (self.root / "fix").write_text("fix\n")
+        self.commit("Fix a boot path")
+        self.version("45.0.1.2", "Release the fix")
+        self.version("45.0.2.0", "Large feature")
+        plan = release_plan(self.root, "owner/repository")
+        self.assertEqual([item["tag"] for item in plan], ["v45.0.1.1", "v45.0.1.2", "v45.0.2.0"])
+        self.assertNotIn("Upstream base", plan[0]["notes"])
+        self.assertIn("Fix a boot path", plan[1]["notes"])
+        self.assertNotIn("Initial PVE version", plan[1]["notes"])
+        self.assertNotIn("Fix a boot path", plan[2]["notes"])
+
+    def test_reusing_or_decreasing_a_version_cannot_rewrite_release_history(self):
+        self.version("45.0.1.2", "Initial PVE version")
+        self.version("45.0.1.1", "Accidental downgrade")
+        with self.assertRaisesRegex(Error, "must increase"):
+            release_plan(self.root, "owner/repository")
+
+    def test_publication_skips_existing_versions_and_preserves_the_commit_range(self):
+        self.version("45.0.1.1", "Initial PVE version")
+        self.version("45.0.1.2", "Fix the loader")
+        expected = release_plan(self.root, "owner/repository")[1]
+        output = self.root / "release-output"
+        from Tools import source_releases
+
+        real_run = source_releases.run
+        created = []
+
+        def command(arguments, **kwargs):
+            if arguments[:2] == ["gh", "api"]:
+                return SimpleNamespace(stdout="v45.0.1.1\n")
+            if arguments[:3] == ["gh", "release", "create"]:
+                created.append(arguments)
+                return SimpleNamespace(stdout="created")
+            return real_run(arguments, **kwargs)
+
+        with (
+            patch("Tools.source_releases.Path.cwd", return_value=self.root),
+            patch("Tools.source_releases.run", side_effect=command),
+            patch(
+                "sys.argv",
+                ["source_releases", "--repository", "owner/repository", "--output", str(output), "--publish"],
+            ),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            publish_releases()
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0][3], "v45.0.1.2")
+        self.assertEqual(created[0][created[0].index("--target") + 1], expected["commit"])
+        self.assertIn("Fix the loader", (output / "v45.0.1.2.md").read_text())
+
+    def test_publication_failure_is_not_recorded_as_a_completed_release(self):
+        self.version("45.0.1.1", "Initial PVE version")
+        output = self.root / "release-output"
+        from Tools import source_releases
+
+        real_run = source_releases.run
+
+        def command(arguments, **kwargs):
+            if arguments[:2] == ["gh", "api"]:
+                return SimpleNamespace(stdout="")
+            if arguments[:3] == ["gh", "release", "create"]:
+                raise Error("GitHub unavailable")
+            return real_run(arguments, **kwargs)
+
+        with (
+            patch("Tools.source_releases.Path.cwd", return_value=self.root),
+            patch("Tools.source_releases.run", side_effect=command),
+            patch(
+                "sys.argv",
+                ["source_releases", "--repository", "owner/repository", "--output", str(output), "--publish"],
+            ),
+            self.assertRaisesRegex(Error, "GitHub unavailable"),
+        ):
+            publish_releases()
+        self.assertFalse((output / "releases.json").exists())

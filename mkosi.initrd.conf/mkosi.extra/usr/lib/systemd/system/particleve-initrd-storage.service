@@ -1,0 +1,18 @@
+[Unit]
+Description=Assemble and unlock the encrypted mirrored ParticleVE root
+DefaultDependencies=no
+Wants=systemd-udev-settle.service systemd-tpm2-setup-early.service systemd-pcrphase-initrd.service
+After=systemd-udev-settle.service systemd-tpm2-setup-early.service systemd-pcrphase-initrd.service
+Before=sysroot.mount initrd-root-fs.target
+OnFailure=emergency.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/particleve-initrd-storage
+StandardOutput=journal+console
+StandardError=journal+console
+TimeoutStartSec=240
+RemainAfterExit=yes
+
+[Install]
+RequiredBy=initrd-root-fs.target

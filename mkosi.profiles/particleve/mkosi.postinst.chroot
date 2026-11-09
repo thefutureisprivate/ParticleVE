@@ -1,0 +1,76 @@
+#!/bin/bash
+# SPDX-License-Identifier: LGPL-2.1-or-later
+set -euo pipefail
+
+# Upstream enables the optional userdb link before profile hooks run. The
+# ParticleVE factory SSH defaults already supply AuthorizedKeysCommand; remove
+# the link rule before tmpfiles can follow the read-only factory directory.
+rm -f /usr/lib/tmpfiles.d/20-systemd-userdb.conf
+
+test -f /usr/lib/particleve/build.json
+# The selected client has no DHCP, symmetric-key or environment-driven inputs.
+rm -f /etc/dhcp/dhclient.d/chrony.sh /etc/chrony.keys /etc/sysconfig/chronyd
+# Audit and SELinux remain enabled. Reproducible defaults are captured by upstream mkosi.finalize.
+install -d /etc/selinux
+cat >/etc/selinux/config <<'EOF'
+SELINUX=enforcing
+SELINUXTYPE=targeted
+EOF
+install -d /etc/systemd/zram-generator.conf.d
+printf '# Deliberately empty: encrypted block swap backs zswap.\n' >/etc/systemd/zram-generator.conf
+ln -s /dev/null /etc/systemd/zram-generator.conf.d/00-disable.conf
+# No independent upstream transfer/installer/reset path may mutate the selected disk pair.
+rm -rf /usr/lib/sysupdate.d /usr/lib/sysupdate.reboot.d /usr/lib/repart.d
+install -d /usr/lib/sysupdate.d
+ln -sf /dev/null /usr/lib/systemd/system/systemd-sysupdate.service
+ln -sf /dev/null /usr/lib/systemd/system/systemd-sysupdate.timer
+ln -sf /dev/null /usr/lib/systemd/system/systemd-sysupdate-reboot.service
+ln -sf /dev/null /usr/lib/systemd/system/systemd-sysupdate-reboot.timer
+ln -sf /dev/null /usr/lib/systemd/system/systemd-repart.service
+systemctl preset-all
+systemctl disable systemd-sysupdate-update.timer systemd-sysupdate-reboot.timer
+# systemd-boot updates are exclusively installed by the two-disk coordinator.
+ln -sf /dev/null /usr/lib/systemd/system/systemd-boot-update.service
+# PAM is generated in the image; a boot-time authselect rewrite cannot update /usr.
+ln -sf /dev/null /usr/lib/systemd/system/authselect-apply-changes.service
+# Host code/configuration is delivered by the signed OS, never mutable extensions
+# or portable host workloads. Guest definitions remain externally managed.
+for unit in systemd-sysext.service systemd-sysext.socket systemd-confext.service systemd-confext.socket \
+            systemd-portabled.service systemd-timesyncd.service chronyd.service chrony-wait.service \
+            ksm.service ksmtuned.service systemd-rfkill.service systemd-rfkill.socket; do
+    ln -sf /dev/null "/usr/lib/systemd/system/$unit"
+done
+# Only configured links may obtain addresses; no generic DHCP fallback or trim job.
+ln -sf /dev/null /usr/lib/systemd/network/89-ethernet.network
+ln -sf /dev/null /usr/lib/systemd/system/fstrim.timer
+# The factory directory is immutable. The public link needs the ordinary /etc
+# link label; the target policy/configuration keeps its specific SELinux types.
+printf '/etc/(selinux|audit) -l system_u:object_r:etc_t:s0\n' >>/etc/selinux/targeted/contexts/files/file_contexts.local
+# Build the narrow EFI-write policy into the image, never the worker's kernel.
+semodule --noreload --install /usr/lib/particleve/particleve_boot.cil
+semodule --noreload --install /usr/lib/particleve/particleve_witness.pp
+semodule --noreload --install /usr/lib/particleve/particleve_vmspawn.pp
+semodule --noreload --install /usr/lib/particleve/particleve_runtime.cil
+# Compile audit defaults before making the factory configuration read-only.
+augenrules
+# Capture the newly compiled policy and audit configuration in mkosi.finalize;
+# packaged factory examples must not take precedence over the image's settings.
+rm -rf /usr/share/factory/etc/selinux /usr/share/factory/etc/audit
+# Keep the packaged SSH/PAM stack, adding only the required homed account gate.
+# Root remains the independently accessible recovery/bootstrap account.
+for stack in sshd system-auth password-auth; do
+    test -f "/usr/lib/pam.d/$stack"
+    sed -i '1i account requisite pam_exec.so quiet /usr/libexec/particleve-homed-account' "/usr/lib/pam.d/$stack"
+done
+# The configured /usr PAM stack is authoritative; the package's generic factory
+# example must not shadow it when an installed writable root is initialized.
+rm -rf /usr/share/factory/etc/pam.d
+# Review the complete package privilege set before revoking specific entries.
+# Dependency changes cannot disappear inside a blanket chmod/setcap operation.
+python3 -IB - <<'PY'
+import sys
+sys.path.insert(0, "/usr/lib/particleve")
+from particleve.security import apply_image_privileges, write_tpm_profile
+write_tpm_profile("/")
+apply_image_privileges("/")
+PY

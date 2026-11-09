@@ -1,0 +1,9 @@
+#!/usr/bin/python3 -IB
+import sys
+
+sys.path.insert(0, "/usr/lib/particleve")
+from particleve.vmrun import supervise
+
+if len(sys.argv) < 3:
+    raise SystemExit("usage: particleve-vm-run INSTANCE /usr/bin/systemd-vmspawn ARGUMENTS...")
+raise SystemExit(supervise(sys.argv[1], sys.argv[2:]))

@@ -1,0 +1,14 @@
+[Unit]
+Description=Fence failed ParticleVE mirror members
+After=local-fs.target
+OnFailure=emergency.target
+OnFailureJobMode=isolate
+# Healthy one-second timer invocations count toward PID1's start limit too.
+# Permit the intended cadence with a bounded allowance of 12 starts per 10s.
+StartLimitIntervalSec=10s
+StartLimitBurst=12
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/particleve-storage-admission watch
+TimeoutStartSec=30s

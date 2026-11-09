@@ -1,0 +1,47 @@
+[Unit]
+Description=Send a bounded ParticleVE health observation to the owner-selected receiver
+After=network-online.target particleve-runtime-ready.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+LimitCORE=0
+CoredumpFilter=0
+# Allocate the private identity now; the inspector performs its own irrevocable
+# setpriv handoff before reading the service credential or contacting TLS peers.
+DynamicUser=yes
+User=particleve-report
+ExecStart=!/usr/bin/particleve send-health-report
+LoadCredential=report-token:/etc/particleve/report-token
+TimeoutStartSec=2min
+MemoryHigh=128M
+MemoryMax=256M
+TasksMax=32
+CPUQuota=25%
+UMask=0077
+NoNewPrivileges=yes
+SystemCallArchitectures=native
+# Inspection needs status ioctls/process metadata; SET* only drops to the private UID.
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_PTRACE CAP_SETUID CAP_SETGID CAP_SETPCAP
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+ProtectProc=invisible
+ReadOnlyPaths=/proc
+ProtectKernelTunables=yes
+# libselinux uses this one transaction file for read-only effective-policy
+# queries. It cannot load policy, change booleans or change enforcing state.
+ReadWritePaths=/sys/fs/selinux/access
+# Keep the verified module/config tree readable for the effective-kernel check.
+# Loading/unloading modules and process-memory syscalls are separately denied.
+SystemCallFilter=~@mount bpf init_module finit_module delete_module ptrace process_vm_readv process_vm_writev
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes

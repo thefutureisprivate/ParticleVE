@@ -1,0 +1,7 @@
+#!/bin/bash
+# SPDX-License-Identifier: LGPL-2.1-or-later
+set -euo pipefail
+systemctl --root "$BUILDROOT" is-enabled particleve-initrd-watchdog.timer
+test -L "$BUILDROOT/usr/lib/systemd/system/initrd-root-fs.target.requires/particleve-initrd-storage.service"
+test -f "$BUILDROOT/usr/lib/systemd/system/sysroot.mount.d/50-particleve.conf"
+udevadm verify "$BUILDROOT/usr/lib/udev/rules.d/99-particleve-root.rules"

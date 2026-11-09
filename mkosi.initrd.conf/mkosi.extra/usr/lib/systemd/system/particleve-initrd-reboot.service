@@ -1,0 +1,10 @@
+[Unit]
+Description=Retry a failed ParticleVE boot through upstream boot counting
+DefaultDependencies=no
+IgnoreOnIsolate=yes
+Conflicts=initrd-switch-root.target
+Before=initrd-switch-root.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl --no-block --force reboot

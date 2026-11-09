@@ -1,0 +1,205 @@
+{
+  "schema": 1,
+  "approved_by": "REPLACE",
+  "installation_sha256": "REPLACE",
+  "image_version": "REPLACE",
+  "measured_minimum_ram_mib": 0,
+  "hardware_coverage": [],
+  "validation_gaps": [],
+  "scenarios": {
+    "preflight": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "portable_image": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "cpu_storage_nic_variation": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "capacity_sectors": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "unselected_storage": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "boot_either_disk": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "boot_a_absent": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "boot_b_absent": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "mirror_io_failure": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "active_usr_loss": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "replacement": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "tampered_artifacts": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "interrupted_update": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "eligible_reboot": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "no_update_no_reboot": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "missed_window_dst": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "failed_boot_quarantine": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "persistent_state_rollback": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "vm_shutdown_refusal": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "late_exit_concurrent_start": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "interrupted_vm_maintenance": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "external_startup_policy": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "writable_root_preservation": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "nocow_auxiliary_state": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "btrfs_profiles_errors": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "maintenance_exclusion": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "firmware_discovery_trust": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "tpm_recovery": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "confinement": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "memory_capacity": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "resource_limits": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "homed_ssh": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "stale_member_return": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "unclean_mirror_authority": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "broken_loader_fallback": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "external_health_reporting": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "persistent_startup_policy": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    },
+    "physical_interface_policy": {
+      "result": "not-run",
+      "evidence": "REPLACE",
+      "sha256": "REPLACE"
+    }
+  },
+  "firmware_flash": {
+    "result": "not-run",
+    "evidence": "REPLACE"
+  }
+}

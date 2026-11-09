@@ -1,0 +1,3 @@
+# Retain privileged firmware/diagnostic paths without a kmem-group or seat grant.
+SUBSYSTEM=="mem", KERNEL=="mem", OWNER="root", GROUP="root", MODE="0600", TAG-="uaccess"
+SUBSYSTEM=="misc", KERNEL=="userfaultfd", OWNER="root", GROUP="root", MODE="0600", TAG-="uaccess"

@@ -1,0 +1,3 @@
+# Unified-diff blank context lines contain a required space; patch application
+# is verified by make check-upstream.
+/.obs/mkosi/mkosi-obs-continuation.patch whitespace=-blank-at-eol

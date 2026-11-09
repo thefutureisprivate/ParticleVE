@@ -1,0 +1,12 @@
+[Unit]
+Description=Report ParticleVE health without changing VM or update lifecycle
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=15s
+RandomizedDelaySec=15s
+Unit=particleve-report.service
+
+[Install]
+WantedBy=timers.target

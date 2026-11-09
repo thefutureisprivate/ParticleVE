@@ -1,0 +1,21 @@
+#!/usr/bin/python3 -IB
+import sys
+import time
+
+sys.path.insert(0, "/usr/lib/particleve")
+from particleve.vms import stop_instance
+from particleve.common import Error
+
+if len(sys.argv) != 2:
+    raise SystemExit("usage: particleve-vm-stop INSTANCE")
+last_error = None
+while True:
+    try:
+        stop_instance(sys.argv[1])
+        break
+    except (Error, OSError, ValueError) as exc:
+        # An inspection error must not fall through to vmspawn's SIGKILL handler.
+        if str(exc) != last_error:
+            print(f"Cannot confirm graceful VM exit; waiting for owner assistance: {exc}", flush=True)
+            last_error = str(exc)
+        time.sleep(1)

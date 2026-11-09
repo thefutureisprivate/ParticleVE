@@ -1,0 +1,9 @@
+#!/usr/bin/python3 -IB
+import sys
+
+sys.path.insert(0, "/usr/lib/particleve")
+from particleve.confinement import start_guard
+
+if len(sys.argv) != 2:
+    raise SystemExit("usage: particleve-vm-start-guard INSTANCE")
+start_guard(sys.argv[1])

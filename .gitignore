@@ -1,4 +1,10 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
+.agents/
+.aws/
+.codex/
+.vscode/
+.DS_Store
+
 mkosi.local/
 mkosi.local.conf
 mkosi.output/
@@ -10,3 +16,16 @@ mkosi.crt
 mkosi.version
 mkosi.rootpw
 .mkosi-private
+
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+.ruff_cache/
+build/
+dist/
+*.key
+*.pem
+!Tools/Examples/*.pem
+!mkosi.extra/usr/lib/particleve/trust/pcr-public-key.pem
+!mkosi.initrd.conf/mkosi.extra/etc/systemd/tpm2-pcr-public-key.pem

@@ -1,0 +1,9 @@
+#!/usr/bin/python3 -I
+"""Run inside the native mkosi build/signing sandbox."""
+
+import sys
+
+sys.path.insert(0, "/usr/lib/particleve-build")
+from particleve.buildartifacts import postoutput
+
+postoutput()

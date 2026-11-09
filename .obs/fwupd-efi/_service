@@ -1,0 +1,15 @@
+<services>
+  <service name="obs_scm">
+    <param name="scm">git</param>
+    <param name="url">https://github.com/thefutureisprivate/particleve.git</param>
+    <param name="revision">main</param>
+    <param name="filename">particleve-build-inputs</param>
+    <param name="without-version">1</param>
+    <param name="extract">.obs/fwupd-efi/fwupd-efi.spec</param>
+    <param name="extract-rename">.obs/fwupd-efi/fwupd-efi.spec:fwupd-efi.recipe</param>
+    <param name="extract">.obs/fwupd-efi/fwupd-efi-sbom-linker-message.patch</param>
+    <param name="extract">sources.lock.json</param>
+    <param name="extract">Sources/particleve/package_sources.py</param>
+  </service>
+  <service name="download_files" />
+</services>

@@ -1,0 +1,23 @@
+; User-namespace setup belongs to PID 1 and the native namespace/VM brokers.
+; General host programs and login sessions do not manufacture namespaces.
+(deny unconfined_t self (user_namespace (create)))
+(deny unconfined_service_t self (user_namespace (create)))
+; This host manages static links, bridges and VLANs, not IPsec keying/XFRM.
+(deny unconfined_t self (key_socket (create)))
+(deny unconfined_service_t self (key_socket (create)))
+(deny unconfined_t self (netlink_xfrm_socket (create)))
+(deny unconfined_service_t self (netlink_xfrm_socket (create)))
+; The zero-capability chrony-UID inspector retains NoNewPrivileges. Permit
+; only its native chronyc domain transition from the two administration/service
+; contexts; otherwise chronyd_restricted_t cannot reply to its unconfined socket.
+(allow unconfined_t chronyc_t (process2 (nnp_transition)))
+(allow unconfined_service_t chronyc_t (process2 (nnp_transition)))
+; Keep AF_ALG for the demonstrated cryptsetup kernel-crypto path in both
+; administrative and native root-service contexts. Network services, QEMU and
+; swtpm retain their confined domains; the VM/reporter units also filter it.
+(neverallow unconfined_t self (user_namespace (create)))
+(neverallow unconfined_service_t self (user_namespace (create)))
+(neverallow unconfined_t self (key_socket (create)))
+(neverallow unconfined_service_t self (key_socket (create)))
+(neverallow unconfined_t self (netlink_xfrm_socket (create)))
+(neverallow unconfined_service_t self (netlink_xfrm_socket (create)))

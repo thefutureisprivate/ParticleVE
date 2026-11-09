@@ -1,0 +1,153 @@
+{
+  "schema": 1,
+  "privileged_files": {
+    "/usr/bin/unix_chkpwd": {
+      "capabilities": null,
+      "gid": 0,
+      "mode": "4755",
+      "uid": 0,
+      "purpose": "PAM shadow/account verification in the native authselect stack; retain for authentication and owner-recovery validation."
+    },
+    "/usr/lib/polkit-1/polkit-agent-helper-1": {
+      "capabilities": null,
+      "gid": 0,
+      "mode": "4755",
+      "uid": 0,
+      "purpose": "Privileged PAM authentication for native polkit/run0 elevation."
+    }
+  },
+  "revoked_privileges": {
+    "/usr/bin/arping": {
+      "capabilities": {
+        "effective": false,
+        "inheritable": 0,
+        "permitted": 8192,
+        "rootid": 0
+      },
+      "gid": 0,
+      "mode": "0755",
+      "uid": 0,
+      "purpose": "Network diagnostics are owner/root operations; networkd uses its own authorized sockets."
+    },
+    "/usr/bin/clockdiff": {
+      "capabilities": {
+        "effective": false,
+        "inheritable": 0,
+        "permitted": 8192,
+        "rootid": 0
+      },
+      "gid": 0,
+      "mode": "0755",
+      "uid": 0,
+      "purpose": "Raw-socket clock diagnostics are owner/root operations; authenticated time has a separate daemon."
+    },
+    "/usr/bin/chage": {
+      "capabilities": null,
+      "gid": 0,
+      "mode": "4755",
+      "uid": 0,
+      "purpose": "Local account expiry is owner/root policy; human accounts use homed."
+    },
+    "/usr/bin/chfn": {
+      "capabilities": null,
+      "gid": 0,
+      "mode": "4711",
+      "uid": 0,
+      "purpose": "Human account metadata is managed through homed; local account maintenance is owner/root only."
+    },
+    "/usr/bin/chsh": {
+      "capabilities": null,
+      "gid": 0,
+      "mode": "4711",
+      "uid": 0,
+      "purpose": "Human login-shell policy is managed through homed; local account maintenance is owner/root only."
+    },
+    "/usr/bin/gpasswd": {
+      "capabilities": null,
+      "gid": 0,
+      "mode": "4755",
+      "uid": 0,
+      "purpose": "System group administration is owner/root only; human membership is managed through homed."
+    },
+    "/usr/bin/mount": {
+      "capabilities": null,
+      "gid": 0,
+      "mode": "4755",
+      "uid": 0,
+      "purpose": "Host mounts are owned by PID1 or explicit elevated owner maintenance; no unprivileged fstab user mounts."
+    },
+    "/usr/bin/newgidmap": {
+      "capabilities": {
+        "effective": true,
+        "inheritable": 0,
+        "permitted": 64,
+        "rootid": 0
+      },
+      "gid": 0,
+      "mode": "0755",
+      "uid": 0,
+      "purpose": "Native trusted namespace brokering performs mappings; unprivileged external subordinate-ID helpers are outside this host contract."
+    },
+    "/usr/bin/newgrp": {
+      "capabilities": null,
+      "gid": 0,
+      "mode": "4755",
+      "uid": 0,
+      "purpose": "Human group policy is managed through homed; privileged group-changing shells are unnecessary."
+    },
+    "/usr/bin/newuidmap": {
+      "capabilities": {
+        "effective": true,
+        "inheritable": 0,
+        "permitted": 128,
+        "rootid": 0
+      },
+      "gid": 0,
+      "mode": "0755",
+      "uid": 0,
+      "purpose": "Native trusted namespace brokering performs mappings; unprivileged external subordinate-ID helpers are outside this host contract."
+    },
+    "/usr/bin/pam_timestamp_check": {
+      "capabilities": null,
+      "gid": 0,
+      "mode": "4755",
+      "uid": 0,
+      "purpose": "The selected native PAM stack does not use pam_timestamp authentication caching."
+    },
+    "/usr/bin/passwd": {
+      "capabilities": null,
+      "gid": 0,
+      "mode": "4755",
+      "uid": 0,
+      "purpose": "Human password changes use homectl; local recovery-account changes require explicit owner elevation."
+    },
+    "/usr/bin/pkexec": {
+      "capabilities": null,
+      "gid": 0,
+      "mode": "4755",
+      "uid": 0,
+      "purpose": "Native run0/polkit is the host elevation path; this alternative executable gains no implicit privilege."
+    },
+    "/usr/bin/su": {
+      "capabilities": null,
+      "gid": 0,
+      "mode": "4755",
+      "uid": 0,
+      "purpose": "Native run0/polkit is the host elevation path; root may still change identity deliberately."
+    },
+    "/usr/bin/umount": {
+      "capabilities": null,
+      "gid": 0,
+      "mode": "4755",
+      "uid": 0,
+      "purpose": "Host mounts are owned by PID1 or explicit elevated owner maintenance; no unprivileged fstab user mounts."
+    },
+    "/usr/libexec/qemu-bridge-helper": {
+      "capabilities": null,
+      "gid": 0,
+      "mode": "4755",
+      "uid": 0,
+      "purpose": "Native nsresourced supplies an authorized TAP descriptor; QEMU has no host network-administration capability."
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "obs_project": "home:thefutureisprivate:particleve",
+  "obs_user": "thefutureisprivate",
+  "source_repository": "https://github.com/thefutureisprivate/particleve.git",
+  "source_branch": "main",
+  "fedora_project": "Fedora:45",
+  "fedora_base_repository": "standard",
+  "fedora_updates_repository": "update",
+  "feed": "https://download.opensuse.org/repositories/home:/thefutureisprivate:/particleve/Fedora_45_images",
+  "package_repository": "https://download.opensuse.org/repositories/home:/thefutureisprivate:/particleve/Fedora_45",
+  "trust_directory": "mkosi.extra/usr/lib/particleve/trust"
+}

@@ -1,0 +1,3 @@
+# The validating initrd service gates sysroot.mount and decides bounded degraded boot.
+# Btrfs's generic readiness check otherwise waits for every recorded member.
+SUBSYSTEM=="block", ENV{DM_NAME}=="particleve-state-[ab]", ENV{ID_FS_TYPE}=="btrfs", ENV{ID_FS_LABEL}=="ParticleVE-root", ENV{SYSTEMD_READY}="1"

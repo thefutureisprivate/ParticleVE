@@ -1,0 +1,17 @@
+[Unit]
+Description=Assess required host capabilities before blessing this OS
+Requires=systemd-machined.service sshd-keygen.target
+Wants=boot-complete.target network-online.target
+After=local-fs.target swap.target systemd-machined.service network-online.target sshd-keygen.target
+Before=boot-complete.target systemd-bless-boot.service
+OnFailure=particleve-boot-failed.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/particleve assess
+TimeoutStartSec=180
+RemainAfterExit=yes
+
+[Install]
+RequiredBy=boot-complete.target
+WantedBy=multi-user.target

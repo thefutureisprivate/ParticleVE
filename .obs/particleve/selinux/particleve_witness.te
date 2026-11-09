@@ -1,0 +1,25 @@
+policy_module(particleve_witness, 1.0.0)
+
+type particleve_witness_t;
+type particleve_witness_exec_t;
+init_daemon_domain(particleve_witness_t, particleve_witness_exec_t)
+
+gen_require(`
+    type efivarfs_t;
+')
+
+# The executable refuses to run unless a capability-restricted mount namespace
+# exposes exactly the existing witness as writable. efivarfs has no per-file
+# labels, so that kernel-enforced namespace is part of this domain's contract.
+allow init_t particleve_witness_t:process2 nnp_transition;
+allow particleve_witness_t self:capability linux_immutable;
+allow particleve_witness_t efivarfs_t:dir search;
+allow particleve_witness_t efivarfs_t:file { getattr open read write ioctl setattr };
+
+corecmd_exec_bin(particleve_witness_t)
+libs_use_ld_so(particleve_witness_t)
+libs_use_shared_libs(particleve_witness_t)
+files_read_usr_files(particleve_witness_t)
+files_read_etc_files(particleve_witness_t)
+kernel_read_system_state(particleve_witness_t)
+domain_use_interactive_fds(particleve_witness_t)

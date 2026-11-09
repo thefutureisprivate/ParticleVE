@@ -1,0 +1,15 @@
+[Unit]
+Description=Verify writable storage and retained runtime state before starting VMs
+After=local-fs.target swap.target systemd-machined.service boot-complete.target systemd-bless-boot.service
+Requires=systemd-machined.service boot-complete.target systemd-bless-boot.service
+Before=machines.target
+RequiresMountsFor=/var /var/lib/machines /home
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/particleve runtime-guard
+TimeoutStartSec=15min
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

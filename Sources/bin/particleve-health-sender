@@ -1,0 +1,13 @@
+#!/usr/bin/python3 -I
+import json
+import sys
+
+sys.path.insert(0, "/usr/lib/particleve")
+from particleve.common import Error
+from particleve.reporting import sender_main
+
+try:
+    print(json.dumps(sender_main(), sort_keys=True))
+except (Error, OSError, ValueError, TypeError, KeyError) as exc:
+    print(f"particleve-health-sender: {exc}", file=sys.stderr)
+    raise SystemExit(1)

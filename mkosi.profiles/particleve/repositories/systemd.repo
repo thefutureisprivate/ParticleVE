@@ -1,0 +1,8 @@
+[particleve-systemd]
+name=ParticleVE systemd
+baseurl=https://download.opensuse.org/repositories/system:/systemd:/stable/Fedora_45/
+gpgcheck=1
+enabled=1
+priority=1
+includepkgs=systemd* libudev*
+gpgkey=file:///usr/share/pki/rpm-gpg/particleve-systemd.asc

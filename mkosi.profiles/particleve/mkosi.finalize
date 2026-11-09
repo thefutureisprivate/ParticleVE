@@ -1,0 +1,9 @@
+#!/bin/bash
+# SPDX-License-Identifier: LGPL-2.1-or-later
+set -euo pipefail
+
+PYTHONPATH="$SRCDIR/Sources" python3 "$SRCDIR/Tools/check-build.py" --root / --tree tools --source-dir "$SRCDIR"
+
+# Validate the installed tree, rather than inferring provenance from requested packages.
+PYTHONPATH="$SRCDIR/Sources" python3 "$SRCDIR/Tools/check-build.py" --root "$BUILDROOT" \
+    --source-dir "$SRCDIR" --output "$BUILDROOT/usr/lib/particleve/verification.json"

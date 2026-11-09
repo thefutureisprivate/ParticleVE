@@ -1,0 +1,24 @@
+#!/bin/bash
+# SPDX-License-Identifier: LGPL-2.1-or-later
+set -euo pipefail
+install -d "$BUILDROOT/usr/lib/particleve/particleve"
+for module in __init__ common admission startup; do
+    install -m 0644 "$SRCDIR/Sources/particleve/$module.py" "$BUILDROOT/usr/lib/particleve/particleve/"
+done
+install -m 0755 "$SRCDIR/Sources/bin/particleve-storage-admission" "$BUILDROOT/usr/libexec/particleve-storage-admission"
+install -D -m 0644 "$SRCDIR/mkosi.extra/usr/lib/udev/rules.d/61-particleve-boot-disk.rules" \
+    "$BUILDROOT/usr/lib/udev/rules.d/61-particleve-boot-disk.rules"
+# Unlock credentials are sensitive before switch-root too. Reuse the same
+# reviewed policy assets; do not maintain a second authored configuration.
+for file in systemd/coredump.conf.d/60-particleve.conf \
+            systemd/system.conf.d/60-particleve-memory.conf \
+            systemd/user.conf.d/60-particleve-memory.conf \
+            sysctl.d/60-particleve-memory.conf \
+            sysctl.d/60-particleve-kernel.conf \
+            udev/rules.d/71-particleve-kernel.rules; do
+    install -D -m 0644 "$SRCDIR/mkosi.extra/usr/lib/$file" "$BUILDROOT/usr/lib/$file"
+done
+for file in modules-load.d/60-particleve-radio.conf udev/rules.d/71-particleve-radio.rules; do
+    install -D -m 0644 "$SRCDIR/mkosi.extra/usr/lib/$file" "$BUILDROOT/usr/lib/$file"
+done
+PYTHONPATH="$SRCDIR/Sources" python3 "$SRCDIR/Tools/check-build.py" --root "$BUILDROOT" --tree initrd --source-dir "$SRCDIR"

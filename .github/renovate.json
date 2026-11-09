@@ -1,0 +1,71 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "enabledManagers": [
+    "custom.regex",
+    "github-actions"
+  ],
+  "automerge": false,
+  "pinDigests": true,
+  "ignoreUnstable": true,
+  "separateMajorMinor": false,
+  "prConcurrentLimit": 2,
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^sources\\.lock\\.json$/"
+      ],
+      "matchStrings": [
+        "\"url\": \"https://github\\.com/(?<depName>systemd/mkosi|fwupd/fwupd-efi)\\.git\",\\n(?<indentation> *)\"revision\": \"(?<currentDigest>[a-f0-9]{40})\",\\n *\"version\": \"(?<version>[^\"\\n]+)\""
+      ],
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "regex:^v?(?<major>\\d+)(?:\\.(?<minor>\\d+))?(?:\\.(?<patch>\\d+))?(?<prerelease>~.*)?$",
+      "autoReplaceStringTemplate": "\"url\": \"https://github.com/{{{depName}}}.git\",\n{{{indentation}}}\"revision\": \"{{{newDigest}}}\",\n{{{indentation}}}\"version\": \"{{{replace '^v' '' newValue}}}\"",
+      "currentValueTemplate": "{{#if (equals depName \"systemd/mkosi\")}}v{{/if}}{{{version}}}"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.obs/(?:mkosi|fwupd-efi)/[^/]+\\.spec$/"
+      ],
+      "matchStrings": [
+        "# renovate: depName=(?<depName>systemd/mkosi|fwupd/fwupd-efi)\\n%global upstream_commit (?<currentDigest>[a-f0-9]{40})\\nName:[ \\t]+[^\\n]+\\nVersion:[ \\t]+(?<version>[^\\n]+)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "regex:^v?(?<major>\\d+)(?:\\.(?<minor>\\d+))?(?:\\.(?<patch>\\d+))?(?<prerelease>~.*)?$",
+      "autoReplaceStringTemplate": "# renovate: depName={{{depName}}}\n%global upstream_commit {{{newDigest}}}\nName:           {{{replace '^.*/' '' depName}}}\nVersion:        {{{replace '^v' '' newValue}}}",
+      "currentValueTemplate": "{{#if (equals depName \"systemd/mkosi\")}}v{{/if}}{{{version}}}"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchPackageNames": [
+        "systemd/mkosi",
+        "fwupd/fwupd-efi"
+      ],
+      "allowedVersions": "/^v?\\d+(?:\\.\\d+){0,2}$/",
+      "prPriority": 10,
+      "prBodyNotes": [
+        "The source lock and RPM recipe must advance together. CI checks immutable release tags and downstream patches; OBS package builds and signed-image acceptance are required before signed-image publication."
+      ],
+      "pinDigests": true
+    },
+    {
+      "matchPackageNames": [
+        "systemd/mkosi"
+      ],
+      "groupName": "mkosi source and RPM recipe",
+      "groupSlug": "mkosi"
+    },
+    {
+      "matchPackageNames": [
+        "fwupd/fwupd-efi"
+      ],
+      "groupName": "fwupd-efi source and RPM recipe",
+      "groupSlug": "fwupd-efi"
+    }
+  ]
+}

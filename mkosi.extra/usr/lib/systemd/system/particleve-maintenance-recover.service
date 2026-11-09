@@ -1,0 +1,8 @@
+[Unit]
+Description=Reconcile interrupted VM shutdown and restore only affected VMs
+After=particleve-maintenance.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/particleve recover-vms
+TimeoutStartSec=15min

@@ -1,0 +1,18 @@
+From: ParticleVE maintainers
+Subject: Report the expected SBOM linker choice as an informational message
+
+The build deliberately enables uSWID. Selecting the bundled linker script is
+the required successful path for retaining .sbom, rather than an error. Keep
+all compiler warnings fatal and verify the emitted .sbom and .sbat sections in
+the RPM check phase. This changes only this one configuration diagnostic.
+
+--- a/efi/meson.build
++++ b/efi/meson.build
+@@ -110,6 +110,6 @@
+ # SBOM is never in system lds
+ if uswid.found()
+-  warning('Switching to local copy of linker script as using SBOM')
++  message('Using bundled linker script to retain the SBOM section')
+   efi_ldsdir = join_paths(meson.current_source_dir(), 'lds')
+   arch_lds = 'elf_@0@@1@_efi.lds'.format(gnu_efi_arch, lds_os)
+ endif

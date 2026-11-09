@@ -1,0 +1,156 @@
+policy_module(particleve_vmspawn, 1.0.0)
+
+type particleve_vmspawn_t;
+type particleve_vmspawn_exec_t;
+init_daemon_domain(particleve_vmspawn_t, particleve_vmspawn_exec_t)
+
+gen_require(`
+    type svirt_t, qemu_exec_t, swtpm_t, swtpm_exec_t;
+    type virt_var_lib_t, svirt_image_t, qemu_var_run_t;
+    type init_var_run_t, systemd_machined_var_lib_t, cert_t, cgroup_t;
+    attribute mcs_constrained_type;
+')
+
+typeattribute swtpm_t mcs_constrained_type;
+
+domtrans_pattern(particleve_vmspawn_t, qemu_exec_t, svirt_t)
+# The guarded QEMU child drops all capabilities and sets NoNewPrivileges after
+# native setup; retain only this specific transition to its confined VM domain.
+allow particleve_vmspawn_t svirt_t:process2 nnp_transition;
+domtrans_pattern(particleve_vmspawn_t, swtpm_exec_t, swtpm_t)
+can_exec(particleve_vmspawn_t, particleve_vmspawn_exec_t)
+
+# Native user-namespace UID/GID maps require these capabilities in the parent namespace.
+allow particleve_vmspawn_t self:capability { setfcap setgid setpcap setuid sys_admin sys_resource };
+allow particleve_vmspawn_t self:process { getattr getcap setcap setrlimit };
+allow particleve_vmspawn_t self:user_namespace create;
+allow particleve_vmspawn_t self:cap_userns { sys_admin sys_ptrace };
+allow particleve_vmspawn_t self:unix_stream_socket create_stream_socket_perms;
+allow particleve_vmspawn_t self:unix_stream_socket connectto;
+allow particleve_vmspawn_t self:netlink_route_socket create_netlink_socket_perms;
+
+corecmd_exec_bin(particleve_vmspawn_t)
+libs_use_ld_so(particleve_vmspawn_t)
+libs_use_shared_libs(particleve_vmspawn_t)
+miscfiles_read_localization(particleve_vmspawn_t)
+allow particleve_vmspawn_t cert_t:dir search;
+selinux_get_enforce_mode(particleve_vmspawn_t)
+auth_read_passwd(particleve_vmspawn_t)
+files_read_etc_files(particleve_vmspawn_t)
+files_read_usr_files(particleve_vmspawn_t)
+files_read_usr_symlinks(particleve_vmspawn_t)
+files_search_var_lib(particleve_vmspawn_t)
+files_search_pids(particleve_vmspawn_t)
+kernel_read_system_state(particleve_vmspawn_t)
+kernel_read_network_state(particleve_vmspawn_t)
+kernel_read_psi(particleve_vmspawn_t)
+fs_getattr_all_fs(particleve_vmspawn_t)
+fs_read_cgroup_files(particleve_vmspawn_t)
+allow particleve_vmspawn_t cgroup_t:dir list_dir_perms;
+dev_rw_kvm(particleve_vmspawn_t)
+dev_rw_vhost(particleve_vmspawn_t)
+dev_read_urand(particleve_vmspawn_t)
+dev_rw_null(particleve_vmspawn_t)
+dev_rw_zero(particleve_vmspawn_t)
+udev_read_db(particleve_vmspawn_t)
+
+# New PTYs are quarantined above every valid two-category VM until the trusted
+# handoff labels their inherited descriptors with the owning VM's category pair.
+gen_require(`type devpts_t;')
+type particleve_vmspawn_pty_alloc_t;
+dev_node(particleve_vmspawn_pty_alloc_t)
+term_create_pty(particleve_vmspawn_t, particleve_vmspawn_pty_alloc_t)
+range_transition particleve_vmspawn_t devpts_t:chr_file s0:c0.c1023;
+allow particleve_vmspawn_t particleve_vmspawn_pty_alloc_t:chr_file { rw_chr_file_perms setattr relabelfrom };
+type particleve_vmspawn_devpts_t;
+term_pty(particleve_vmspawn_devpts_t)
+allow particleve_vmspawn_devpts_t devpts_t:filesystem associate;
+allow particleve_vmspawn_t particleve_vmspawn_devpts_t:chr_file { rw_chr_file_perms setattr relabelto };
+allow svirt_t particleve_vmspawn_devpts_t:chr_file rw_chr_file_perms;
+
+init_use_fds(particleve_vmspawn_t)
+init_use_notify(particleve_vmspawn_t)
+dbus_system_bus_client(particleve_vmspawn_t)
+systemd_dbus_chat_machined(particleve_vmspawn_t)
+systemd_machined_stream_connect(particleve_vmspawn_t)
+systemd_machined_list_lib(particleve_vmspawn_t)
+systemd_nsresourced_stream_connect(particleve_vmspawn_t)
+
+virt_read_content(particleve_vmspawn_t)
+virt_read_config(particleve_vmspawn_t)
+virt_svirt_read_state(particleve_vmspawn_t)
+
+manage_dirs_pattern(particleve_vmspawn_t, virt_var_lib_t, virt_var_lib_t)
+manage_files_pattern(particleve_vmspawn_t, virt_var_lib_t, virt_var_lib_t)
+manage_dirs_pattern(particleve_vmspawn_t, svirt_image_t, svirt_image_t)
+manage_files_pattern(particleve_vmspawn_t, svirt_image_t, svirt_image_t)
+manage_dirs_pattern(particleve_vmspawn_t, qemu_var_run_t, qemu_var_run_t)
+manage_files_pattern(particleve_vmspawn_t, qemu_var_run_t, qemu_var_run_t)
+manage_sock_files_pattern(particleve_vmspawn_t, qemu_var_run_t, qemu_var_run_t)
+allow particleve_vmspawn_t qemu_var_run_t:dir { relabelfrom relabelto };
+allow particleve_vmspawn_t init_var_run_t:dir search;
+allow particleve_vmspawn_t init_var_run_t:file getattr;
+allow particleve_vmspawn_t systemd_machined_var_lib_t:dir { getattr open read search };
+
+allow particleve_vmspawn_t swtpm_t:dir list_dir_perms;
+allow particleve_vmspawn_t swtpm_t:file read_file_perms;
+allow particleve_vmspawn_t swtpm_t:lnk_file read_lnk_file_perms;
+allow particleve_vmspawn_t { svirt_t swtpm_t }:process { getattr signal sigkill };
+# Native swtpm_setup checks that its child is alive before certificate setup.
+allow particleve_vmspawn_t swtpm_t:process signull;
+allow { svirt_t swtpm_t } particleve_vmspawn_t:unix_stream_socket { getattr read write };
+allow svirt_t particleve_vmspawn_t:unix_stream_socket connectto;
+allow swtpm_t particleve_vmspawn_t:fifo_file { getattr write };
+allow { svirt_t swtpm_t } init_t:unix_stream_socket { read write };
+allow swtpm_t systemd_machined_var_lib_t:dir search;
+
+logging_send_syslog_msg(particleve_vmspawn_t)
+
+gen_require(`type init_t, nsfs_t;')
+type particleve_vmspawn_tmpfs_t;
+files_tmpfs_file(particleve_vmspawn_tmpfs_t)
+fs_tmpfs_filetrans(particleve_vmspawn_t, particleve_vmspawn_tmpfs_t, file)
+allow particleve_vmspawn_t particleve_vmspawn_tmpfs_t:file manage_file_perms;
+allow particleve_vmspawn_t nsfs_t:file read_file_perms;
+allow particleve_vmspawn_t init_t:dir search;
+
+allow particleve_vmspawn_t self:unix_dgram_socket sendto;
+
+allow particleve_vmspawn_t self:vsock_socket create_stream_socket_perms;
+
+allow svirt_t particleve_vmspawn_t:unix_stream_socket getopt;
+
+allow swtpm_t particleve_vmspawn_t:unix_stream_socket accept;
+
+# The private vTPM data socket is created by QEMU and passed with SCM_RIGHTS.
+allow swtpm_t svirt_t:unix_stream_socket { read write };
+allow svirt_t particleve_vmspawn_t:unix_stream_socket setopt;
+
+# Match Fedora virtqemud -> swtpm: libtpms needs its own OpenSSL environment.
+allow particleve_vmspawn_t swtpm_t:process noatsecure;
+
+# Native unit discovery reads PID1 cgroup state; only the trusted controller does so.
+init_read_state(particleve_vmspawn_t)
+# The trusted launch guard reads its effective lifecycle properties from PID1.
+init_stream_connect(particleve_vmspawn_t)
+gen_require(`type systemd_systemctl_exec_t, systemd_unit_file_t;')
+can_exec(particleve_vmspawn_t, systemd_systemctl_exec_t)
+allow particleve_vmspawn_t systemd_unit_file_t:service status;
+# Native QMP disk hotplug opens prevalidated controller descriptors through procfs.
+allow svirt_t particleve_vmspawn_t:dir search;
+allow svirt_t particleve_vmspawn_t:lnk_file read_lnk_file_perms;
+
+gen_require(`type systemd_machined_var_run_t;')
+allow particleve_vmspawn_t systemd_machined_var_run_t:dir search;
+allow particleve_vmspawn_t systemd_machined_var_run_t:sock_file write_sock_file_perms;
+allow svirt_t particleve_vmspawn_t:file read_file_perms;
+
+# Fedora's broker policy predates its native TAP allocator. Keep host-network
+# privileges in the existing broker, outside the VM controller/QEMU unit.
+gen_require(`type systemd_nsresourced_t, tun_tap_device_t;')
+allow systemd_nsresourced_t self:capability net_admin;
+allow systemd_nsresourced_t self:netlink_route_socket nlmsg_write;
+allow systemd_nsresourced_t tun_tap_device_t:chr_file rw_chr_file_perms;
+allow systemd_nsresourced_t self:tun_socket { create relabelfrom relabelto attach_queue };
+# Receive the broker's configured descriptor without opening or allocating a TUN device.
+allow particleve_vmspawn_t tun_tap_device_t:chr_file { getattr ioctl read write };

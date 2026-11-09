@@ -1,0 +1,11 @@
+; Trusted host units deploy signed EFI artifacts and bless the booted entry.
+; Only selected ESPs are mounted boot_t; no permissions on arbitrary dosfs_t.
+(allow init_t boot_t (file (create setattr write append unlink rename)))
+; systemd 262 queries the namespace resource service while assigning home UIDs.
+; Fedora's common socket permissions already allow open/write/getattr, but not read.
+(allow systemd_homed_t systemd_nsresourced_runtime_t (sock_file (read)))
+; PID 1 creates these registry links and must remove them when services stop.
+(allow init_t systemd_varlink_registry_t (lnk_file (unlink)))
+; The 262 NvPCR setup writes root-only auth files under /run/systemd/nvpcr;
+; the native PCR extension helper reads them when extending hardware/login state.
+(allow systemd_pcrextend_t init_var_run_t (file (getattr open read ioctl)))

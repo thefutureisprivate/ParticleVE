@@ -1,0 +1,12 @@
+{
+  "cpu_baseline": "x86-64-v2",
+  "fedora": "45",
+  "feed": "https://download.opensuse.org/repositories/home:/thefutureisprivate:/particleve/Fedora_45_images",
+  "hardware_validation": "unvalidated",
+  "schema": 1,
+  "sources": {
+    "fwupd_efi": "ffeaa10aed8e91f5b8feaefc51faf71b3d034fd3",
+    "mkosi": "a6753e508681aa162cef4e5183f1a728c11c4d78",
+    "particleos": "b605add797ba65853eb79f8170c4a5743a6f4b1f"
+  }
+}
