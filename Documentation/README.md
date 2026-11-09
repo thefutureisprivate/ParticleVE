@@ -47,6 +47,4 @@ reading, verification, and documentation responsibilities.
 
 ## Upstream and attribution
 
-- [Third-party notices](ThirdPartyNotices.md): Torrent 7 documentation provenance
-  and its retained MIT copyright and permission notice.
 - [Project license](../LICENSE): the existing LGPL-2.1-or-later license.

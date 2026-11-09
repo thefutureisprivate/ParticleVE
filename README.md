@@ -1,6 +1,15 @@
 <h1 align="center">ParticleVE</h1>
 
 <p align="center">
+  <a href="https://scorecard.dev/viewer/?uri=github.com/thefutureisprivate/ParticleVE">
+    <img src="https://api.scorecard.dev/projects/github.com/thefutureisprivate/ParticleVE/badge" alt="OpenSSF Scorecard">
+  </a>
+  <a href="https://www.bestpractices.dev/en/projects/16493/baseline-1">
+    <img src="https://www.bestpractices.dev/projects/16493/baseline" alt="OpenSSF Baseline">
+  </a>
+</p>
+
+<p align="center">
   Particle Virtual Environment — a modern and hardened virtualization host based on ParticleOS.
 </p>
 
