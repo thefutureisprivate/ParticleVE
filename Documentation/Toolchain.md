@@ -26,7 +26,7 @@ for the build inputs; update their related checks and recipes together.
 | mkosi | Exact upstream commit and declared version in `sources.lock.json`, with the reviewed [OBS continuation patch](../.obs/mkosi/mkosi-obs-continuation.patch) and [RPM recipe](../.obs/mkosi/mkosi.spec). The configuration's minimum version is not a substitute for this pin. |
 | fwupd EFI helper | Exact upstream commit and version in `sources.lock.json`; [recipe](../.obs/fwupd-efi/fwupd-efi.spec), [diagnostic patch](../.obs/fwupd-efi/fwupd-efi-sbom-linker-message.patch), separate PE signing, and SBAT/SBOM checks. |
 | Python | `>=3.14`, including the integration and build-tools RPMs. |
-| Ruff | The repository's configured rules and formatter; no exact Ruff release is pinned in this checkout. Record the version used for a verification run. |
+| Ruff | The repository's configured rules and formatter; exact CI version and wheel hashes in [CI requirements](../.github/requirements.txt). Record the version used for a verification run. |
 | Image packages and privileged files | The ParticleVE profile, generated dependency summary, [privilege policy](../.obs/particleve/security-policy.json), and final-image checks. |
 | OBS project, source branch, repositories, and feed | [`.obs/site.json`](../.obs/site.json); public generated inputs are reviewed source. |
 

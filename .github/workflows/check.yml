@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: '3.15'
       - name: Install source-check tools
-        run: python3 -m pip install ruff
+        run: python3 -m pip install --require-hashes --only-binary=:all: -r .github/requirements.txt
       - name: Lint and unit tests
         run: make check
       - name: Verify upstream pins and downstream patches
