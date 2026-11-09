@@ -26,6 +26,7 @@ from .common import (
 )
 from .consoles import baseline as console_baseline
 from .consoles import profile as console_profile
+from .layout import TYPES, os_label
 from .release import fetch, transfers, verify_directory
 
 
@@ -298,15 +299,21 @@ class Linux:
         return status(self.manifest, self.config, healthy=healthy)
 
     def matching_partition(self, role, release, kind):
-        suffix = {"usr": "", "verity": "_verity", "verity_sig": "_verity_sig"}[kind]
-        label = f"ParticleVE_{release['version']}{suffix}"
+        label = os_label(release["version"])
+        item = release["artifacts"][kind]
         nodes = inventory.walk(inventory.block_tree(self.disk(role)["path"]))
-        matches = [n for n in nodes if n.get("partlabel") == label]
+        matches = [
+            node
+            for node in nodes
+            if node.get("type") == "part"
+            and node.get("partlabel") == label
+            and node.get("parttype") == TYPES[kind]
+            and node.get("partuuid") == item["partition_uuid"]
+        ]
         if len(matches) != 1:
             return None
         part = matches[0]
-        item = release["artifacts"][kind]
-        if part["partuuid"] != item["partition_uuid"] or part["size"] < item["size"]:
+        if part["size"] < item["size"]:
             return None
         return part["name"]
 

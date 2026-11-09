@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from particleve.bootloaders import Loaders
 from particleve.common import Error, hash_file, read_json, write_json
+from particleve.layout import TYPES
 from particleve.linux import Linux
 from Tests.fixtures import release
 
@@ -48,6 +49,30 @@ class ESPTests(unittest.TestCase):
         write_json(loaders.path, state)
         self.enterContext(patch.object(Loaders, "bless", return_value={}))
         self.active = self.enterContext(patch("particleve.linux.require_active_services"))
+
+    def test_current_partition_identity_and_both_boot_paths_verify_together(self):
+        # Exercise the real selector with readback files and native shared-label geometry.
+        del self.backend.matching_partition
+        self.backend.manifest = {"devices": [{"role": role, "path": role} for role in ("a", "b")]}
+        parts = [
+            {
+                "type": "part",
+                "name": str(self.backend.cache / self.manifest["version"] / item["file"]),
+                "partlabel": "PVE_" + self.manifest["version"],
+                "parttype": TYPES[kind],
+                "partuuid": item["partition_uuid"],
+                "size": item["size"],
+            }
+            for kind, item in self.manifest["artifacts"].items()
+            if kind in ("usr", "verity", "verity_sig")
+        ]
+        for role in ("a", "b"):
+            self.backend.expose_boot(role, self.manifest)
+        with patch("particleve.linux.inventory.block_tree", return_value=parts):
+            for role in ("a", "b"):
+                self.assertTrue(self.backend.verify_disk(role, self.manifest, boot=True))
+            Path(parts[0]["name"]).write_bytes(b"corrupt partition content")
+            self.assertFalse(self.backend.verify_disk("a", self.manifest, boot=True))
 
     def test_existing_boot_counter_and_capsules_survive_preparation(self):
         for role, esp in self.esps.items():

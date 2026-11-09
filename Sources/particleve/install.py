@@ -84,7 +84,7 @@ def validate_plan(config, release, proposed, confirmation):
         unique.add(expected["disk_uuid"])
         nodes = inventory.walk(inventory.block_tree(expected["path"]))
         require(
-            not any((n.get("partlabel") or "").startswith("ParticleVE") for n in nodes),
+            not any((n.get("partlabel") or "").startswith(("ParticleVE", "PVE_")) for n in nodes),
             "fresh install refuses existing/partial ParticleVE storage; use owner recovery or replacement",
         )
 

@@ -49,7 +49,7 @@ def block_tree(path=None):
         "--bytes",
         "--paths",
         "--output",
-        "NAME,TYPE,SIZE,SERIAL,WWN,LOG-SEC,PHY-SEC,RO,RM,MOUNTPOINTS,PKNAME,PARTN,PARTUUID,PARTLABEL,PTUUID",
+        "NAME,TYPE,SIZE,SERIAL,WWN,LOG-SEC,PHY-SEC,RO,RM,MOUNTPOINTS,PKNAME,PARTN,PARTUUID,PARTLABEL,PARTTYPE,PTUUID",
     ]
     if path:
         args += [path]
