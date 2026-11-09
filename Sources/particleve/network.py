@@ -61,7 +61,8 @@ def render(config):
         )
         files[f"etc/systemd/system/serial-getty@{port}.service.d/50-particleve.conf"] = (
             "[Service]\nExecStart=\n"
-            f"ExecStart=-/sbin/agetty --noclear --noreset -o '-p -- \\u' - {baud} vt220\n"
+            # systemd consumes one quoting layer before agetty expands \u.
+            f"ExecStart=-/sbin/agetty --noclear --noreset -o '-p -- \\\\u' - {baud} vt220\n"
         )
     return files
 

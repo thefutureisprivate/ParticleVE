@@ -125,6 +125,10 @@ class PlatformTests(unittest.TestCase):
         self.assertIn(
             "38400 vt220", files["etc/systemd/system/serial-getty@ttyS2.service.d/50-particleve.conf"]
         )
+        self.assertIn(
+            r"-o '-p -- \\u'",
+            files["etc/systemd/system/serial-getty@ttyS2.service.d/50-particleve.conf"],
+        )
 
     def test_transfers_target_both_explicit_disks_and_preserve_running_release(self):
         manifest = fixture_release()

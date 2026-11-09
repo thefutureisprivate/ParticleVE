@@ -1,16 +1,21 @@
 """Exercise host-input policy and external forwarding rules in disposable network namespaces."""
 
+import configparser
 import errno
+import hashlib
 import json
 import os
 import select
 import subprocess
 import sys
+import tempfile
+from pathlib import Path
 
 sys.path.insert(0, "/usr/lib/particleve")
 from particleve.common import require
+from particleve.config import validate
 from particleve.linux import image_version
-from particleve.network import firewall
+from particleve.vms import LinuxVMs
 
 require(os.geteuid() == 0, "run on the disposable ParticleVE host as root")
 version = image_version()
@@ -19,9 +24,25 @@ namespaces = []
 root_links = set()
 servers = []
 results = []
+unit = f"particleve-firewall-acceptance-{os.getpid()}.service"
+service_path = Path("/usr/lib/systemd/system/particleve-firewall.service")
+service = configparser.ConfigParser(interpolation=None)
+service.optionxform = str
+service.read_string(service_path.read_text())
+require(service["Service"]["ExecStart"] == "/usr/bin/particleve apply-firewall", "unexpected loader")
+config = validate(json.loads(Path("/etc/particleve/host.json").read_text()))
+management_name = config["network"]["management"]
+config["network"]["allowed_sources"] = ["10.233.0.2/32", "fd23:33:0::2/128"]
+validate(config)
+require(Path("/dev/kvm").exists(), "positive host-device visibility control is missing")
+guest_inventory = LinuxVMs().inventory(inhibited=False)
+firewall_before = subprocess.check_output(["nft", "--stateless", "list", "ruleset"], text=True)
+authority = None
+settings = tempfile.TemporaryDirectory(prefix="particleve-firewall-acceptance-", dir="/run")
 
 
 def run(command, **kwargs):
+    kwargs.setdefault("timeout", 30)
     result = subprocess.run(command, capture_output=True, text=True, **kwargs)
     require(result.returncode == 0 and not result.stderr, f"{command[0]} failed: {result.stderr}")
     return result.stdout
@@ -93,6 +114,35 @@ except TimeoutError:print(json.dumps({'connected':False,'errno':errno.ETIMEDOUT}
 except OSError as exc:print(json.dumps({'connected':False,'errno':exc.errno}))
 """
 
+LOADER = r"""import ctypes,errno,json,os,socket
+from pathlib import Path
+status=dict(line.split(':',1) for line in Path('/proc/self/status').read_text().splitlines() if ':' in line)
+for name in ('CapPrm','CapEff','CapBnd'):
+ assert int(status[name],16)==1<<12,(name,status[name])
+for name in ('CapInh','CapAmb'):
+ assert int(status[name],16)==0,(name,status[name])
+assert status['NoNewPrivs'].strip()=='1' and status['Seccomp'].strip()=='2'
+assert not status['Groups'].strip()
+assert os.getuid()==os.geteuid()==0
+for family in (socket.AF_INET,socket.AF_INET6):
+ try:connection=socket.socket(family)
+ except OSError as error:assert error.errno==errno.EAFNOSUPPORT,error
+ else:connection.close();raise AssertionError('IP socket available to rule loader')
+try:fd=os.open('/var/lib/particleve/installation.json',os.O_WRONLY)
+except OSError as error:assert error.errno==errno.EROFS,error
+else:os.close(fd);raise AssertionError('persistent state writable by rule loader')
+assert not Path('/dev/kvm').exists()
+with open('/dev/null','wb') as device:device.write(b'public fixture control')
+library=ctypes.CDLL(None,use_errno=True)
+library.unshare.argtypes=(ctypes.c_int,);library.unshare.restype=ctypes.c_int
+assert library.unshare(0x10000000)==-1 and ctypes.get_errno()==errno.EPERM
+print(json.dumps({'capabilities':'CAP_NET_ADMIN only','no_new_privileges':True,'seccomp':True,
+ 'ip_socket_creation':'denied for IPv4 and IPv6','persistent_state_write_open':'denied',
+ 'host_device_visibility':'denied','user_namespace_creation':'denied',
+ 'context':Path('/proc/self/attr/current').read_text().strip('\0\n')}),flush=True)
+os.execv('/usr/bin/particleve',['/usr/bin/particleve','apply-firewall'])
+"""
+
 
 def serve(name, ports):
     child = subprocess.Popen(
@@ -117,19 +167,45 @@ def probe(name, destination, port, allowed, purpose):
 
 
 try:
+    config_path = Path(settings.name) / "host.json"
+    config_path.write_text(json.dumps(config))
+    config_path.chmod(0o600)
     for name in ("host", "management", "guest", "destination"):
         namespace(name)
-    connect("management", "mgmt0", 0, 0)
+    connect("management", management_name, 0, 0)
     connect("guest", "guest0", 1, 1)
     connect("destination", "uplink0", 2, 2)
     inside("host", ["sysctl", "-w", "net.ipv4.ip_forward=1", "net.ipv6.conf.all.forwarding=1"])
-    inside(
-        "host",
-        ["nft", "-f", "-"],
-        input=firewall(
-            {"network": {"management": "mgmt0", "allowed_sources": ["10.233.0.2/32", "fd23:33:0::2/128"]}}
-        ),
+    # Reuse the installed service's authority. Only its namespace, read-only
+    # configuration view, and post-test lifetime differ from the production unit.
+    properties = [
+        "--property=" + key + "=" + value
+        for key, value in service["Service"].items()
+        if key not in {"ExecStart", "RemainAfterExit"}
+    ]
+    loaded = run(
+        [
+            "systemd-run",
+            "--quiet",
+            "--collect",
+            "--wait",
+            "--pipe",
+            "--unit=" + unit,
+            *properties,
+            "--property=RemainAfterExit=no",
+            "--property=TimeoutStartSec=30s",
+            "--property=NetworkNamespacePath=/run/netns/" + prefix + "host",
+            "--property=BindReadOnlyPaths=" + str(config_path) + ":/etc/particleve/host.json",
+            "/usr/bin/python3",
+            "-I",
+            "-c",
+            LOADER,
+        ],
+        timeout=40,
     )
+    authority_text, loaded_text = loaded.split("\n", 1)
+    authority = json.loads(authority_text)
+    require(json.loads(loaded_text) == {"firewall": "active"}, "installed rule loader did not complete")
     # Production forwarding remains externally owned. This isolated policy is
     # supplied by the acceptance fixture, separately from host-input rendering.
     inside(
@@ -160,6 +236,13 @@ try:
         probe("guest", destination, 443, True, "external forwarding allowed")
         probe("guest", destination, 22, False, "external forwarding denied")
 finally:
+    if (
+        subprocess.check_output(
+            ["systemctl", "show", unit, "--property=LoadState", "--value"], text=True
+        ).strip()
+        != "not-found"
+    ):
+        run(["systemctl", "stop", unit])
     for child in servers:
         child.terminate()
         child.wait(timeout=5)
@@ -172,4 +255,21 @@ finally:
         present = subprocess.run(["ip", "link", "show", link], capture_output=True).returncode == 0
         if present:
             run(["ip", "link", "delete", link])
-print(json.dumps({"image": version, "network_acceptance": results, "temporary_topology_removed": True}))
+    settings.cleanup()
+require(LinuxVMs().inventory(inhibited=False) == guest_inventory, "existing guests changed")
+require(
+    run(["nft", "--stateless", "list", "ruleset"]) == firewall_before,
+    "host firewall changed",
+)
+print(
+    json.dumps(
+        {
+            "image": version,
+            "network_acceptance": results,
+            "firewall_loader_authority": authority,
+            "service_sha256": hashlib.sha256(service_path.read_bytes()).hexdigest(),
+            "temporary_topology_removed": True,
+            "existing_guests_and_host_firewall_unchanged": True,
+        }
+    )
+)
