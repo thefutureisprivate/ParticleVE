@@ -261,6 +261,7 @@ def root_check(root, *, tree="usr", output=None, source_dir=None):
             "usr/libexec/particleve-vm-start-guard",
             "usr/libexec/particleve-vm-run",
             "usr/libexec/particleve-qemu/qemu",
+            "usr/libexec/particleve-swtpm/swtpm",
             "usr/lib/particleve/particleve_vmspawn.pp",
         ):
             require((root / path).exists(), f"missing runtime artifact: {path}")

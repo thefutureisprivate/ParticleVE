@@ -14,9 +14,10 @@ from particleve.confinement import (
     PTY_TYPE,
     QEMU_HANDOFF,
     QEMU_MEMORY_PRIVACY,
-    QEMU_PRIVILEGES,
     QEMU_SANDBOX,
+    SWTPM_HANDOFF,
     VM_ADDRESS_FAMILIES,
+    VM_CHILD_PRIVILEGES,
     check_tpm_arguments,
     check_unit_contract,
     context,
@@ -24,6 +25,7 @@ from particleve.confinement import (
     qemu_arguments,
     qemu_handoff,
     start_guard,
+    swtpm_handoff,
     verify_processes,
     verify_qemu_sandbox,
 )
@@ -64,6 +66,7 @@ class ConfinementTests(unittest.TestCase):
             command = ["--tpm=yes", "--tpm-state=" + str(state)]
             with (
                 patch("particleve.confinement.MACHINES", root),
+                patch("particleve.confinement.shutil.which", return_value=SWTPM_HANDOFF),
                 patch("particleve.confinement.private_directory"),
                 patch(
                     "particleve.confinement.label", return_value="system_u:object_r:virt_var_lib_t:s0:c1,c2"
@@ -223,7 +226,7 @@ class ConfinementTests(unittest.TestCase):
         guard.assert_called_once_with("test")
         selinux.fsetfilecon.assert_called_once_with(0, target)
         execute.assert_called_once_with(
-            "/usr/bin/setpriv", [*QEMU_PRIVILEGES, "/usr/bin/qemu-kvm", *qemu_arguments(arguments)]
+            "/usr/bin/setpriv", [*VM_CHILD_PRIVILEGES, "/usr/bin/qemu-kvm", *qemu_arguments(arguments)]
         )
         limits.assert_called_once_with(resource.RLIMIT_CORE, (0, 0))
 
@@ -244,6 +247,54 @@ class ConfinementTests(unittest.TestCase):
         self.assertEqual(qemu_arguments(["-name", "sandbox"])[:2], ["-name", "sandbox"])
         native = ["-readconfig", "/run/native.conf", "-machine", "mem-merge=on,dump-guest-core=on"]
         self.assertEqual(qemu_arguments(native)[-2:], ["-machine", QEMU_MEMORY_PRIVACY])
+
+    def test_tpm_handoff_preserves_socket_activation_and_retained_state_arguments(self):
+        arguments = [
+            "socket",
+            "--tpm2",
+            "--tpmstate",
+            "dir=/var/lib/machines/test/tpm",
+            "--ctrl",
+            "type=unixio,fd=3",
+        ]
+        with (
+            patch.object(Path, "read_text", return_value="0::/machine.slice/systemd-vmspawn@test.service"),
+            patch("particleve.confinement.start_guard") as guard,
+            patch("particleve.confinement.os.execv") as execute,
+            patch("particleve.confinement.resource.setrlimit") as limits,
+        ):
+            swtpm_handoff(arguments)
+        guard.assert_called_once_with("test")
+        limits.assert_called_once_with(resource.RLIMIT_CORE, (0, 0))
+        execute.assert_called_once_with(
+            "/usr/bin/setpriv", [*VM_CHILD_PRIVILEGES, "/usr/bin/swtpm", *arguments]
+        )
+
+    def test_tpm_handoff_refuses_foreign_units_and_non_native_transports(self):
+        for group, arguments in (
+            ("0::/system.slice/foreign.service", ["socket"]),
+            ("0::/machine.slice/systemd-vmspawn@test.service", []),
+            ("0::/machine.slice/systemd-vmspawn@test.service", ["cuse"]),
+        ):
+            with (
+                self.subTest(group=group, arguments=arguments),
+                patch.object(Path, "read_text", return_value=group),
+                patch("particleve.confinement.start_guard") as guard,
+                patch("particleve.confinement.os.execv") as execute,
+                self.assertRaises(Error),
+            ):
+                swtpm_handoff(arguments)
+            guard.assert_not_called()
+            execute.assert_not_called()
+
+    def test_enabled_tpm_cannot_bypass_capability_handoff(self):
+        with (
+            patch("particleve.confinement.shutil.which", return_value="/usr/bin/swtpm"),
+            patch("particleve.confinement.private_directory") as inspect,
+            self.assertRaisesRegex(Error, "guarded swtpm"),
+        ):
+            check_tpm_arguments("test", ["--tpm=yes", "--tpm-state=/var/lib/machines/test/tpm"])
+        inspect.assert_not_called()
 
     def test_effective_seccomp_and_native_sandbox_option_are_both_required(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -413,9 +464,53 @@ class ConfinementTests(unittest.TestCase):
                     (directory / "attr").mkdir(parents=True)
                     (directory / "attr/current").write_text(label)
                     (directory / "stat").write_text(f"{pid} (vm) S " + "0 " * 18 + "1\n")
+                    (directory / "status").write_text(
+                        "Seccomp: 2\nSeccomp_filters: 4\nNoNewPrivs: 1\nGroups:\n"
+                        + "\n".join(
+                            f"{field}: 0" for field in ("CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb")
+                        )
+                    )
                 processes = [{"pid": n, "starttime": 1} for n in (1, 2, 3)]
                 if ":swtpm_t:s0:c10,c20" in last:
                     verify_processes(processes, proc=proc)
                 else:
                     with self.assertRaises(Error):
                         verify_processes(processes, proc=proc)
+
+    def test_inventory_rejects_tpm_setup_capabilities_and_missing_runtime_restrictions(self):
+        fields = {
+            "Seccomp": "2",
+            "Seccomp_filters": "4",
+            "NoNewPrivs": "1",
+            "Groups": "",
+            **dict.fromkeys(("CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"), "0"),
+        }
+        for changed in (
+            {},
+            *({field: "1"} for field in ("CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb")),
+            {"NoNewPrivs": "0"},
+            {"Seccomp": "0"},
+            {"Seccomp_filters": "0"},
+            {"Groups": "0"},
+        ):
+            with (
+                self.subTest(changed=changed),
+                tempfile.TemporaryDirectory() as tmp,
+                patch("particleve.confinement.verify_qemu_sandbox"),
+                patch("particleve.confinement.process_policy"),
+            ):
+                proc = Path(tmp)
+                for pid, domain in enumerate((CONTROLLER, "svirt_t", "swtpm_t"), 1):
+                    directory = proc / str(pid)
+                    (directory / "attr").mkdir(parents=True)
+                    (directory / "attr/current").write_text(f"system_u:system_r:{domain}:s0:c10,c20")
+                    (directory / "stat").write_text(f"{pid} (vm) S " + "0 " * 18 + "1\n")
+                    (directory / "status").write_text(
+                        "\n".join(f"{key}: {value}" for key, value in (fields | changed).items())
+                    )
+                processes = [{"pid": n, "starttime": 1} for n in (1, 2, 3)]
+                if changed:
+                    with self.assertRaises(Error):
+                        verify_processes(processes, proc=proc)
+                else:
+                    verify_processes(processes, proc=proc)

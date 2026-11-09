@@ -2,5 +2,6 @@
 /usr/libexec/particleve-vm-start-guard -- gen_context(system_u:object_r:particleve_vmspawn_exec_t,s0)
 /usr/libexec/particleve-vm-run -- gen_context(system_u:object_r:particleve_vmspawn_exec_t,s0)
 /usr/libexec/particleve-qemu/qemu -- gen_context(system_u:object_r:particleve_vmspawn_exec_t,s0)
+/usr/libexec/particleve-swtpm/swtpm -- gen_context(system_u:object_r:particleve_vmspawn_exec_t,s0)
 /run/particleve-vm(/.*)? gen_context(system_u:object_r:qemu_var_run_t,s0)
 /usr/libexec/particleve-vm-stop -- gen_context(system_u:object_r:particleve_vmspawn_exec_t,s0)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "particleve"
-version = "45.0.1.6"
+version = "45.0.1.7"
 description = "ParticleOS headless hypervisor integration"
 requires-python = ">=3.14"
 license = "LGPL-2.1-or-later"

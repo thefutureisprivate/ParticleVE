@@ -16,6 +16,7 @@ RUNTIME = Path("/run/particleve-vm")
 GATE = Path("/run/particleve/vm-start-inhibited")
 CONTROLLER = "particleve_vmspawn_t"
 QEMU_HANDOFF = "/usr/libexec/particleve-qemu/qemu"
+SWTPM_HANDOFF = "/usr/libexec/particleve-swtpm/swtpm"
 PTY_ALLOC = "system_u:object_r:particleve_vmspawn_pty_alloc_t:s0:c0.c1023"
 PTY_TYPE = "particleve_vmspawn_devpts_t"
 QEMU_SANDBOX = "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny"
@@ -29,7 +30,7 @@ CONTROLLER_CAPABILITIES = {
     "cap_sys_admin",
     "cap_sys_resource",
 }
-QEMU_PRIVILEGES = (
+VM_CHILD_PRIVILEGES = (
     "/usr/bin/setpriv",
     "--no-new-privs",
     "--bounding-set=-all",
@@ -59,24 +60,28 @@ def qemu_arguments(arguments):
     return result
 
 
-def verify_qemu_sandbox(process):
+def verify_child_privileges(process):
     values = process.status()
     require(
         values.get("Seccomp") == "2"
         and re.fullmatch(r"[1-9][0-9]{0,9}", values.get("Seccomp_filters", ""))
         and values.get("NoNewPrivs") == "1",
-        "QEMU syscall filtering is not active",
+        "VM child syscall filtering is not active",
     )
-    args = process.arguments()
-    require(args.count("-sandbox") == 1 and qemu_arguments(args) == args, "QEMU's own sandbox is missing")
     require(
         all(
             re.fullmatch(r"0{1,16}", values.get(field, ""))
             for field in ("CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb")
         )
         and values.get("Groups") == "",
-        "QEMU retained capabilities or supplementary groups",
+        "VM child retained capabilities or supplementary groups",
     )
+
+
+def verify_qemu_sandbox(process):
+    verify_child_privileges(process)
+    args = process.arguments()
+    require(args.count("-sandbox") == 1 and qemu_arguments(args) == args, "QEMU's own sandbox is missing")
     process_policy(process, qemu=True)
 
 
@@ -197,6 +202,7 @@ def check_tpm_arguments(name, command):
         require(not paths, "disabled TPM must not select retained state")
         return
     require(len(paths) == 1, "enabled TPM requires one explicitly provisioned state directory")
+    require(shutil.which("swtpm") == SWTPM_HANDOFF, "VM TPM requires the guarded swtpm handoff")
     state = Path(paths[0])
     root = MACHINES / name
     require(
@@ -290,7 +296,24 @@ def qemu_handoff(arguments):
     # Only its QEMU child loses every capability/bounding bit and supplementary
     # group. NoNewPrivileges prevents later exec from regaining root capabilities.
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-    os.execv(QEMU_PRIVILEGES[0], [*QEMU_PRIVILEGES, "/usr/bin/qemu-kvm", *arguments])
+    os.execv(VM_CHILD_PRIVILEGES[0], [*VM_CHILD_PRIVILEGES, "/usr/bin/qemu-kvm", *arguments])
+
+
+def swtpm_handoff(arguments):
+    """Keep native socket activation/state while removing the launcher's setup authority."""
+    groups = [
+        line[3:] for line in Path("/proc/self/cgroup").read_text().splitlines() if line.startswith("0::")
+    ]
+    require(len(groups) == 1, "TPM handoff requires its owning unit")
+    match = re.fullmatch(r"systemd-vmspawn@(.+)\.service", Path(groups[0]).name)
+    require(match is not None, "TPM handoff requires its owning unit")
+    require(arguments and arguments[0] == "socket", "VM TPM requires the native socket transport")
+    start_guard(match[1])
+    # Manufacturing and socket creation stay in native trusted setup. The
+    # long-running emulator needs no setup capabilities to use its own files
+    # and inherited activation descriptor. Never change its UID or retained state.
+    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    os.execv(VM_CHILD_PRIVILEGES[0], [*VM_CHILD_PRIVILEGES, "/usr/bin/swtpm", *arguments])
 
 
 def verify_processes(processes, *, proc=Path("/proc")):
@@ -314,5 +337,7 @@ def verify_processes(processes, *, proc=Path("/proc")):
             if kind == "svirt_t":
                 verify_qemu_sandbox(process)
             else:
+                if kind == "swtpm_t":
+                    verify_child_privileges(process)
                 process_policy(process)
     require(CONTROLLER in types and "svirt_t" in types, "VM controller or confined QEMU is missing")

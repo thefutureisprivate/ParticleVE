@@ -14,9 +14,9 @@ gen_require(`
 typeattribute swtpm_t mcs_constrained_type;
 
 domtrans_pattern(particleve_vmspawn_t, qemu_exec_t, svirt_t)
-# The guarded QEMU child drops all capabilities and sets NoNewPrivileges after
-# native setup; retain only this specific transition to its confined VM domain.
-allow particleve_vmspawn_t svirt_t:process2 nnp_transition;
+# Both guarded children drop capabilities and set NoNewPrivileges after native
+# setup; retain only their specific transitions to confined execution domains.
+allow particleve_vmspawn_t { svirt_t swtpm_t }:process2 nnp_transition;
 domtrans_pattern(particleve_vmspawn_t, swtpm_exec_t, swtpm_t)
 can_exec(particleve_vmspawn_t, particleve_vmspawn_exec_t)
 

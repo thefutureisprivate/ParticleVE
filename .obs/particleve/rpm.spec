@@ -1,6 +1,6 @@
 # Native OBS rpm flavor; the default build consumes these RPMs for the image.
 Name:           particleve
-Version:        45.0.1.6
+Version:        45.0.1.7
 Release:        1%{?dist}
 Summary:        ParticleVE host installation and maintenance coordinator
 License:        LGPL-2.1-or-later
@@ -83,6 +83,7 @@ install -D -m0755 Sources/bin/particleve-vm-stop %{buildroot}%{_libexecdir}/part
 install -D -m0755 Sources/bin/particleve-vm-start-guard %{buildroot}%{_libexecdir}/particleve-vm-start-guard
 install -D -m0755 Sources/bin/particleve-vm-run %{buildroot}%{_libexecdir}/particleve-vm-run
 install -D -m0755 Sources/bin/particleve-qemu %{buildroot}%{_libexecdir}/particleve-qemu/qemu
+install -D -m0755 Sources/bin/particleve-swtpm %{buildroot}%{_libexecdir}/particleve-swtpm/swtpm
 install -m0644 .obs/particleve/selinux/particleve_vmspawn.pp .obs/particleve/selinux/particleve_witness.pp %{buildroot}%{_prefix}/lib/particleve/
 install -m0644 .obs/particleve/security-policy.json %{buildroot}%{_prefix}/lib/particleve/
 install -d %{buildroot}%{_prefix}/lib/particleve-build/particleve
@@ -109,6 +110,7 @@ PYTHONPATH=Sources python3 Tools/package-identity.py --root %{buildroot} \
 %{_libexecdir}/particleve-vm-start-guard
 %{_libexecdir}/particleve-vm-run
 %{_libexecdir}/particleve-qemu
+%{_libexecdir}/particleve-swtpm
 %{_prefix}/lib/particleve/particleve_vmspawn.pp
 %{_prefix}/lib/particleve/particleve_witness.pp
 %{_prefix}/lib/particleve/particleve

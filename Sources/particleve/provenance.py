@@ -36,6 +36,7 @@ SCRIPTS = {
     "Sources/bin/particleve-vm-start-guard": "usr/libexec/particleve-vm-start-guard",
     "Sources/bin/particleve-vm-run": "usr/libexec/particleve-vm-run",
     "Sources/bin/particleve-qemu": "usr/libexec/particleve-qemu/qemu",
+    "Sources/bin/particleve-swtpm": "usr/libexec/particleve-swtpm/swtpm",
 }
 
 
