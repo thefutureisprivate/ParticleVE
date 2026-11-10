@@ -615,7 +615,6 @@ pub fn install(
         }),
         "state storage is already active",
     )?;
-    let record;
     {
         let _lock = common::lock("/run/particleve-installer")?;
         write_json("/run/particleve-installer/plan.json", proposed)?;
@@ -645,7 +644,7 @@ pub fn install(
             "storage_wait_seconds".into(),
             field(field(config, "storage")?, "degraded_wait_seconds")?.clone(),
         );
-        record = Value::Object(recorded);
+        let record = Value::Object(recorded);
         with_mount(
             &[
                 "mount",
@@ -831,8 +830,8 @@ pub fn install(
                 Ok(())
             },
         )?;
+        crate::admission::initialize(&record)?;
     }
-    crate::admission::initialize(&record)?;
     Ok(
         json!({"action":"installed","version":field(&release,"version")?,"automatic_updates":false,"tpm_enrollment":"required from the first verified normal boot","next":"validate independent/degraded boots and owner recovery, then commission"}),
     )

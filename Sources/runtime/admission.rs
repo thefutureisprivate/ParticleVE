@@ -166,8 +166,9 @@ pub fn initialize(manifest: &Value) -> Result<()> {
         "existing storage witness requires owner review before reinstall",
     )?;
     let record = json!({"schema":1,"installation_uuid":field(manifest,"installation_uuid")?,"btrfs_uuid":field(field(manifest,"btrfs")?,"uuid")?,"members":bindings(manifest)?,"allowed":["a","b"],"active":false,"nonce":Uuid::new_v4().to_string(),"wait_seconds":field(manifest,"storage_wait_seconds")?});
+    // efivarfs discards an uncommitted variable when its last descriptor closes.
     let _created = OpenOptions::new()
-        .read(true)
+        .write(true)
         .create_new(true)
         .mode(0o600)
         .open(VARIABLE)?;
