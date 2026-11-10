@@ -72,6 +72,13 @@
       ],
       "groupName": "fwupd-efi source and RPM recipe",
       "groupSlug": "fwupd-efi"
+    },
+    {
+      "matchPackageNames": [
+        "registry.fedoraproject.org/fedora"
+      ],
+      "allowedVersions": "/^45$/",
+      "description": "Keep the source-check container on the selected Fedora major; review digest refreshes."
     }
   ],
   "customDatasources": {

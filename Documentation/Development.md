@@ -9,7 +9,7 @@ required verification for a change. Distribution builds have a separate
 
 Use a Linux development environment with the pinned Rust toolchain, a C linker,
 libselinux development headers, Python 3.14 or newer, Ruff, Git, GNU Make, Bash,
-GnuPG, OpenSSL, and the OpenSSH client tools. The source tests use
+GnuPG, OpenSSL, cpio, and the OpenSSH client tools. The source tests use
 `ssh-keygen` to check actual public-key parsing. Image builds also need the native
 tools and project packages described in [build and publication](Build.md) and
 the [mkosi RPM recipe](../.obs/mkosi/mkosi.spec). The runtime, initrd, and image
@@ -265,7 +265,7 @@ revision, package identities, configuration, and diagnostics when reproducing it
 
 | Build or check | Coverage and local entry points |
 | --- | --- |
-| [GitHub source checks](../.github/workflows/check.yml) | Pinned Rust/Python setup, `make check`, upstream pin/patch verification and resolved image configuration. A passing `main` push can select system changes for OBS. |
+| [GitHub source checks](../.github/workflows/check.yml) | Digest-pinned Fedora container, pinned Rust packages and Ruff, native Fedora Python, `make check`, upstream pin/patch verification and resolved image configuration. A passing `main` push can select system changes for OBS. |
 | [Host, initrd and build-tools RPMs](../.obs/particleve/rpm.spec) | Offline locked Rust build, strict formatting/Clippy, Rust and Python tests, SELinux policy compilation, and final ELF payload identity after normal RPM transformations. |
 | [Pinned mkosi RPM](../.obs/mkosi/mkosi.spec) | Exact upstream, recipe, and patch identity; installed-payload records; shell syntax checks for the OBS signing continuation. |
 | [fwupd EFI helper RPM](../.obs/fwupd-efi/fwupd-efi.spec) | Compiler diagnostics, retained SBAT/SBOM sections, payload identity, and separate PE signing. |

@@ -16,22 +16,31 @@ concurrency:
 jobs:
   source-checks:
     runs-on: ubuntu-latest
+    container:
+      image: registry.fedoraproject.org/fedora:45@sha256:3632de47c2cef45d6a6ea6a420280ff9ce452e225a1b291299c105b9d9bae471
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 20
     steps:
+      - name: Install native build and test tools
+        run: >-
+          dnf install --assumeyes git make gcc libselinux-devel python3 python3-pip
+          gnupg2 openssl openssh-clients ca-certificates cpio tar xz zstd
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: '3.15'
-      - name: Install source-check tools
-        run: >-
-          python3 -m pip install --require-hashes --only-binary=:all: -r .github/requirements.txt
-      - name: Install the pinned Rust toolchain and native headers
+      - name: Install the pinned Rust toolchain
         run: |
-          rustup show
-          sudo apt-get update
-          sudo apt-get install --yes libselinux1-dev
+          rust_version=$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("rust-toolchain.toml").read_text())["toolchain"]["channel"])')
+          dnf install --assumeyes "rust-${rust_version}" "cargo-${rust_version}" \
+            "rustfmt-${rust_version}" "clippy-${rust_version}"
+      - name: Install source-check tools
+        run: |
+          python3 -m venv /tmp/particleve-ci-python
+          /tmp/particleve-ci-python/bin/python3 -m pip install \
+            --require-hashes --only-binary=:all: -r .github/requirements.txt
+          echo '/tmp/particleve-ci-python/bin' >> "$GITHUB_PATH"
       - name: Lint and unit tests
         run: make check
       - name: Verify upstream pins and downstream patches
