@@ -148,6 +148,9 @@ class Backend:
     def protect_current(self, current, candidate):
         self.event("protect")
 
+    def pin_current(self, current):
+        self.event("pin")
+
     def verify_disk(self, role, manifest, *, boot):
         return self.disks.get(role) == manifest["version"] and (
             not boot or self.entries.get(role) == manifest["version"]

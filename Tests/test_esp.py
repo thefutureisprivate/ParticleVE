@@ -104,6 +104,46 @@ class ESPTests(unittest.TestCase):
             self.assertIn("default ParticleVE_*_x86-64*.efi", (esp / "loader/loader.conf").read_text())
             self.assertTrue((esp / "EFI/Linux/ParticleVE_45.0.1.1-1.1_x86-64.efi").exists())
 
+    def test_pinning_preserves_retained_ukis_counters_and_capsules(self):
+        for role, esp in self.esps.items():
+            self.backend.expose_boot(role, self.manifest)
+            (esp / "EFI/Linux/ParticleVE_45.0.1.2-1.1_x86-64+3.efi").rename(
+                esp / "EFI/Linux/ParticleVE_45.0.1.2-1.1_x86-64+1-2.efi"
+            )
+            (esp / "EFI/Linux/ParticleVE_45.0.1.1-1.1_x86-64.efi").write_bytes(b"retained UKI")
+        before = {
+            role: {p.relative_to(esp): p.read_bytes() for p in (esp / "EFI").rglob("*") if p.is_file()}
+            for role, esp in self.esps.items()
+        }
+        self.backend.pin_current(self.manifest["version"])
+        for role, esp in self.esps.items():
+            self.assertEqual(
+                {p.relative_to(esp): p.read_bytes() for p in (esp / "EFI").rglob("*") if p.is_file()},
+                before[role],
+            )
+            self.assertEqual(
+                (esp / "loader/loader.conf").read_text(),
+                "timeout 9\neditor no\ndefault ParticleVE_45.0.1.2-1.1_x86-64*.efi\n",
+            )
+
+    def test_pinning_failure_on_second_esp_preserves_both_retained_entries(self):
+        for role, esp in self.esps.items():
+            self.backend.expose_boot(role, self.manifest)
+            (esp / "EFI/Linux/ParticleVE_45.0.1.1-1.1_x86-64.efi").write_bytes(b"retained UKI")
+
+        def selected(role):
+            if role == "b":
+                raise Error("ESP unavailable")
+            return contextlib.nullcontext(self.esps[role])
+
+        self.backend.esp = selected
+        with self.assertRaisesRegex(Error, "ESP unavailable"):
+            self.backend.pin_current(self.manifest["version"])
+        for esp in self.esps.values():
+            self.assertEqual(
+                (esp / "EFI/Linux/ParticleVE_45.0.1.1-1.1_x86-64.efi").read_bytes(), b"retained UKI"
+            )
+
     def test_activation_refuses_an_exhausted_candidate_without_resetting_it(self):
         for role, esp in self.esps.items():
             self.backend.expose_boot(role, self.manifest)

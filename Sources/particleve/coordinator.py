@@ -274,13 +274,11 @@ class Coordinator:
                     not pending or pending["version"] != self.backend.current_version(),
                     "assess this OS before firmware maintenance",
                 )
-                # Use the proven OS and leave prepared updates pending during firmware work.
+                # Pin the proven OS without reclaiming slots or removing retained entries.
                 state["maintenance"] = {"reason": reason, "since": datetime.now(UTC).isoformat()}
                 self.save(state)  # inhibition survives an ESP failure or a missing disk during replacement
                 try:
-                    self.backend.protect_current(
-                        self.backend.current_version(), pending["version"] if pending else None
-                    )
+                    self.backend.pin_current(self.backend.current_version())
                 except Error as exc:
                     state["last_reason"] = f"maintenance inhibited; boot defaults need owner review: {exc}"
             else:

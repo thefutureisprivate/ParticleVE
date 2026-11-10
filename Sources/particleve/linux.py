@@ -408,11 +408,16 @@ class Linux:
         lines.append(f"default ParticleVE_{selected}_x86-64*.efi{suffix}")
         atomic_write(path, ("\n".join(lines) + "\n").encode())
 
-    def protect_current(self, current, candidate):
+    def pin_current(self, current):
         for role in ("a", "b"):
             with self.esp(role) as esp:
                 require(self.boot_entries(esp, current), f"disk {role} has no current fallback entry")
                 self.default(esp, current)
+
+    def protect_current(self, current, candidate):
+        self.pin_current(current)
+        for role in ("a", "b"):
+            with self.esp(role) as esp:
                 for path in (esp / "EFI/Linux").glob("ParticleVE_*.efi"):
                     if not any(
                         self.boot_entries(esp, v) and path in [p for p, _ in self.boot_entries(esp, v)]

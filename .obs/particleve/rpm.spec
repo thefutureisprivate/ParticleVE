@@ -1,6 +1,6 @@
 # Native OBS rpm flavor; the default build consumes these RPMs for the image.
 Name:           particleve
-Version:        45.0.1.12
+Version:        45.0.1.13
 Release:        1%{?dist}
 Summary:        ParticleVE host installation and maintenance coordinator
 License:        LGPL-2.1-or-later

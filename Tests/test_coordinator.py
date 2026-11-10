@@ -105,6 +105,19 @@ class CoordinatorTests(unittest.TestCase):
         with lock(self.temporary.name), self.assertRaises(Deferred):
             reopened.prepare()
 
+    def test_maintenance_only_pins_current_with_or_without_a_pending_release(self):
+        for prepared in (False, True):
+            with self.subTest(prepared=prepared), tempfile.TemporaryDirectory() as directory:
+                backend = Backend()
+                coordinator = Coordinator(directory, backend)
+                if prepared:
+                    coordinator.prepare()
+                pending = coordinator.load()["pending"]
+                before = len(backend.calls)
+                coordinator.maintenance("supervised firmware")
+                self.assertEqual(backend.calls[before:], ["pin"])
+                self.assertEqual(coordinator.load()["pending"], pending)
+
     def test_fallback_quarantines_before_old_daemon_is_started(self):
         self.coordinator.prepare()
         self.coordinator.reboot(now=self.window)
