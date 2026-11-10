@@ -218,6 +218,7 @@ have their own prerequisites and procedures.
 | System CA trust | Native TLS tests in [`Tests/runtime/tls.rs`](../Tests/runtime/tls.rs), [`test_system_trust.py`](../Tests/test_system_trust.py), [`test_sourcegit.py`](../Tests/test_sourcegit.py), the [native trust lifecycle probe](../Tests/acceptance/system-trust.py), the [native Git probe](../Tests/acceptance/source-trust.py), and [TLS operating policy](Operations.md#authenticated-time-and-dns). |
 | Native networking, kernel interfaces, and device policy | [`Tests/acceptance/`](../Tests/acceptance/), [hardening](Hardening.md), and the selected probe's arguments and prerequisites. |
 | Trust transition | [`test_release_trust.py`](../Tests/test_release_trust.py) calls the compiled and publication checksum verifiers with real GPG keys. [`pe-trust.py`](../Tests/acceptance/pe-trust.py) takes `--efi READ_ONLY_PE_INPUT` and tests native PE signatures with ephemeral keys; it never executes its input. Both are component checks; use the [full transition matrix](ReleaseDiagnostics.md#trust-transition-acceptance) for firmware, TPM, modules and boot. |
+| Allocator evaluation | The [scoped allocator procedure](#scoped-allocator-components) checks signed source, final RPMs, actual loading and bounded process behavior before the full adoption matrix. |
 | EFI loader failure and fallback | [`build-loader-probe.sh`](../Tests/acceptance/build-loader-probe.sh). |
 | Final signed-image and hardware behavior | [Release diagnostics](ReleaseDiagnostics.md) and [commissioning](Commissioning.md). |
 
@@ -313,6 +314,81 @@ retain their hashes. Provisioning uses private offline variable editing; this
 does not test authenticated variable-update transports, physical firmware,
 encrypted owner recovery or a complete signed-image transition. Those belong
 to the [release acceptance matrix](ReleaseDiagnostics.md#trust-transition-acceptance).
+
+### Scoped allocator components
+
+[`Tests/acceptance/allocator/`](../Tests/acceptance/allocator/) contains the
+pinned hardened_malloc evaluation inputs. The source preparer uses the system
+CA store, checks the exact signed upstream tag and commit against the reviewed
+public SSH signer, and verifies the canonical archive hash:
+
+```sh
+mkdir -m 0700 /tmp/particleve-allocator-rpm
+PYTHONPATH=Sources:. python3 -W error Tests/acceptance/allocator/prepare.py \
+  --output /tmp/particleve-allocator-rpm/SOURCES
+rpmbuild -ba --define '_topdir /tmp/particleve-allocator-rpm' \
+  /tmp/particleve-allocator-rpm/SOURCES/rpm.spec
+```
+
+Build in a disposable Fedora environment with the recipe's declared dependencies.
+Both upstream default and light variants retain C++ allocation support, strict
+diagnostics and Fedora flags, with explicit x86-64-v2 targeting and native CPU
+tuning disabled. The narrow ChaCha pointer-lifetime patch has a comparison
+against the unmodified tagged implementation at block boundaries and counter
+carry. The upstream corruption suite covers the default variant; it does not
+establish equivalent coverage for light.
+
+Set `ALLOCATOR_BINARY_RPM` and `ALLOCATOR_SOURCE_RPM` to the resulting normal
+binary and source RPM paths. Inspect their exact source, recipe, patch and
+installed-library bytes after normal RPM processing:
+
+```sh
+python3 -W error Tests/acceptance/allocator/inspect.py \
+  --rpm "$ALLOCATOR_BINARY_RPM" --source-rpm "$ALLOCATOR_SOURCE_RPM" \
+  --output /tmp/particleve-allocator-rpm/payload.json
+```
+
+This inspection checks local RPM digests, ELF hardening and the passive `/usr`
+payload. It does not authenticate an OBS signature or establish verified-image
+delivery. The package installs no global preload, sysctl or service policy.
+Keep its public source and inspection records with the build evidence.
+
+For component measurements, use a separately selected disposable Fedora QEMU
+recovery VM with enforcing SELinux, PID 1, GCC, QEMU, swtpm and util-linux.
+Install the reviewed evaluation RPM there, checking its exact hash and installed
+file digests. Stage the allocator probe directory, matching inspection record
+and compiled probe under `/run/particleve-allocator`, owned by root and readable
+but not writable by the probe UID:
+
+```sh
+gcc -std=c23 -O2 -fno-builtin -Wall -Wextra -Werror \
+  -fstack-protector-strong -fcf-protection=full -Wl,-z,relro,-z,now \
+  /run/particleve-allocator/allocation-probe.c -pthread -ldl \
+  -o /run/particleve-allocator/allocation-probe
+python3 -W error /run/particleve-allocator/components.py \
+  --expect-machine-uuid "$DISPOSABLE_VM_UUID" \
+  --allocation-probe /run/particleve-allocator/allocation-probe \
+  --payload-record /run/particleve-allocator/payload.json \
+  --output /run/particleve-allocator/result.json
+```
+
+The probe requires the exact DMI UUID and absence of an installed-host record.
+It compares glibc, default and light in three interleaved rounds, recording
+actual mappings, `malloc` resolution, RSS, mapping counts and timings. QEMU
+initializes virtual block/network devices while paused, copies a private disk
+through QMP, and exits. swtpm initializes a new private identity and answers a
+TPM capability request. Children use an unprivileged UID with empty capability
+sets; QEMU's seccomp sandbox remains enabled. Their recorded SELinux domains
+must not be mistaken for the production vmspawn/MCS confinement contract.
+
+Separate memory-limited units exercise `MemoryHigh` throttling and relief with
+an unchanged 128-MiB hard cap, then a deliberate contained OOM. The probe removes
+only its own units and files, preserves partial results on failure, and leaves
+the global allocator and map-count policy unchanged. These small component
+timings do not measure guest startup, guest disk/network performance, complete
+authentication or maintenance, whole-host pressure, or the selected signed
+image. Apply the [allocator adoption policy](Hardening.md#advanced-userspace-and-kernel-mitigations)
+and full release matrix before selecting an allocator for host use.
 
 ### Native probes with compiled helpers
 

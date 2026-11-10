@@ -1,0 +1,33 @@
+From: ParticleVE maintainers
+Subject: [PATCH] chacha: keep the partial-block output pointer within its iteration
+
+GCC 16 diagnoses the outer uninitialized pointer with Fedora's build flags.
+The partial-block branch assigns it before use, but the two separate size
+checks obscure that lifetime. Bind the output pointer at the start of each
+iteration and redirect only the working pointer for a partial block.
+
+Keep the keystream, block counter and final copy bounds unchanged. Compare
+boundary lengths and counter carry with the unmodified tagged implementation.
+Upstream-Status: Pending
+Source: c5b1ae0bacd896bff7c4d3bf4794adf7950ca4ab
+
+--- a/chacha.c
++++ b/chacha.c
+@@ -70,7 +70,6 @@ void chacha_keystream_bytes(chacha_ctx *x, u8 *c, u32 bytes) {
+         return;
+     }
+
+-    u8 *ctarget;
+     u8 tmp[64];
+
+     u32 j0 = x->input[0];
+@@ -90,8 +89,8 @@ void chacha_keystream_bytes(chacha_ctx *x, u8 *c, u32 bytes) {
+     u32 j15 = x->input[15];
+
+     for (;;) {
++        u8 *ctarget = c;
+         if (bytes < 64) {
+-            ctarget = c;
+             c = tmp;
+         }
+         u32 x0 = j0;
