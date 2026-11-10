@@ -13,16 +13,24 @@ import json
 import os
 import re
 import stat
+import struct
 import tempfile
 import time
 from pathlib import Path
 
 from particleve.common import canonical, digest, read_json, require, run
-from particleve.radio import EVENT, POLICY_PATH, UNIT
+
+# Linux RFKill UAPI; policy itself is exercised only by the compiled runtime.
+EVENT = struct.Struct("=IBBBB")
+POLICY_PATH = Path("/etc/particleve/radio-policy.json")
+UNIT = "particleve-radio-policy.service"
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--expect-installation", required=True)
 parser.add_argument("--source-dir", type=Path, required=True)
+parser.add_argument(
+    "--runtime-binary", type=Path, required=True, help="reviewed compiled radio helper staged under /run"
+)
 parser.add_argument("--preserve-unit", action="append", default=[])
 args = parser.parse_args()
 require(os.geteuid() == 0, "run inside the disposable test installation as root")
@@ -122,18 +130,22 @@ with tempfile.TemporaryDirectory(prefix="particleve-radio-component-", dir="/run
     directory = Path(temporary)
     directory.chmod(0o755)
     policy_path = directory / "policy.json"
-    launcher = directory / "launcher.py"
-    launcher.write_text(
-        (source / "Sources/bin/particleve-radio-policy")
-        .read_text()
-        .replace('"/usr/lib/particleve"', repr(str(source)))
+    launcher = args.runtime_binary.resolve(strict=True)
+    require(launcher.is_relative_to("/run"), "stage the compiled radio helper under /run")
+    executable = launcher.stat()
+    require(
+        stat.S_ISREG(executable.st_mode)
+        and executable.st_uid == 0
+        and stat.S_IMODE(executable.st_mode) & 0o022 == 0
+        and os.access(launcher, os.X_OK),
+        "the reviewed radio helper must be a root-owned executable without other-account writes",
     )
+    with launcher.open("rb") as binary:
+        require(binary.read(4) == b"\x7fELF", "radio acceptance requires the compiled Rust helper")
     unit_source = source / "mkosi.extra/usr/lib/systemd/system" / UNIT
     unit = (
         unit_source.read_text()
-        .replace(
-            "ExecStart=/usr/libexec/particleve-radio-policy", f"ExecStart=/usr/bin/python3 -I {launcher}"
-        )
+        .replace("ExecStart=/usr/libexec/particleve-radio-policy", f"ExecStart={launcher}")
         .replace("radio-policy:" + str(POLICY_PATH), "radio-policy:" + str(policy_path))
     )
     policy = {"allowed_types": []}
@@ -305,8 +317,9 @@ print(
             "cases": cases,
             "service_rss_kib": rss_kib,
             "policy_source_sha256": hashlib.sha256(
-                (source / "Sources/particleve/radio.py").read_bytes()
+                (source / "Sources/runtime/radio.rs").read_bytes()
             ).hexdigest(),
+            "runtime_binary_sha256": hashlib.sha256(launcher.read_bytes()).hexdigest(),
             "fixture": "signed Fedora virt_wifi; no physical transmitter",
             "early_boot_tested": False,
         },

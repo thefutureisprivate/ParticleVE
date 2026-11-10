@@ -1,183 +1,54 @@
 import json
 import os
-import stat
 import struct
 import sys
 import tempfile
-import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from particleve.common import Error
-from particleve.linux import Linux
 from particleve.security import (
     KERNEL_REQUIRED,
     TPM_PROFILE,
     apply_image_privileges,
     capabilities,
     check_privileges,
-    firmware_evidence,
     kernel_baseline,
     privilege_inventory,
-    process_evidence,
-    selinux_access,
-    selinux_baseline,
-    ssh_baseline,
-    usr_backing_disks,
-    verified_usr_mount,
     write_tpm_profile,
 )
+from Tests.runtime import RustDriverTests
 
 
-class SecurityBaselineTests(unittest.TestCase):
-    def test_effective_kernel_policy_checks_include_permissive_flags_and_consistent_sequence(self):
-        classes = {
-            name: i
-            for i, name in enumerate(
-                ("user_namespace", "alg_socket", "key_socket", "netlink_xfrm_socket", "process2"), start=1
+class SecurityBaselineTests(RustDriverTests):
+    def native(self, operation, executable, stdout, *, code=0, stderr=""):
+        with tempfile.TemporaryDirectory() as temporary:
+            command = Path(temporary) / executable
+            command.write_text(
+                f"#!{sys.executable}\nimport sys\nsys.stdout.write({stdout!r})\n"
+                f"sys.stderr.write({stderr!r})\nsys.exit({code})\n"
             )
-        }
-        mode = "pass"
-        queries = 0
-
-        def query(context, target, cls, permission, decision):
-            nonlocal queries
-            if cls == classes["process2"]:
-                self.assertIn(context.split(":")[2], ("unconfined_t", "unconfined_service_t"))
-                self.assertEqual(target.split(":")[2], "chronyc_t")
-            else:
-                self.assertEqual(context, target)
-            queries += 1
-            domain = context.split(":")[2]
-            decision.allowed = (
-                permission
-                if (
-                    (domain == "particleve_vmspawn_t" and cls == 1)
-                    or (domain in ("unconfined_t", "unconfined_service_t") and cls == 2)
-                    or cls == classes["process2"]
-                )
-                else 0
+            command.chmod(0o700)
+            return self.request(
+                operation, environment=os.environ | {"PATH": temporary + os.pathsep + os.environ["PATH"]}
             )
-            decision.decided = permission
-            decision.flags = 0
-            decision.seqno = 70
-            if mode == "grant-unneeded":
-                decision.allowed = permission
-            elif mode == "remove-required":
-                decision.allowed = 0
-            elif mode == "permissive":
-                decision.flags = 1
-            elif mode == "incomplete":
-                decision.decided = 0
-            elif mode == "reload":
-                decision.seqno += queries
-            elif mode == "deny-chrony-transition" and cls == classes["process2"]:
-                decision.allowed = 0
-            return -1 if mode == "query-failed" else 0
-
-        api = SimpleNamespace(
-            security_getenforce=lambda: 1,
-            string_to_security_class=lambda name: 0 if mode == "unknown-class" else classes[name],
-            string_to_av_perm=lambda cls, name: 8,
-            av_decision=SimpleNamespace,
-            security_compute_av_flags_raw=query,
-        )
-        with patch.dict(sys.modules, {"selinux": api}):
-            observed = selinux_access()
-            self.assertFalse(observed["permissive_domains"])
-            self.assertEqual(
-                observed["chrony_query_transitions"],
-                {"unconfined_t": "chronyc_t", "unconfined_service_t": "chronyc_t"},
-            )
-            for mode in (
-                "grant-unneeded",
-                "remove-required",
-                "permissive",
-                "incomplete",
-                "reload",
-                "query-failed",
-                "unknown-class",
-                "deny-chrony-transition",
-            ):
-                with self.subTest(mode=mode), self.assertRaises(Error):
-                    selinux_access()
 
     def test_unknown_missing_enabled_or_ambiguous_virtualization_booleans_cannot_pass(self):
         good = "virt_use_nfs --> off\nvirt_use_samba --> off\nvirt_use_execmem --> off\n"
-        with patch("particleve.security.run") as native:
-            native.return_value = SimpleNamespace(stdout=good, stderr="")
-            self.assertFalse(any(selinux_baseline().values()))
-            for output in (
-                good.replace("virt_use_nfs --> off", "virt_use_nfs --> on"),
-                good.replace("virt_use_samba --> off\n", ""),
-                good + "virt_use_nfs --> off\n",
-                good + "unexpected --> off\n",
-            ):
-                native.return_value.stdout = output
-                with self.subTest(output=output), self.assertRaises(Error):
-                    selinux_baseline()
-            native.return_value.stdout = good
-            native.return_value.stderr = "inspection warning"
-            with self.assertRaisesRegex(Error, "diagnostics"):
-                selinux_baseline()
-
-    def test_verity_mapper_does_not_hide_an_overlaid_or_writable_usr_mount(self):
-        good = {
-            "target": "/usr",
-            "source": "/dev/mapper/usr",
-            "fstype": "erofs",
-            "maj:min": "253:1",
-            "fsroot": "/",
-            "vfs-options": "ro,nodev,relatime",
-        }
-        device = SimpleNamespace(st_mode=stat.S_IFBLK | 0o600, st_rdev=os.makedev(253, 1))
-        with patch.object(Path, "stat", return_value=device), patch("particleve.security.run") as native:
-            native.return_value = SimpleNamespace(stdout=json.dumps({"filesystems": [good]}), stderr="")
-            self.assertTrue(verified_usr_mount()["readonly"])
-            for changed in (
-                {"fstype": "overlay"},
-                {"vfs-options": "rw,nodev"},
-                {"fsroot": "/untrusted"},
-                {"maj:min": "253:9"},
-                {"target": "/"},
-            ):
-                native.return_value.stdout = json.dumps({"filesystems": [{**good, **changed}]})
-                with self.subTest(changed=changed), self.assertRaises(Error):
-                    verified_usr_mount()
-            native.return_value.stdout = json.dumps({"filesystems": [good]})
-            native.return_value.stderr = "inspection warning"
-            with self.assertRaisesRegex(Error, "diagnostics"):
-                verified_usr_mount()
-
-    def test_matching_usr_does_not_hide_a_lost_boot_disk_selection_marker(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            disk = Path(tmp) / "disk-b"
-            disk.touch()
-            backend = Linux.__new__(Linux)
-            backend.current_esp_role = lambda: "b"
-            backend.disk = lambda _: {"path": str(disk)}
-            resolve = Path.resolve
-
-            def selected(path, *, strict=False):
-                return Path("/dev/dm-0") if str(path) == "/dev/mapper/usr" else resolve(path, strict=strict)
-
-            with (
-                patch.object(Path, "resolve", selected),
-                patch("particleve.security.verified_usr_mount"),
-                patch("particleve.security.usr_backing_disks", return_value={"disk-b"}),
-                patch(
-                    "particleve.linux.run",
-                    return_value=SimpleNamespace(stdout="DEVNAME=/dev/disk-b\n", stderr=""),
-                ) as native,
-            ):
-                with self.assertRaisesRegex(Error, "did not survive"):
-                    backend.check_usr_boot_disk()
-                native.return_value.stdout += "PARTICLEVE_BOOT_DISK=1\n"
-                backend.check_usr_boot_disk()
-                native.return_value.stderr = "unexpected diagnostic"
-                with self.assertRaisesRegex(Error, "inspection diagnostics"):
-                    backend.check_usr_boot_disk()
+        self.assertFalse(any(self.native("security-selinux-baseline", "getsebool", good)["ok"].values()))
+        for output in (
+            good.replace("virt_use_nfs --> off", "virt_use_nfs --> on"),
+            good.replace("virt_use_samba --> off\n", ""),
+            good + "virt_use_nfs --> off\n",
+            good + "unexpected --> off\n",
+        ):
+            with self.subTest(output=output):
+                self.assertIn("error", self.native("security-selinux-baseline", "getsebool", output))
+        self.assertIn(
+            "diagnostics",
+            self.native("security-selinux-baseline", "getsebool", good, stderr="warning")["error"],
+        )
 
     def test_usr_evidence_identifies_mixed_physical_members_and_rejects_unexpected_backing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -191,10 +62,15 @@ class SecurityBaselineTests(unittest.TestCase):
                 part.mkdir(parents=True)
                 (part / "partition").write_text(str(number))
                 (mapper / "slaves" / part.name).symlink_to(part, target_is_directory=True)
-            self.assertEqual(usr_backing_disks("dm-0", sysfs=root), {"diskA", "diskB"})
+            self.assertEqual(
+                set(self.evaluate("security-usr-backing-disks", mapper="dm-0", sysfs=str(root))),
+                {"diskA", "diskB"},
+            )
             (mapper / "dm/uuid").write_text("CRYPT-LUKS2-test-usr\n")
-            with self.assertRaisesRegex(Error, "not dm-verity"):
-                usr_backing_disks("dm-0", sysfs=root)
+            self.assertIn(
+                "not dm-verity",
+                self.request("security-usr-backing-disks", mapper="dm-0", sysfs=str(root))["error"],
+            )
 
     def test_creation_profile_is_explicit_without_overriding_vendor_configuration(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -208,129 +84,52 @@ class SecurityBaselineTests(unittest.TestCase):
             self.assertEqual(json.loads((target / "tpm-profile.json").read_text()), TPM_PROFILE)
             self.assertEqual(path.read_text(), original)
 
-    def test_effective_ssh_policy_requires_native_homed_authentication_and_rejects_drift(self):
-        common = """UsePAM yes
-PubkeyAuthentication yes
-PubkeyAuthOptions touch-required verify-required
-AuthorizedKeysCommand /usr/bin/userdbctl ssh-authorized-keys %u
-AuthorizedKeysCommandUser root
-PermitRootLogin prohibit-password
-PermitEmptyPasswords no
-KbdInteractiveAuthentication no
-DisableForwarding yes
-PermitTunnel no
-X11Forwarding no
-AllowAgentForwarding no
-PubkeyAcceptedAlgorithms sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com
-"""
-
-        def native(command):
-            root = "user=root," in command[-1]
-            return SimpleNamespace(
-                stderr="",
-                stdout=common
-                + (
-                    "PasswordAuthentication no\nAuthenticationMethods publickey\n"
-                    if root
-                    else "PasswordAuthentication yes\nAuthenticationMethods publickey,password\n"
-                ),
-            )
-
-        with patch("particleve.security.run", side_effect=native):
-            self.assertEqual(ssh_baseline()["homed"]["authenticationmethods"], "publickey,password")
-        for old, new in (
-            ("DisableForwarding yes", "DisableForwarding no"),
-            ("publickey,password", "publickey"),
-            ("sk-ssh-ed25519@openssh.com,", ""),
-            ("touch-required verify-required", "touch-required"),
-            ("touch-required verify-required", "verify-required"),
-        ):
-
-            def changed(command, old=old, new=new):
-                result = native(command)
-                result.stdout = result.stdout.replace(old, new)
-                return result
-
-            with (
-                self.subTest(change=new),
-                patch("particleve.security.run", side_effect=changed),
-                self.assertRaises(Error),
-            ):
-                ssh_baseline()
-
-    def test_firmware_evidence_keeps_individual_attributes_and_does_not_turn_unavailable_into_pass(self):
-        error = {"Error": {"Code": 10, "Message": "HSI unavailable for unprivileged hypervisor"}}
-        with patch(
-            "particleve.security.capture_bounded",
-            return_value=SimpleNamespace(returncode=1, stdout=json.dumps(error), stderr=""),
-        ):
-            self.assertEqual(
-                firmware_evidence(), {"available": False, "reason": error["Error"], "attributes": []}
-            )
-        # Native firmware can report the same attribute for several devices.
-        # Preserve the individual records rather than collapsing by identifier.
+    def test_firmware_evidence_preserves_attributes_and_unavailable_is_not_pass(self):
+        error = {"Error": {"Code": 10, "Message": "HSI unavailable in fixture"}}
+        self.assertEqual(
+            self.native("security-firmware-evidence", "fwupdmgr", json.dumps(error), code=1)["ok"],
+            {"available": False, "reason": error["Error"], "attributes": []},
+        )
         attrs = [
             {"AppstreamId": "org.fwupd.hsi.Mtd.Locked", "HsiResult": "locked", "Guid": "fixture-a"},
             {"AppstreamId": "org.fwupd.hsi.Mtd.Locked", "HsiResult": "not-locked", "Guid": "fixture-b"},
         ]
-        with patch(
-            "particleve.security.capture_bounded",
-            return_value=SimpleNamespace(
-                returncode=0,
-                stdout=json.dumps({"SecurityAttributes": attrs, "SecurityEvents": []}),
-                stderr="",
-            ),
-        ):
-            self.assertEqual(firmware_evidence(), {"available": True, "attributes": attrs})
-        with (
-            patch(
-                "particleve.security.capture_bounded",
-                return_value=SimpleNamespace(returncode=0, stdout='{"SecurityAttributes":[]}', stderr=""),
-            ),
-            self.assertRaisesRegex(Error, "empty"),
-        ):
-            firmware_evidence()
+        response = json.dumps({"SecurityAttributes": attrs})
+        self.assertEqual(
+            self.native("security-firmware-evidence", "fwupdmgr", response)["ok"],
+            {"available": True, "attributes": attrs},
+        )
+        self.assertIn(
+            "diagnostics",
+            self.native("security-firmware-evidence", "fwupdmgr", response, stderr="warning")["error"],
+        )
 
     def test_malformed_firmware_observations_fail_without_partial_evidence(self):
         for content in (
             "{",
             "null",
             "[]",
+            '{"SecurityAttributes":[]}',
             '{"SecurityAttributes":[null]}',
             '{"HostSecurityAttributes":[{}]}',
             "[" * 2000,
         ):
-            with (
-                self.subTest(content=content[:40]),
-                patch(
-                    "particleve.security.capture_bounded",
-                    return_value=SimpleNamespace(returncode=0, stdout=content, stderr=""),
-                ),
-                self.assertRaises(Error),
-            ):
-                firmware_evidence()
+            with self.subTest(content=content[:40]):
+                self.assertIn("error", self.native("security-firmware-evidence", "fwupdmgr", content))
 
     def test_firmware_child_output_and_diagnostics_are_bounded_before_json_parsing(self):
-        attributes = [{"AppstreamId": "org.fwupd.hsi.Kernel.Lockdown", "HsiResult": "locked"}]
-        response = json.dumps({"SecurityAttributes": attributes})
-        with tempfile.TemporaryDirectory() as name:
-            command = Path(name) / "fwupdmgr"
-            command.touch(mode=0o700)
-            with patch.dict(os.environ, {"PATH": name + os.pathsep + os.environ["PATH"]}):
-                command.write_text(f"#!{sys.executable}\nprint({response!r})\n")
-                self.assertEqual(firmware_evidence(), {"available": True, "attributes": attributes})
-                for descriptor in (1, 2):
-                    command.write_text(
-                        f"#!{sys.executable}\nimport os\nos.write({descriptor}, b'x' * (256 * 1024 + 1))\n"
-                    )
-                    with self.subTest(descriptor=descriptor), self.assertRaisesRegex(Error, "size limit"):
-                        firmware_evidence()
+        for descriptor in (1, 2):
+            with self.subTest(descriptor=descriptor), tempfile.TemporaryDirectory() as temporary:
+                command = Path(temporary) / "fwupdmgr"
                 command.write_text(
-                    f"#!{sys.executable}\nimport sys\nprint({response!r})\n"
-                    "print('warning', file=sys.stderr)\n"
+                    f"#!{sys.executable}\nimport os\nos.write({descriptor}, b'x' * (256 * 1024 + 1))\n"
                 )
-                with self.assertRaisesRegex(Error, "diagnostics"):
-                    firmware_evidence()
+                command.chmod(0o700)
+                result = self.request(
+                    "security-firmware-evidence",
+                    environment=os.environ | {"PATH": temporary + os.pathsep + os.environ["PATH"]},
+                )
+                self.assertIn("size limit", result["error"])
 
     def test_missing_kernel_facility_fails_without_requiring_force_mode_in_stock_config(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -465,43 +264,3 @@ PubkeyAcceptedAlgorithms sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@opens
             apply_image_privileges("/")
         chmod.assert_not_called()
         revoke.assert_not_called()
-
-    def test_process_evidence_does_not_export_native_guest_credentials(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            proc = Path(tmp)
-            process = proc / "123"
-            (process / "attr").mkdir(parents=True)
-            (process / "fd").mkdir()
-            (process / "ns").mkdir()
-            (process / "ns/user").symlink_to("user:[12345]")
-            fields = (
-                "Uid",
-                "Gid",
-                "Groups",
-                "CapInh",
-                "CapPrm",
-                "CapEff",
-                "CapBnd",
-                "CapAmb",
-                "NoNewPrivs",
-                "Seccomp",
-                "Seccomp_filters",
-            )
-            (process / "status").write_text("\n".join(f"{field}: 0" for field in fields))
-            (process / "attr/current").write_text("system_u:system_r:svirt_t:s0:c10,c20\0")
-            (process / "stat").write_text("123 (qemu) S " + "0 " * 18 + "1\n")
-            (process / "cmdline").write_bytes(
-                b"qemu\0-fw_cfg\0name=opt/io.systemd.credentials,string=DO-NOT-EXPORT\0-sandbox\0on\0"
-            )
-            result = process_evidence({"pid": 123, "starttime": 1}, proc=proc)
-            self.assertNotIn("DO-NOT-EXPORT", json.dumps(result))
-            self.assertEqual(result["security_options"]["-sandbox"], ["on"])
-            self.assertEqual(result["namespaces"]["user"], "user:[12345]")
-            with patch("particleve.security.MAX_NAMESPACES", 0), self.assertRaisesRegex(Error, "bound"):
-                process_evidence({"pid": 123, "starttime": 1}, proc=proc)
-            (process / "fd/0").symlink_to("/dev/null")
-            with patch("particleve.security.MAX_FDS", 0), self.assertRaisesRegex(Error, "bound"):
-                process_evidence({"pid": 123, "starttime": 1}, proc=proc)
-            (process / "cmdline").write_bytes(b"qemu\0-cpu\0" + b"x" * 65537 + b"\0")
-            with self.assertRaisesRegex(Error, "evidence bound"):
-                process_evidence({"pid": 123, "starttime": 1}, proc=proc)

@@ -12,14 +12,14 @@ from unittest.mock import patch
 
 from particleve.common import Error
 from particleve.config import version_key
-from particleve.layout import calculate, sfdisk_script
 from particleve.versioning import bump, mkosi_args, source_key, verify_obs_sources
 from Tests.fixtures import devices, host, release
+from Tests.runtime import RustDriverTests
 from Tools.source_releases import main as publish_releases
 from Tools.source_releases import release_plan
 
 
-class VersionTests(unittest.TestCase):
+class VersionTests(RustDriverTests):
     def test_fix_feature_and_explicit_major_bumps(self):
         self.assertEqual(bump("45.0.1.1", "patch"), "45.0.1.2")
         self.assertEqual(bump("45.0.1.1", "minor"), "45.0.2.0")
@@ -64,13 +64,13 @@ class VersionTests(unittest.TestCase):
     def test_long_versions_fit_gpt_and_payload_types_remain_distinct(self):
         value = "45.0.999999.999999-999999.999999"
         version_key(value)
-        result = calculate(host(), devices(), release(value))
+        result = self.evaluate("layout-calculate", config=host(), devices=devices(), release=release(value))
         for disk in result["devices"]:
             parts = [part for part in disk["partitions"] if part["role"].startswith("a_")]
             self.assertEqual({part["label"] for part in parts}, {"PVE_" + value})
             self.assertEqual(len(parts[0]["label"].encode("utf-16-le")), 72)
             self.assertEqual(len({part["type"] for part in parts}), 3)
-            sfdisk_script(disk)
+            self.evaluate("sfdisk-script", device=disk)
 
 
 class OBSSourceIdentityTests(unittest.TestCase):

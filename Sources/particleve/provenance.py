@@ -19,24 +19,26 @@ TOOLS_MODULES = (
     "provenance",
     "package_sources",
     "security",
-    "processes",
-    "landlock",
     "kernelruntime",
     "consoles",
     "versioning",
 )
-SCRIPTS = {
-    "Sources/bin/particleve": "usr/bin/particleve",
-    "Sources/bin/particleve-health-sender": "usr/libexec/particleve-health-sender",
-    "Sources/bin/particleve-radio-policy": "usr/libexec/particleve-radio-policy",
-    "Sources/bin/particleve-witness-write": "usr/libexec/particleve-witness-write",
-    "Sources/bin/particleve-storage-admission": "usr/libexec/particleve-storage-admission",
-    "Sources/bin/particleve-homed-account": "usr/libexec/particleve-homed-account",
-    "Sources/bin/particleve-vm-stop": "usr/libexec/particleve-vm-stop",
-    "Sources/bin/particleve-vm-start-guard": "usr/libexec/particleve-vm-start-guard",
-    "Sources/bin/particleve-vm-run": "usr/libexec/particleve-vm-run",
-    "Sources/bin/particleve-qemu": "usr/libexec/particleve-qemu/qemu",
-    "Sources/bin/particleve-swtpm": "usr/libexec/particleve-swtpm/swtpm",
+BINARIES = {
+    "particleve": "usr/bin/particleve",
+    "particleve-health-sender": "usr/libexec/particleve-health-sender",
+    "particleve-radio-policy": "usr/libexec/particleve-radio-policy",
+    "particleve-witness-write": "usr/libexec/particleve-witness-write",
+    "particleve-homed-account": "usr/libexec/particleve-homed-account",
+    "particleve-vm-stop": "usr/libexec/particleve-vm-stop",
+    "particleve-vm-start-guard": "usr/libexec/particleve-vm-start-guard",
+    "particleve-vm-run": "usr/libexec/particleve-vm-run",
+    "particleve-qemu": "usr/libexec/particleve-qemu/qemu",
+    "particleve-swtpm": "usr/libexec/particleve-swtpm/swtpm",
+}
+INITRD_BINARIES = {
+    "particleve-storage-admission": "usr/libexec/particleve-storage-admission",
+    "particleve-initrd-storage": "usr/libexec/particleve-initrd-storage",
+    "particleve-storage-shutdown": "usr/lib/systemd/system-shutdown/particleve-storage",
 }
 
 
@@ -44,8 +46,12 @@ def inputs(source):
     source = Path(source)
     files = [
         source / "particleve.version",
+        source / "Cargo.toml",
+        source / "Cargo.lock",
+        source / "rust-toolchain.toml",
+        *source.glob("Sources/runtime/**/*.rs"),
         *source.glob("Sources/particleve/*.py"),
-        *(source / name for name in SCRIPTS),
+        source / "Sources/particleve/runtime-policy.json",
         source / "Tools/obs-postoutput",
         source / "Tools/package-identity.py",
         source / OBS_RECIPE,
@@ -73,13 +79,7 @@ def implementation_digest(source):
 def payload(source, component):
     source = Path(source)
     if component == "integration":
-        files = {target: name for name, target in SCRIPTS.items()}
-        files.update(
-            {
-                "usr/lib/particleve/particleve/" + p.name: str(p.relative_to(source))
-                for p in source.glob("Sources/particleve/*.py")
-            }
-        )
+        files = dict.fromkeys(BINARIES.values())
         files.update(
             {
                 "usr/lib/particleve/trust/" + p.name: str(p.relative_to(source))
@@ -90,6 +90,8 @@ def payload(source, component):
         files["usr/lib/particleve/particleve_witness.pp"] = None
         files["usr/lib/particleve/security-policy.json"] = ".obs/particleve/security-policy.json"
         return files
+    if component == "initrd":
+        return dict.fromkeys(INITRD_BINARIES.values())
     require(component == "build-tools", "unknown implementation package component")
     return {
         **{
@@ -97,11 +99,14 @@ def payload(source, component):
             for name in TOOLS_MODULES
         },
         "usr/libexec/particleve-obs-postoutput": "Tools/obs-postoutput",
+        "usr/lib/particleve-build/particleve/runtime-policy.json": "Sources/particleve/runtime-policy.json",
     }
 
 
 def identity_path(component):
-    require(component in ("integration", "build-tools"), "unknown implementation package component")
+    require(component in ("integration", "build-tools", "initrd"), "unknown implementation package component")
+    if component == "initrd":
+        return "usr/lib/particleve/initrd-package-identity.json"
     directory = "usr/lib/particleve" if component == "integration" else "usr/lib/particleve-build"
     return directory + "/package-identity.json"
 

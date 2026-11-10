@@ -1,7 +1,0 @@
-#!/usr/bin/python3 -IB
-import sys
-
-sys.path.insert(0, "/usr/lib/particleve")
-from particleve.confinement import qemu_handoff
-
-qemu_handoff(sys.argv[1:])

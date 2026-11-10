@@ -161,8 +161,9 @@ visible without allowing reporting failures to stop guests or request reboots.
 
 ## Persistent startup inputs
 
-Host executables, libraries, Python modules, and security policy normally come
-from verified `/usr`. The visible mount must itself be read-only verified EROFS.
+Host executables, libraries, upstream interpreter modules, and security policy
+normally come from verified `/usr`. The visible mount must itself be read-only
+verified EROFS.
 Sysext, confext, and portable host-service activation are masked. Writable service
 executables, generators, PAM/udev/polkit code, and loader paths may not substitute
 for the verified source of code.
@@ -218,7 +219,14 @@ chrony UID and only `CAP_SYS_TIME`, with no UDP command listener. Local queries
 run as chrony with empty capabilities, including the narrow SELinux
 no-new-privileges transition needed for the native client. Drift and NTS state
 remain on encrypted storage. The unconfigured factory image supplies no time
-sources; installation selects reviewed independent operators and public trust.
+sources; installation selects reviewed independent operators.
+
+HTTPS downloads, health reporting, NTS and DNS-over-TLS use the system CA trust
+store. Owner-required anchors are installed through Fedora's trust configuration.
+ParticleVE's Rust and Python HTTPS clients load the distribution roots directly;
+per-tool CA bundles and `SSL_CERT_FILE`/`SSL_CERT_DIR` are not their trust
+configuration paths. Certificate-name and validity checks remain mandatory.
+Transport roots do not replace release-signing, Secure Boot or PCR authorization keys.
 
 Automatic activation requires two authenticated agreeing operators, fresh
 samples and authentication evidence, and the configured error/step bounds.
@@ -493,7 +501,7 @@ to memory initialization, CFI, stack/slab/usercopy defenses, or compatibility
 interfaces. Prefer supported Fedora settings and upstream improvements. Any
 custom Fedora-derived build needs a specific security or compatibility benefit,
 an explicit adoption decision, and a maintenance path that preserves timely
-Fedora updates. Such a build is future work, not a shipped requirement.
+Fedora updates. The generic image uses Fedora's supported kernel packages.
 
 Evaluate proposed changes against generic driver, storage, TPM, firmware,
 systemd, and QEMU requirements. Measure VM/storage latency, CPU cost, and memory
@@ -521,9 +529,9 @@ Record image/source identity, effective settings, positive and negative probes,
 fixture/hardware coverage, measured cost, cleanup, and narrow exceptions.
 Historical results do not establish that a later signed image passes.
 
-The retained component evidence below predates the completed-plan documentation
-baseline. Its fixture and limitations remain useful; old implementation-stage
-completion statements are not current operational policy.
+The following historical component observations retain their original image,
+fixture and coverage limits. Use the procedures above to verify each release
+and installation.
 
 | Evidence | Recorded scope and limitation |
 | --- | --- |
@@ -532,7 +540,7 @@ completion statements are not current operational policy.
 | `native-reporting-dynamic-https-result.json` | Dynamic identity/capability handoff, bounded credentialed TLS, failure and recovery; no persistent external receiver was provisioned by the fixture. |
 | `native-chrony-nnp-policy.log` under `build/acceptance/combined-20261109/` | Image 71.1 with a temporary narrow SELinux transition correction; actual chrony queries retained no-new-privileges and empty capabilities. Original policy was restored. |
 | `Tests/acceptance/fido2-policy.py` | Native OpenSSH signature-flag tests with the official software regression provider; not proof of hardware provenance, PIN/biometric behavior, or spare-token recovery. |
-| `Tests/acceptance/radio-policy.py` | Signed virtual Wi-Fi driver tests of event/restart/block/confinement behavior; no transmitter, physical switch, or non-WLAN qualification. |
+| `Tests/acceptance/radio-policy.py` | Signed virtual Wi-Fi driver tests of event/restart/block/confinement behavior; no transmitter, physical switch, or non-WLAN qualification. Reruns follow the [compiled-helper prerequisites](Development.md#native-probes-with-compiled-helpers). |
 | `native-63.1-usbguard-policy-evaluation.log` and `usbguard-evaluation/` | Reviewed virtual gadget behavior, temporary-rule hazards, baseline reload, and cleanup; no physical firmware update or production USBGuard SELinux qualification. |
 | `native-63.1-stock-kernel-interface-probes.log`, `native-63.1-kernel-runtime-component.log`, `native-63.1-host-abi-denial-and-bpf.log` | Positive/negative kernel-interface and host/guest ABI checks on the named stock kernel, with reversible state restored. |
 | `native-resource-receipt.json` and resource evaluation logs | The explicitly described 6-GiB disposable resource profile, not generic host minima or production workload sizing. |

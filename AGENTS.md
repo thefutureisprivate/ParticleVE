@@ -39,7 +39,7 @@ Before investigating, reviewing, or changing the project, read:
 1. [README.md](README.md) for product scope, architecture, and build entry points.
 2. [CONTRIBUTING.md](CONTRIBUTING.md) for design policy, the task reading map,
    required verification, and documentation responsibilities.
-3. [Coding standards](Documentation/CodingStandards.md) for Python, shell,
+3. [Coding standards](Documentation/CodingStandards.md) for Rust, Python, shell,
    system interfaces, ownership, and privileged-boundary requirements.
 4. [Toolchain baseline](Documentation/Toolchain.md) for the supported platform,
    source pins, package selection, and build-specific hardening details.

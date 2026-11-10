@@ -1,4 +1,3 @@
-import hashlib
 import os
 import tempfile
 import unittest
@@ -13,7 +12,6 @@ from particleve.buildartifacts import (
 )
 from particleve.common import Error
 from particleve.config import VERITY_SIGNATURE_SIZE
-from particleve.install import write_os
 from particleve.layout import TYPES
 
 
@@ -95,32 +93,16 @@ class BuildSigningTests(unittest.TestCase):
                 postoutput()
             self.assertEqual(list(output.glob("*.release.json")), [])
 
-    def test_signature_payload_overwrites_a_dirty_slot_completely(self):
+    def test_signature_payload_completely_covers_its_fixed_partition(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             signature = directory / "signature.raw"
             payload = b'{"rootHash":"test","signature":"test"}'
             signature.write_bytes(payload)
             pad_signature_partition(signature)
-            manifest = {"artifacts": {}}
-            targets = {}
-            for kind, source in (("verity_sig", signature), ("verity", None), ("usr", None)):
-                if source is None:
-                    source = directory / (kind + ".raw")
-                    source.write_bytes(b"new partition bytes")
-                data = source.read_bytes()
-                manifest["artifacts"][kind] = {
-                    "file": source.name,
-                    "size": len(data),
-                    "sha256": hashlib.sha256(data).hexdigest(),
-                }
-                target = directory / (kind + ".slot")
-                target.write_bytes(b"X" * len(data))
-                targets["a_" + kind] = target
-            with patch("particleve.install.member", side_effect=lambda _, role: targets[role]):
-                write_os({}, manifest, directory)
+            self.assertEqual(signature.stat().st_size, VERITY_SIGNATURE_SIZE)
             self.assertEqual(
-                targets["a_verity_sig"].read_bytes(),
+                signature.read_bytes(),
                 payload + b"\0" * (VERITY_SIGNATURE_SIZE - len(payload)),
             )
 

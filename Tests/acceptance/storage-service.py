@@ -8,11 +8,9 @@ boot, failed-member return, replacement and owner-recovery acceptance matrix.
 import argparse
 import configparser
 import hashlib
-import importlib
 import json
 import os
 import subprocess
-import sys
 import time
 import uuid
 from contextlib import ExitStack
@@ -20,16 +18,39 @@ from pathlib import Path
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("service", type=Path)
-parser.add_argument("--module-root", type=Path, default=Path("/usr/lib/particleve"))
+parser.add_argument(
+    "--runtime-driver",
+    type=Path,
+    required=True,
+    help="test-only Rust runtime driver provisioned in the disposable fixture",
+)
 args = parser.parse_args()
 assert os.geteuid() == 0, "run only in a disposable native systemd fixture"
-args.module_root = args.module_root.resolve(strict=True)
+args.runtime_driver = args.runtime_driver.resolve(strict=True)
 args.service = args.service.resolve(strict=True)
-sys.path.insert(0, str(args.module_root))
-admission = importlib.import_module("particleve.admission")
-LinuxVMs = importlib.import_module("particleve.vms").LinuxVMs
-RUNTIME, SESSION, VARIABLE = admission.RUNTIME, admission.SESSION, admission.VARIABLE
-load = admission.load
+RUNTIME = Path("/run/particleve-admission")
+SESSION = RUNTIME / "session.json"
+VARIABLE = Path("/sys/firmware/efi/efivars/ParticleVEStorage-59a481c6-fbbc-4d82-8617-37eae6ebdf21")
+
+
+def runtime(operation, **fields):
+    value = subprocess.run(
+        [str(args.runtime_driver)],
+        input=json.dumps({"operation": operation, **fields}) + "\n",
+        capture_output=True,
+        text=True,
+        timeout=45,
+        check=True,
+    )
+    assert not value.stderr, value.stderr
+    response = json.loads(value.stdout)
+    assert "ok" in response, response
+    return response["ok"]
+
+
+def load():
+    return runtime("admission-load")
+
 
 text = args.service.read_text()
 device_rules = [line for line in text.splitlines() if line.startswith("DeviceAllow=")]
@@ -71,10 +92,14 @@ def remove_mapper(name, identity):
 
 INNER = r"""import ctypes,errno,json,os,socket,subprocess,sys
 from pathlib import Path
-sys.path.insert(0,sys.argv[2])
-from particleve.admission import SESSION,load,watch
-from particleve.common import read_json,write_json
-from particleve.witness import save
+SESSION=Path('/run/particleve-admission/session.json')
+def runtime(operation,**fields):
+ value=subprocess.run([sys.argv[2]],input=json.dumps({'operation':operation,**fields})+'\n',
+  capture_output=True,text=True,timeout=30,check=True)
+ assert not value.stderr,value.stderr
+ result=json.loads(value.stdout);assert 'ok' in result,result
+ return result['ok']
+def load():return runtime('admission-load')
 status=dict(line.split(':',1) for line in Path('/proc/self/status').read_text().splitlines() if ':' in line)
 for name in ('CapEff','CapPrm','CapBnd'):assert int(status[name],16)==0x201200,(name,status[name])
 for name in ('CapInh','CapAmb'):assert int(status[name],16)==0
@@ -87,14 +112,12 @@ def command(*argv,check=True):
  return value
 mode=sys.argv[1]
 if mode=='watch':
- result=watch()
+ result=runtime('admission-watch')
  assert result['storage_admission']==load()['allowed']
 elif mode=='witness':
- record=load();save(record);assert load()==record
+ record=load();runtime('witness-save',record=record);assert load()==record
 elif mode=='session':
- before=SESSION.stat().st_ino
- data=read_json(SESSION);write_json(SESSION,data)
- assert read_json(SESSION)==data and SESSION.stat().st_ino!=before
+ runtime('session-refresh')
 elif mode=='denials':
  for family in (socket.AF_INET,socket.AF_INET6,socket.AF_PACKET):
   try:connection=socket.socket(family)
@@ -156,7 +179,7 @@ assert record["active"] and record["allowed"]
 session = SESSION.read_bytes()
 assert json.loads(session)["witness"] == record
 lock_inode = (RUNTIME / "maintenance.lock").stat().st_ino
-guests = LinuxVMs().inventory(inhibited=False)
+guests = runtime("vm-inventory")
 policy = hashlib.sha256(Path("/sys/fs/selinux/policy").read_bytes()).hexdigest()
 host_net_namespace = os.readlink("/proc/self/ns/net")
 manifest = json.loads(Path("/var/lib/particleve/installation.json").read_text())
@@ -207,7 +230,7 @@ with ExitStack() as cleanup:
                 "-c",
                 INNER,
                 mode,
-                str(args.module_root),
+                str(args.runtime_driver),
                 *extra,
                 host_net_namespace,
             ]
@@ -219,14 +242,14 @@ with ExitStack() as cleanup:
         assert (RUNTIME / "maintenance.lock").stat().st_ino == lock_inode
         print(json.dumps(result), flush=True)
 assert VARIABLE.read_bytes() == witness and SESSION.read_bytes() == session
-assert LinuxVMs().inventory(inhibited=False) == guests
+assert runtime("vm-inventory") == guests
 assert hashlib.sha256(Path("/sys/fs/selinux/policy").read_bytes()).hexdigest() == policy
 print(
     json.dumps(
         {
             "cases": results,
             "service_sha256": hashlib.sha256(args.service.read_bytes()).hexdigest(),
-            "module_root": str(args.module_root),
+            "runtime_driver": str(args.runtime_driver),
             "witness_session_lock_and_guest_identities_preserved": True,
             "storage_watch_timer_restored": timer,
             "fixture_mappers_removed": True,

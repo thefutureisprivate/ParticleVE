@@ -10,9 +10,15 @@
     <param name="versionrewrite-replacement">\1</param>
     <param name="extract">.obs/fedora/x86-64/mkosi.conf</param>
   </service>
-  <service name="tar" mode="buildtime" />
-  <service name="recompress" mode="buildtime">
+  <service name="tar" />
+  <service name="recompress">
     <param name="file">*.tar</param>
     <param name="compression">xz</param>
+  </service>
+  <service name="cargo_vendor">
+    <param name="src">particleve-*.tar.xz</param>
+    <param name="compression">zst</param>
+    <param name="update">false</param>
+    <param name="respect-lockfile">true</param>
   </service>
 </services>

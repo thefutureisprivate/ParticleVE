@@ -22,7 +22,7 @@ class PackageProvenanceTests(unittest.TestCase):
             target = self.source / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, target)
-        for component in ("integration", "build-tools"):
+        for component in ("integration", "initrd", "build-tools"):
             for target, origin in payload(self.source, component).items():
                 destination = self.installed / target
                 destination.parent.mkdir(parents=True, exist_ok=True)
@@ -35,14 +35,14 @@ class PackageProvenanceTests(unittest.TestCase):
     def test_documentation_changes_do_not_invalidate_matching_packages(self):
         (self.source / "README.md").write_text("documentation-only change")
         self.assertEqual(implementation_digest(self.source), self.identity)
-        for component in ("integration", "build-tools"):
+        for component in ("integration", "initrd", "build-tools"):
             verify_package(self.installed, component, self.identity, source=self.source)
 
     def test_successful_image_webhook_with_stale_runtime_or_tools_rpm_is_rejected(self):
-        with (self.source / "Sources/particleve/linux.py").open("a") as stream:
+        with (self.source / "Sources/runtime/linux.rs").open("a") as stream:
             stream.write("\n# new firmware guard\n")
         expected = implementation_digest(self.source)
-        for component in ("integration", "build-tools"):
+        for component in ("integration", "initrd", "build-tools"):
             with self.subTest(component=component), self.assertRaisesRegex(Error, "does not match the image"):
                 verify_package(self.installed, component, expected, source=self.source)
 
@@ -51,10 +51,28 @@ class PackageProvenanceTests(unittest.TestCase):
         with self.assertRaisesRegex(Error, "payload does not match"):
             verify_package(self.installed, "integration", self.identity, source=self.source)
 
+    def test_initrd_payload_and_identity_are_verified_independently(self):
+        helper = self.installed / "usr/libexec/particleve-initrd-storage"
+        original = helper.read_bytes()
+        helper.write_bytes(b"stale initrd ELF fixture")
+        with self.assertRaisesRegex(Error, "payload does not match"):
+            verify_package(self.installed, "initrd", self.identity, source=self.source)
+        helper.write_bytes(original)
+        record = self.installed / "usr/lib/particleve/initrd-package-identity.json"
+        record.unlink()
+        for tree in ("usr", "initrd"):
+            with (
+                self.subTest(tree=tree),
+                patch("particleve.buildcheck.run") as command,
+                self.assertRaisesRegex(Error, "cannot read"),
+            ):
+                root_check(self.installed, tree=tree, source_dir=self.source)
+            command.assert_not_called()
+
     def test_image_build_rejects_stale_payload_before_other_build_checks(self):
-        with (self.source / "Sources/particleve/linux.py").open("a") as stream:
+        with (self.source / "Sources/runtime/linux.rs").open("a") as stream:
             stream.write("\n# implementation changed before the RPM webhook refreshed\n")
-        for tree in ("usr", "tools"):
+        for tree in ("usr", "initrd", "tools"):
             with (
                 self.subTest(tree=tree),
                 patch("particleve.buildcheck.run") as command,
@@ -66,7 +84,7 @@ class PackageProvenanceTests(unittest.TestCase):
     def test_final_signing_stage_cannot_publish_stale_runtime(self):
         import json
 
-        with (self.source / "Sources/particleve/linux.py").open("a") as stream:
+        with (self.source / "Sources/runtime/linux.rs").open("a") as stream:
             stream.write("\n# new expected implementation\n")
         output = Path(self.tmp.name) / "output"
         output.mkdir()

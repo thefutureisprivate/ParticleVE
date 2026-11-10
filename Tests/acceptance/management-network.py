@@ -1,23 +1,77 @@
 """Exercise host-input policy and external forwarding rules in disposable network namespaces."""
 
+import argparse
 import configparser
 import errno
 import hashlib
 import json
 import os
 import select
+import stat
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, "/usr/lib/particleve")
 from particleve.common import require
-from particleve.config import validate
-from particleve.linux import image_version
-from particleve.vms import LinuxVMs
+from particleve.versioning import image_version
 
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument(
+    "--runtime-driver", type=Path, required=True, help="reviewed test-only Rust driver staged under /run"
+)
+args = parser.parse_args()
+runtime_driver = args.runtime_driver.resolve(strict=True)
+require(
+    runtime_driver.is_relative_to("/run") and os.access(runtime_driver, os.X_OK),
+    "stage the compiled test driver under /run",
+)
+metadata = runtime_driver.stat()
+require(
+    stat.S_ISREG(metadata.st_mode) and metadata.st_uid == 0 and metadata.st_mode & 0o022 == 0,
+    "the runtime driver must be root-owned without other-account writes",
+)
+with runtime_driver.open("rb") as binary:
+    require(binary.read(4) == b"\x7fELF", "use the compiled Rust contract driver")
 require(os.geteuid() == 0, "run on the disposable ParticleVE host as root")
+
+
+def guest_inventory():
+    response = subprocess.run(
+        [runtime_driver],
+        input=json.dumps({"operation": "vm-inventory"}) + "\n",
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    require(response.returncode == 0 and not response.stderr, "native VM inventory driver failed")
+    observation = json.loads(response.stdout)
+    require(
+        set(observation) == {"ok"} and isinstance(observation["ok"], list), "native VM inventory is uncertain"
+    )
+    return observation["ok"]
+
+
+def validate_config(config):
+    # Exercise the production Rust parser without changing host networking.
+    with tempfile.TemporaryDirectory(prefix="particleve-network-validate-", dir="/run") as temporary:
+        directory = Path(temporary)
+        path = directory / "host.json"
+        path.write_text(json.dumps(config))
+        response = subprocess.run(
+            ["/usr/bin/particleve", "--config", path, "render-network", "--output", directory / "rendered"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        require(
+            response.returncode == 0 and not response.stderr,
+            "Rust network configuration validation failed: " + response.stderr,
+        )
+    return config
+
+
 version = image_version()
 prefix = f"pvnet-{os.getpid()}-"
 namespaces = []
@@ -30,12 +84,12 @@ service = configparser.ConfigParser(interpolation=None)
 service.optionxform = str
 service.read_string(service_path.read_text())
 require(service["Service"]["ExecStart"] == "/usr/bin/particleve apply-firewall", "unexpected loader")
-config = validate(json.loads(Path("/etc/particleve/host.json").read_text()))
+config = validate_config(json.loads(Path("/etc/particleve/host.json").read_text()))
 management_name = config["network"]["management"]
 config["network"]["allowed_sources"] = ["10.233.0.2/32", "fd23:33:0::2/128"]
-validate(config)
+validate_config(config)
 require(Path("/dev/kvm").exists(), "positive host-device visibility control is missing")
-guest_inventory = LinuxVMs().inventory(inhibited=False)
+guests_before = guest_inventory()
 firewall_before = subprocess.check_output(["nft", "--stateless", "list", "ruleset"], text=True)
 authority = None
 settings = tempfile.TemporaryDirectory(prefix="particleve-firewall-acceptance-", dir="/run")
@@ -256,7 +310,7 @@ finally:
         if present:
             run(["ip", "link", "delete", link])
     settings.cleanup()
-require(LinuxVMs().inventory(inhibited=False) == guest_inventory, "existing guests changed")
+require(guest_inventory() == guests_before, "existing guests changed")
 require(
     run(["nft", "--stateless", "list", "ruleset"]) == firewall_before,
     "host firewall changed",

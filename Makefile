@@ -1,15 +1,21 @@
 PYTHON ?= python3
 RUFF ?= ruff
+CARGO ?= cargo
+RUSTFLAGS ?= -Dwarnings -Ctarget-cpu=x86-64-v2 -Cforce-frame-pointers=yes -Clink-arg=-Wl,-z,relro,-z,now
+export RUSTFLAGS
+RUNTIME_TARGET_DIR := $(if $(CARGO_TARGET_DIR),$(CARGO_TARGET_DIR),target)
 export PYTHONPATH := $(CURDIR)/Sources:$(CURDIR)
 
-.PHONY: check test lint sources check-upstream summary
+.PHONY: check test lint rust-check sources check-upstream summary
 check: lint test
 	$(PYTHON) Tools/version.py check
 
 test:
-	$(PYTHON) -W error -m unittest discover -v
+	$(CARGO) test --locked
+	$(CARGO) build --locked --example runtime-contract-driver
+	PVE_RUNTIME_DRIVER=$(RUNTIME_TARGET_DIR)/debug/examples/runtime-contract-driver $(PYTHON) -W error -m unittest discover -v
 
-lint:
+lint: rust-check
 	$(RUFF) check . .obs/mkosi/mkosi-entrypoint.py
 	$(RUFF) format --check . .obs/mkosi/mkosi-entrypoint.py
 	for script in mkosi.postinst.chroot \
@@ -18,11 +24,13 @@ lint:
 		mkosi.profiles/particleve/mkosi.finalize \
 		mkosi.initrd.conf/mkosi.postinst \
 		mkosi.initrd.conf/mkosi.finalize \
-		mkosi.initrd.conf/mkosi.extra/usr/libexec/particleve-initrd-storage \
-		mkosi.extra/usr/lib/systemd/system-shutdown/particleve-storage \
 		Tests/acceptance/build-loader-probe.sh; do \
 		bash -n "$$script" || exit "$$?"; \
 	done
+
+rust-check:
+	$(CARGO) fmt -- --check
+	$(CARGO) clippy --locked --all-targets -- -D warnings
 
 sources:
 	$(PYTHON) Tools/fetch-sources.py

@@ -1,25 +1,23 @@
 import copy
 import tempfile
-import unittest
 from pathlib import Path
 
-from particleve.common import Deferred, digest, hash_file, write_json
+from particleve.common import digest, hash_file, write_json
 from particleve.contracts import PERSISTENT_STATE
-from particleve.linux import Linux
+from Tests.runtime import RustDriverTests
 
 
-class CompatibilityContractTests(unittest.TestCase):
+class CompatibilityContractTests(RustDriverTests):
     def test_generic_approval_cannot_authorize_an_unimplemented_host_state_migration(self):
         current = {"persistent_state": copy.deepcopy(PERSISTENT_STATE)}
         previous = copy.deepcopy(current)
         previous["persistent_state"]["host_state"] = "particleve-host-state-v2"
         with tempfile.TemporaryDirectory() as directory:
-            backend = Linux.__new__(Linux)
-            backend.directory = Path(directory)
-            evidence = backend.directory / "evidence.json"
+            root = Path(directory)
+            evidence = root / "evidence.json"
             write_json(evidence, {"claimed": "retained safety"})
             write_json(
-                backend.directory / "compatibility.json",
+                root / "compatibility.json",
                 [
                     {
                         "release_sha256": [digest(previous), digest(current)],
@@ -31,8 +29,13 @@ class CompatibilityContractTests(unittest.TestCase):
                 ],
             )
             for first, second in ((previous, current), (current, previous)):
-                with self.subTest(first=first), self.assertRaisesRegex(Deferred, "no migration"):
-                    backend.compatibility_approved(first, second)
+                with self.subTest(first=first):
+                    self.assertIn(
+                        "no migration",
+                        self.request(
+                            "compatibility-approved", directory=directory, first=first, second=second
+                        )["error"],
+                    )
 
     def test_routine_package_updates_do_not_change_the_retained_state_interface(self):
         old = {
@@ -41,12 +44,13 @@ class CompatibilityContractTests(unittest.TestCase):
         }
         new = copy.deepcopy(old)
         new["packages"][0]["evr"] = "new"
-        backend = Linux.__new__(Linux)
-        backend.compatibility_approved(old, new)
+        with tempfile.TemporaryDirectory() as directory:
+            self.evaluate("compatibility-approved", directory=directory, first=old, second=new)
 
     def test_changed_auxiliary_format_or_unit_contract_still_requires_explicit_approval(self):
         for field in (
             "host_state",
+            "boot_console",
             "vm_tpm",
             "vm_efi",
             "btrfs",
@@ -58,7 +62,7 @@ class CompatibilityContractTests(unittest.TestCase):
             new = copy.deepcopy(old)
             new["persistent_state"][field] += "-changed"
             with tempfile.TemporaryDirectory() as directory, self.subTest(field=field):
-                backend = Linux.__new__(Linux)
-                backend.directory = Path(directory)
-                with self.assertRaises(Deferred):
-                    backend.compatibility_approved(old, new)
+                self.assertIn(
+                    "error",
+                    self.request("compatibility-approved", directory=directory, first=old, second=new),
+                )

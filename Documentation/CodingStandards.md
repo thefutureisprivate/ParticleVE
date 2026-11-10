@@ -8,29 +8,42 @@ policy, required verification, and documentation responsibilities. The
 [toolchain baseline](Toolchain.md) records supported versions and
 build-specific hardening details; this document defines coding requirements.
 
-## Python and host integration
+## Rust runtime and host integration
 
-These rules apply to first-party Python modules, command-line entry points,
+The installed host and initrd helpers use Rust. Python remains the language for
 build tools, tests, and acceptance probes. Third-party source is out of scope,
 but repository-owned adapters, patches, and dependency policy remain in scope.
 
 ### Baseline and module boundaries
 
-- Target the Python, Fedora, systemd, and mkosi baseline recorded in
+- Target the Rust, Python, Fedora, systemd, and mkosi baseline recorded in
   [Toolchain.md](Toolchain.md). Do not add backward-compatibility branches,
   permissive fallbacks, or retain obsolete implementations unless a current
   upstream defect requires a documented workaround.
 - Use Python 3.14 or newer and the Ruff configuration in
   [`pyproject.toml`](../pyproject.toml). Run the supported test entry point with
-  warnings as errors.
-- Keep reusable host policy in `Sources/particleve/`, command dispatch in
-  `Sources/particleve/cli.py`, installed entry points in `Sources/bin/`, and build/publication
-  entry points in `Tools/`. Preserve the narrow dependency set of modules that
-  must also run in the initrd or independently built RPMs.
+  warnings as errors for build tools, tests and acceptance harnesses.
+- Keep reusable runtime policy in `Sources/runtime/`, command dispatch in
+  `Sources/runtime/cli.rs`, native entry points in `Sources/runtime/bin/`, and
+  Python build/publication entry points in `Tools/`. Python modules in
+  `Sources/particleve/` serve those build tools. Never execute a Python runtime
+  implementation from a Rust helper.
+- Keep the joint kernel, TPM and SELinux baseline in
+  [`runtime-policy.json`](../Sources/particleve/runtime-policy.json). Rust embeds
+  this reviewed input; Python build checks read the same data. Change the
+  authoritative policy and its validation rather than duplicating constants.
+- Use maintained, established dependencies only when they justify their
+  complexity. Pin their exact versions and checksums in `Cargo.toml` and
+  `Cargo.lock`; build offline from the lock in OBS. Review maintenance status,
+  advisories, licenses and transitive changes when updating dependencies.
+- Run Rust formatting, Clippy and tests through `make check`. Treat warnings
+  as errors. Keep `unsafe` at narrow Linux ABI boundaries, with local ownership,
+  lifetime, layout and bounds explanations. Prefer owned descriptors and RAII
+  cleanup; a cleanup guard must never force off an externally owned guest.
 - Do not weaken checks or add broad suppressions to obtain a passing run.
   Fix the ownership, validation, or API boundary instead.
 
-### Architecture and ordinary Python
+### Architecture and ownership
 
 - Choose the simplest complete solution, with clear ownership and lifecycle.
   Reuse the native systemd, storage, and virtualization interfaces rather than
@@ -44,7 +57,7 @@ but repository-owned adapters, patches, and dependency policy remain in scope.
 - Inject mutable services and clocks where this makes policy testable. A
   process-wide coordinator is acceptable only when its authority is explicit
   and its state is protected by the shared lock and durable transaction record.
-- Use context managers and `try`/`finally` for deterministic cleanup. Cleanup
+- Use RAII, context managers and `try`/`finally` for deterministic cleanup. Cleanup
   must preserve the original failure and must not discard state needed for
   recovery.
 
@@ -130,8 +143,13 @@ data.
 - Base performance policy on measurements. Do not add caching, parallelism,
   weaker validation, or resource limits merely because they appear faster.
   Explain the measured tradeoff and preserve the security contract.
-- Use the existing unittest framework for source tests. Prefer focused
+- Use Rust tests for runtime contracts and Python unittest for build tooling,
+  cross-language persisted formats and acceptance probes. Prefer focused
   behavioral tests over tests that merely reproduce the implementation.
+- Use the compiled test driver for runtime contract checks from Python harnesses.
+  Keep expected persisted formats and failure outcomes explicit; do not retain a
+  second runtime implementation as a test oracle. Native harnesses must exercise
+  the selected compiled helper and record its source and binary identity.
 - Test interruption, teardown, stale results, duplicate completion, late guest
   exits, and races directly. Prefer fake clocks, controlled fixtures, and
   injected observations over arbitrary sleeps.
@@ -149,7 +167,7 @@ data.
 
 These rules apply to first-party shell helpers, native acceptance probes, RPM
 recipes, mkosi hooks, and downstream patches. Keep native code small and
-single-purpose; ordinary host orchestration belongs in the validated Python
+single-purpose; ordinary host orchestration belongs in the validated Rust
 and systemd interfaces.
 
 ### Language and toolchain

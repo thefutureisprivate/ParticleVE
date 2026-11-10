@@ -5,5 +5,11 @@ set -euo pipefail
 PYTHONPATH="$SRCDIR/Sources" python3 "$SRCDIR/Tools/check-build.py" --root / --tree tools --source-dir "$SRCDIR"
 
 # Validate the installed tree, rather than inferring provenance from requested packages.
+PYTHONPATH="$SRCDIR/Sources" python3 - "$BUILDROOT" <<'PY'
+import sys
+from particleve.security import apply_image_privileges, write_tpm_profile
+write_tpm_profile(sys.argv[1])
+apply_image_privileges(sys.argv[1])
+PY
 PYTHONPATH="$SRCDIR/Sources" python3 "$SRCDIR/Tools/check-build.py" --root "$BUILDROOT" \
     --source-dir "$SRCDIR" --output "$BUILDROOT/usr/lib/particleve/verification.json"

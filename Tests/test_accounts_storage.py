@@ -1,99 +1,66 @@
+"""Exercise the compiled host's upstream-homed account boundary."""
+
 import json
-import unittest
-from types import SimpleNamespace
-from unittest.mock import patch
+import tempfile
 
-from particleve import accounts
-from particleve.common import Error
-from particleve.storage import members, present_members, profiles
+from Tests.runtime import RustDriverTests, native_environment
 
 
-class AccountStorageTests(unittest.TestCase):
+class AccountStorageTests(RustDriverTests):
     def test_root_does_not_depend_on_homed(self):
-        with patch.object(accounts, "run", side_effect=AssertionError("root must retain recovery access")):
-            accounts.authorize_login("root")
+        with tempfile.TemporaryDirectory() as directory:
+            environment = native_environment(directory, {})
+            self.assertIsNone(self.evaluate("accounts-authorize", username="root", environment=environment))
 
     def test_nonroot_ssh_account_must_come_from_homed(self):
-        with patch.object(
-            accounts, "run", return_value=SimpleNamespace(stdout=json.dumps({"userName": "admin"}))
-        ) as query:
-            accounts.authorize_login("admin")
-        self.assertIn("--service=io.systemd.Home", query.call_args.args[0])
-        self.assertIn("--with-nss=no", query.call_args.args[0])
-        with patch.object(accounts, "run", side_effect=Error("not found")), self.assertRaises(Error):
-            accounts.authorize_login("classic-user")
-
-    def test_regular_classic_users_are_reported(self):
-        with (
-            patch.object(
-                accounts.Path, "read_text", return_value="classic:x:1000:1000::/home/classic:/bin/bash"
-            ),
-            self.assertRaises(Error),
-        ):
-            accounts.check()
-
-    def test_nonlogin_system_commands_are_not_classic_login_shells(self):
-        def contents(path):
-            return (
-                ("root:x:0:0::/root:/bin/bash\nsync:x:5:0::/sbin:/bin/sync\nhalt:x:7:0::/sbin:/sbin/halt\n")
-                if str(path) == "/etc/passwd"
-                else "/bin/bash\n"
+        arguments = (
+            "userdbctl",
+            "--service=io.systemd.Home",
+            "--with-nss=no",
+            "--output=json",
+            "user",
+            "admin",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            environment = native_environment(
+                directory, {arguments: {"stdout": json.dumps({"userName": "admin"})}}
+            )
+            self.assertIsNone(self.evaluate("accounts-authorize", username="admin", environment=environment))
+        for record in ({"userName": "other"}, {"userName": "admin", "disposition": "system"}):
+            with self.subTest(record=record), tempfile.TemporaryDirectory() as directory:
+                environment = native_environment(directory, {arguments: {"stdout": json.dumps(record)}})
+                self.assertIn(
+                    "error", self.request("accounts-authorize", username="admin", environment=environment)
+                )
+        with tempfile.TemporaryDirectory() as directory:
+            environment = native_environment(directory, {"userdbctl": {"code": 1, "stderr": "not found"}})
+            self.assertIn(
+                "error", self.request("accounts-authorize", username="classic-user", environment=environment)
             )
 
-        with patch.object(accounts.Path, "read_text", contents), patch.object(accounts, "run"):
-            self.assertEqual(accounts.check()["non_root_logins"], "homed")
+    def test_classic_human_and_system_login_accounts_are_rejected(self):
+        for uid in (42, 1000):
+            with self.subTest(uid=uid):
+                result = self.request(
+                    "accounts-audit",
+                    passwd=f"classic:x:{uid}:{uid}::/home/classic:/bin/bash\n",
+                    shells="/bin/bash\n",
+                )
+                self.assertIn("homectl", result["error"])
 
-    def test_btrfs_allocation_profiles_include_every_allocated_group(self):
-        report = profiles(
-            "Data, RAID1: total=1000, used=100\nMetadata, RAID1: total=200, used=20\n"
-            "Data, single: total=300, used=30\nGlobalReserve, single: total=100, used=0\n"
+    def test_nonlogin_system_commands_do_not_become_classic_logins(self):
+        passwd = (
+            "root:x:0:0::/root:/bin/bash\nsync:x:5:0::/sbin:/bin/sync\n"
+            "halt:x:7:0::/sbin:/sbin/halt\nsshd:x:74:74::/:/sbin/nologin\n"
         )
-        self.assertEqual([r["profile"] for r in report], ["raid1", "raid1", "single"])
-        with self.assertRaises(Error):
-            profiles("unknown output")
+        self.assertIsNone(self.evaluate("accounts-audit", passwd=passwd, shells="/bin/bash\n"))
 
-    def test_btrfs_members_resolve_persistent_mapper_paths(self):
-        report = members(
-            "\tdevid    1 size 10000 used 1000 path /dev/mapper/particleve-state-a\n"
-            "\tdevid    2 size 10000 used 1000 path /dev/mapper/particleve-state-b\n"
-        )
-        self.assertEqual([d["devid"] for d in report], [1, 2])
-
-    def test_degraded_inventory_validates_survivor_and_absent_recorded_member(self):
-        manifest = {
-            "devices": [
-                {
-                    "role": role,
-                    "path": f"/dev/disk/by-id/test-{role}",
-                    "btrfs_devid": number,
-                    "state_luks_uuid": f"luks-{role}",
-                    "partitions": [{"role": "state", "uuid": f"state-{role}"}],
-                }
-                for number, role in enumerate(("a", "b"), 1)
-            ]
-        }
-        rows = members(
-            "devid 1 size 0 used 0 path  MISSING\n"
-            "devid 2 size 10000 used 1000 path /dev/mapper/particleve-state-b\n"
-        )
-        with (
-            patch("particleve.storage.Path.exists", return_value=False),
-            patch(
-                "particleve.storage.run",
-                side_effect=[
-                    SimpleNamespace(stdout="luks-b\n"),
-                    SimpleNamespace(stdout="  device: /dev/disk/by-partuuid/state-b\n"),
-                ],
-            ) as commands,
-        ):
-            self.assertEqual(present_members(manifest, rows), [rows[1]])
-            self.assertEqual(commands.call_count, 2)
-        with patch("particleve.storage.Path.exists", return_value=True), self.assertRaises(Error):
-            present_members(manifest, rows)
-        rows[0]["devid"] = 3
-        with self.assertRaisesRegex(Error, "unrecorded"):
-            present_members(manifest, rows)
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_malformed_accounts_and_option_like_names_fail_closed(self):
+        for passwd in ("too:few:fields", "alice:x:not-an-id:1::/:/bin/bash"):
+            self.assertIn("error", self.request("accounts-audit", passwd=passwd, shells="/bin/bash\n"))
+        with tempfile.TemporaryDirectory() as directory:
+            environment = native_environment(directory, {})
+            for name in ("", "--service=other", "alice\nroot", "alice\0root"):
+                self.assertIn(
+                    "error", self.request("accounts-authorize", username=name, environment=environment)
+                )

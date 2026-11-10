@@ -11,7 +11,7 @@ import urllib.request
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from particleve.common import read_json, require
+from particleve.common import read_json, require, system_tls_context
 from particleve.config import https_url
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -35,7 +35,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise urllib.error.URLError("Refusing to redirect authenticated OBS requests")
 
 
-opener = urllib.request.build_opener(NoRedirect())
+opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=system_tls_context()))
 
 
 def request(url, data, method, kind):

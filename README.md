@@ -1,4 +1,4 @@
-<h1 align="center">ParticleVE</h1>
+<h1 align="center">⸭ ParticleVE</h1>
 
 <p align="center">
   <a href="https://scorecard.dev/viewer/?uri=github.com/thefutureisprivate/ParticleVE">
@@ -68,6 +68,11 @@ images, unit settings, resource allocations, network attachments, and startup
 policy. ParticleVE provides the host contract and coordinates OS maintenance;
 it does not generate workload definitions or provide a replacement management API.
 
+ParticleVE's installed host and initrd helpers are native Rust executables.
+Python supports image construction, publication tools and tests; upstream tools
+retain their own runtime dependencies. The helpers use the existing systemd
+units, command paths and persistent-state contracts.
+
 OBS builds and signs releases for one authenticated feed. The host coordinator
 prepares the same release on both disks and requests an automatic reboot only
 after readiness checks and confirmed graceful VM exits. OS fallback selects a
@@ -103,7 +108,8 @@ behavior; ParticleVE's operating procedures are documented separately.
 - Refresh firmware metadata automatically while keeping firmware installation,
   capsule staging, and firmware reboots manual.
 - Authenticate time with chrony NTS and use explicit DNS-over-TLS, DNSSEC, and
-  private-resolution policies with systemd-resolved.
+  private-resolution policies with systemd-resolved. HTTPS, reporting, NTS and
+  DNS-over-TLS use the system CA trust store.
 - Report storage health, security drift, update failures, resource pressure,
   and bounded health events to an installation-selected external receiver.
 - Follow Fedora's supported kernel packages, configuration, and patches, with
@@ -165,6 +171,7 @@ For boot, storage, administration, or maintenance problems, see
 | chrony, resolved, and nftables | Authenticated time, name resolution, and networking | Image profile and [operations](Documentation/Operations.md). |
 | fwupd and fwupd-efi | Supervised firmware maintenance | [Source lock](sources.lock.json), [EFI helper recipe](.obs/fwupd-efi/fwupd-efi.spec), and release manifest. |
 | mkosi and OBS | Image construction, dependency rebuilds, signing, and publication | Source lock, [mkosi recipe](.obs/mkosi/mkosi.spec), and [OBS configuration](.obs/project.xml). |
+| Rust toolchain and libraries | Native ParticleVE host and initrd helpers | [Toolchain pin](rust-toolchain.toml), [Cargo manifest](Cargo.toml), [dependency lock](Cargo.lock), and [RPM recipe](.obs/particleve/rpm.spec). |
 
 Build tools stay outside the deployed runtime unless an upstream runtime
 dependency requires them. The [build guide](Documentation/Build.md) describes
@@ -200,8 +207,8 @@ unattended OS maintenance.
 ## Diagnostics and Tests
 
 The [contributor verification requirements](CONTRIBUTING.md#required-verification)
-define which checks each change needs. With Python 3.14+, Ruff, and the test
-dependencies installed:
+define which checks each change needs. With the pinned Rust toolchain, native
+development headers, Python 3.14+, Ruff, and the test dependencies installed:
 
 ```sh
 make check
@@ -219,7 +226,3 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) for shared design policy, the task readi
 map, required verification, and documentation responsibilities. The
 [coding standards](Documentation/CodingStandards.md) apply to all contributors.
 [AGENTS.md](AGENTS.md) adds agent-specific workflow and mandatory reading.
-
-ParticleVE retains [LGPL-2.1-or-later](LICENSE) for its existing source. Portions
-of this documentation are adapted from Wonderfall's Torrent 7 under the MIT
-license; see [third-party notices](Documentation/ThirdPartyNotices.md).

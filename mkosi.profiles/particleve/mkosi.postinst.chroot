@@ -68,12 +68,3 @@ done
 # The configured /usr PAM stack is authoritative; the package's generic factory
 # example must not shadow it when an installed writable root is initialized.
 rm -rf /usr/share/factory/etc/pam.d
-# Review the complete package privilege set before revoking specific entries.
-# Dependency changes cannot disappear inside a blanket chmod/setcap operation.
-python3 -IB - <<'PY'
-import sys
-sys.path.insert(0, "/usr/lib/particleve")
-from particleve.security import apply_image_privileges, write_tpm_profile
-write_tpm_profile("/")
-apply_image_privileges("/")
-PY

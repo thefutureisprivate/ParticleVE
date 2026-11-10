@@ -35,9 +35,10 @@ it only with its original confirmation. Recovery accepts no replacement input
 files. See [operational reconfiguration](Operations.md#operational-reconfiguration).
 
 This operation changes operational policy only. It cannot change disk roles,
-layout, network, host identity, trust, or access settings. Deleting the
-installation binding or journal does not establish that a new configuration
-is safe.
+layout, network, host identity or access settings. The only trust exception is
+the reviewed one-way [NTS transition to system CA trust](Operations.md#operational-reconfiguration).
+Deleting the installation binding or journal does not establish that a new
+configuration is safe.
 
 ## Encrypted storage cannot be restored
 
@@ -150,6 +151,23 @@ certificate authentication recover. Do not disable certificate-time validation
 or substitute unauthenticated NTP. Private DNS failures do not authorize public
 resolver fallback. See [time and DNS policy](Operations.md#authenticated-time-and-dns).
 
+## TLS certificate trust errors
+
+ParticleVE HTTPS clients, reporting, NTS and DNS-over-TLS use the system CA trust
+store. Check the peer name, clock, distribution CA package and owner-installed
+anchors. Provision an approved public CA through Fedora's trust configuration
+and run `update-ca-trust`; a per-tool CA file or `SSL_CERT_FILE`/`SSL_CERT_DIR`
+override is not the ParticleVE client configuration path. Do not disable
+certificate or hostname checks to make a request succeed.
+
+Reporting requires `private_ca=false`. NTS requires `trust=system` for each
+source and empty `time.certificates`. An older bound NTS configuration can enter
+maintenance and use the reviewed reconfiguration transition; retain its original
+configuration and confirmation for interrupted recovery. Reporting changes also
+need the documented commissioning review. See
+[time and DNS policy](Operations.md#authenticated-time-and-dns) and
+[external reporting](Operations.md#external-health-reporting).
+
 ## Human SSH access is rejected
 
 A non-root homed account needs its public key and account password to activate
@@ -167,7 +185,7 @@ copy private keys onto the host. See
 ## Health reports stop arriving
 
 The receiver must use its own receipt time to detect a stopped sender. Inspect
-`particleve-report.service`, the timer, endpoint/CA policy, and receiver-side
+`particleve-report.service`, the timer, endpoint, system CA trust and receiver-side
 authentication. Redirects, an invalid certificate, an oversized response, or a
 failed privilege/confinement check must not be bypassed to deliver a report.
 

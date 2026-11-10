@@ -16,6 +16,7 @@ from particleve.versioning import OBS_RECIPE, source_key
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument("--tree", required=True, help="exact Git commit or tree object")
 p.add_argument("--output", type=Path, default=Path("build/obs-packages"))
+p.add_argument("--cargo", default="cargo", help="Cargo from the pinned Rust toolchain")
 args = p.parse_args()
 tree = run(["git", "rev-parse", f"{args.tree}^{{tree}}"]).stdout.strip()
 archive = subprocess.run(["git", "archive", "--format=tar", tree], capture_output=True, check=True).stdout
@@ -70,6 +71,27 @@ with tempfile.TemporaryDirectory() as temporary:
             stdout=output,
             check=True,
         )
+    original_lock = (root / "Cargo.lock").read_bytes()
+    vendor = subprocess.run(
+        [args.cargo, "vendor", "--locked", "--versioned-dirs", "vendor"],
+        cwd=root,
+        capture_output=True,
+        check=True,
+    )
+    require((root / "Cargo.lock").read_bytes() == original_lock, "Cargo changed the source lock")
+    (root / ".cargo").mkdir(exist_ok=True)
+    atomic_write(root / ".cargo/config", vendor.stdout, 0o644)
+    with tarfile.open(package / "vendor.tar.zst", "w:zst") as output:
+        paths = [root / ".cargo/config", root / "Cargo.lock", *sorted((root / "vendor").rglob("*"))]
+        for path in paths:
+            member = output.gettarinfo(path, arcname=path.relative_to(root).as_posix())
+            member.uid = member.gid = member.mtime = 0
+            member.uname = member.gname = ""
+            if member.isfile():
+                with path.open("rb") as content:
+                    output.addfile(member, content)
+            else:
+                output.addfile(member)
 atomic_write(
     package / "particleve.obsinfo",
     f"name: particleve\nversion: {version}\ntree: {tree}\n".encode(),

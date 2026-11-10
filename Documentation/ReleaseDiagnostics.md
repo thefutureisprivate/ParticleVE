@@ -20,10 +20,11 @@ signed-image checks.
    [required verification](../CONTRIBUTING.md#required-verification). Use a clean
    checkout for the release build and record the commit. Source tests do not
    establish the behavior of a later package-only image rebuild.
-2. Use OBS's advancing build-counter image version. Keep source identity and
-   image identity separate: a dependency-only rebuild can change the kernel or
-   other packages without changing the ParticleVE source revision. Do not edit a
-   built manifest or reuse an earlier version for different artifact bytes.
+2. Use the [source and image version contract](Build.md#versions-and-source-selection):
+   the four source fields followed by both OBS counters. A dependency-only
+   rebuild can change the kernel or other packages without changing the
+   ParticleVE source revision. Do not edit a built manifest or reuse an earlier
+   image version for different artifact bytes.
 3. Review dependency pins, patch descriptions, kernel configuration and
    [third-party notices](ThirdPartyNotices.md). Resolve known build or
    verification failures and explicitly record any remaining coverage limits,
@@ -42,9 +43,9 @@ signed-image checks.
 
 Use the [build and publication procedure](Build.md) and the selected OBS project.
 OBS resolves the declared Fedora and stable-systemd dependencies, builds the
-integration and upstream packages, and signs the final image through the native
-continuation. Package-only rebuilds follow the same identity and publication
-checks as source changes.
+host, initrd, build-tools and upstream packages, and signs the final image
+through the native continuation. Package-only rebuilds follow the same identity
+and publication checks as source changes.
 
 Publication requires a complete authenticated artifact set, matching source and
 installed-payload identities, the intended package origins, and verified boot
@@ -103,6 +104,12 @@ policy and loader behavior. Read their arguments and fixture requirements before
 running them. These are targeted diagnostics, not a single unattended test that
 can safely run on arbitrary production hardware.
 
+Use the [compiled-helper prerequisites](Development.md#native-probes-with-compiled-helpers)
+for harnesses that require `--runtime-driver` or `--runtime-binary`. Retain the
+helper hash and matching source, and distinguish staged component code from the
+release's installed binaries. Source tests, a successful RPM build or a staged
+helper cannot establish final signed-image acceptance.
+
 ## Release evidence
 
 Retain matching artifacts and evidence together. The evidence must identify
@@ -110,7 +117,8 @@ what was actually executed rather than only the intended configuration:
 
 | Evidence | Contents |
 | --- | --- |
-| Source and build identity | ParticleVE commit, upstream pins, recipes, patches, build environment, OBS project/build identifiers and package versions/origins. |
+| Source and build identity | ParticleVE commit and full source/image versions, Rust toolchain and Cargo lock, upstream pins, recipes, patches, build environment, OBS project/build identifiers and package versions/origins. |
+| Native ParticleVE payloads | Host/initrd/build-tools identities, final RPM-transformed ELF hashes, architecture and compiler flags, PIE/RELRO/NOW/non-executable-stack checks, dependency license records and any staged test-helper hashes. |
 | Artifact identity and trust | Signed index, manifest, complete artifact hashes, applicable certificate/key identities and verification results for each trust chain. |
 | Kernel baseline | Exact Fedora kernel/module package versions and origins, source-package identity, effective configuration, compiler protections, module-signature trust, loaded microcode and measured platform mitigations. |
 | Host and fixture | CPU/firmware/TPM capabilities, actual storage/NIC topology, memory, selected disk identities, test-only substitutions and excluded hardware coverage. |

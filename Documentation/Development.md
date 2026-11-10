@@ -7,8 +7,9 @@ required verification for a change. Distribution builds have a separate
 
 ## Local builds
 
-Use a Linux development environment with Python 3.14 or newer, Ruff, Git, GNU
-Make, Bash, GnuPG, OpenSSL, and the OpenSSH client tools. The source tests use
+Use a Linux development environment with the pinned Rust toolchain, a C linker,
+libselinux development headers, Python 3.14 or newer, Ruff, Git, GNU Make, Bash,
+GnuPG, OpenSSL, and the OpenSSH client tools. The source tests use
 `ssh-keygen` to check actual public-key parsing. Image builds also need the native
 tools and project packages described in [build and publication](Build.md) and
 the [mkosi RPM recipe](../.obs/mkosi/mkosi.spec). The runtime, initrd, and image
@@ -32,7 +33,7 @@ Existing source checkouts must match their pins and have clean worktrees.
 and image inputs. Review those tracked changes. `make summary` resolves and
 checks the configuration of all three trees before image generation.
 
-For a local signed image, first make the matching ParticleVE integration,
+For a local signed image, first make the matching ParticleVE host, initrd,
 build-tools, pinned mkosi, and fwupd-efi RPMs available to the selected build
 environment and repositories. Their recorded source and payload identities must
 match the checkout. Changing runtime code, trust, recipes, or patches requires
@@ -74,27 +75,30 @@ release procedure for final publication and signed-image acceptance.
 
 | Build or check | Command | Output |
 | --- | --- | --- |
-| Source checks | `make check` | Lint, formatting, shell syntax, and unittest results. |
+| Source checks | `make check` | Rust and Python tests, compiled contract checks, lint, formatting, shell syntax and version consistency. |
 | Resolved image configuration | `make summary` | `build/summary.json`. |
 | Local signed image | `build/sources/mkosi/bin/mkosi --force build` | `mkosi.output/ParticleVE_<version>_x86-64*`. |
 | OBS dependency configuration | `PYTHONPATH=Sources:. python3 Tools/obs-project.py --site .obs/site.json --summary build/summary.json` | `build/obs-project/` and `.obs/fedora/x86-64/mkosi.conf`. |
-| Image and integration package sources | `PYTHONPATH=Sources:. python3 Tools/prepare-obs.py --tree HEAD` | A fresh `build/obs-packages/`. |
+| Image and ParticleVE RPM sources | `PYTHONPATH=Sources:. python3 Tools/prepare-obs.py --tree HEAD` | A fresh `build/obs-packages/particleve/`, including source and locked vendor archives. |
 
 `prepare-obs.py` archives the exact Git commit or tree object supplied through
 `--tree`; using `HEAD` excludes uncommitted edits. Source preparation does not
-upload or publish a release. The normal OBS source services also prepare the
-separately pinned mkosi and fwupd-efi packages.
+upload or publish a release. It invokes the pinned Cargo to vendor the selected
+tree's lock without changing it; fetching missing crates needs network access at
+this preparation stage. `--cargo` selects an explicit Cargo executable. The
+resulting RPM build uses those vendored sources offline. The normal OBS source
+services also prepare the separately pinned mkosi and fwupd-efi packages.
 
 ## Incremental work and isolated outputs
 
 The image configuration enables mkosi's incremental cache. The project checks
 source identities, recipes, patches, installed package payloads, and image
 policy before accepting the build. Running the normal builder after preparing
-matching packages is the ordinary incremental workflow. For a Python-only
-iteration that does not need an image, run the affected source suite directly:
+matching packages is the ordinary incremental workflow. For a runtime iteration
+that does not need an image, run the affected compiled tests directly:
 
 ```sh
-PYTHONPATH=Sources:. python3 -W error -m unittest Tests.test_coordinator -v
+cargo test --locked coordinator::tests
 ```
 
 Run the checks required for the whole change before handing it off. After
@@ -112,7 +116,8 @@ The main path controls are:
 | mkosi `OutputDirectory=` / `--output-directory` | Image products; defaults to `mkosi.output`. |
 | mkosi `CacheDirectory=` / `--cache-directory` | Incremental build cache; defaults to `mkosi.cache`. |
 | `Tools/obs-project.py --output` | Generated OBS project metadata; defaults to `build/obs-project`. The tool still updates the checkout's `.obs/fedora/x86-64/mkosi.conf`. |
-| `Tools/prepare-obs.py --output` | Prepared source packages; defaults to `build/obs-packages`. Its image and integration output directories must be fresh. |
+| `Tools/prepare-obs.py --output` | Prepared source packages; defaults to `build/obs-packages`. Its `particleve/` package directory must be fresh. |
+| Cargo `CARGO_TARGET_DIR` | Compiled binaries, tests and the contract driver; defaults to `target/`. Keep writable targets separate for concurrent work. |
 | `mkosi.local.conf` | Ignored local configuration, including references to external signing material. |
 
 For example, after configuring a separate worktree with its matching packages
@@ -137,6 +142,17 @@ test or configuration summary is insufficient. Use the matching image, source
 revision, package identities, and trust when repeating the
 [publication checks](Build.md#signing-and-release-publication).
 
+For an isolated compiler environment, [`Tools/rust-build.py`](../Tools/rust-build.py)
+accepts an immutable local Fedora compiler image ID, an installed pinned Rust
+toolchain, a populated Cargo cache, a target directory and explicit Podman store
+paths. See `python3 Tools/rust-build.py --help` for its required arguments. It
+copies only public runtime/test inputs into a temporary source mount and runs
+without network access; private signing inputs and acceptance disks are not
+mounted. Use dedicated public caches and targets. Populate the dependency cache
+with `cargo fetch --locked` before the offline run. When using this command as
+`make`'s `CARGO` override, set `CARGO_TARGET_DIR` to the same host target directory
+so Python tests find the resulting driver.
+
 ## Tests and diagnostics
 
 The [required-check matrix](../CONTRIBUTING.md#required-verification) is
@@ -148,24 +164,32 @@ make test
 make check
 ```
 
-`make lint` runs Ruff checks, Ruff formatting checks, and Bash syntax checks for
-the listed image, initrd, shutdown, and EFI-fixture scripts. `make test` runs
-Python unittest discovery with warnings treated as errors. `make check` runs
-both. These source checks do not require building an image first.
+`make lint` runs Rust formatting and Clippy with warnings as errors, Ruff, and
+Bash syntax checks for the image and EFI-fixture scripts. `make test` runs Rust
+tests, builds the test-only contract driver, then runs Python unittest with
+warnings as errors. `make check` runs both and validates source versions. These
+source checks do not require building an image first.
 
-For a focused regression, select the relevant unittest modules:
+For a focused cross-language regression, build the driver before selecting the
+relevant unittest modules:
 
 ```sh
+cargo build --locked --example runtime-contract-driver
 PYTHONPATH=Sources:. python3 -W error -m unittest \
-  Tests.test_coordinator \
-  Tests.test_storage_admission \
-  Tests.test_vmrun -v
+  Tests.test_rust_common Tests.test_rust_storage Tests.test_rust_orchestration -v
 ```
 
-Python is the normal language for policy tests, failure injection, and native
-acceptance orchestration. Small shell fixtures exercise shell interfaces or
-build native test payloads. Keep the required whole-change checks alongside
-focused iterations; selecting a module does not run Ruff or the shell checks.
+With a custom Cargo target, also set `PVE_RUNTIME_DRIVER` to that target's
+`debug/examples/runtime-contract-driver`. `make test` sets this path for its
+Python invocation automatically. Focused commands supplement `make check`,
+which applies the repository's complete diagnostics and hardening flags.
+
+Rust tests exercise runtime policy and injected failure boundaries. Python
+handles build tests, persisted-format checks and native acceptance orchestration.
+Runtime harnesses invoke the compiled helpers with explicit fixture inputs and
+expected outcomes. Small shell fixtures exercise shell interfaces or build native
+test payloads. Keep the required whole-change checks alongside focused iterations;
+selecting a module does not run Ruff or the shell checks.
 
 For native coverage, prepare the disposable fixture described by the relevant
 acceptance procedure first. The probes in [`Tests/acceptance/`](../Tests/acceptance/)
@@ -187,9 +211,11 @@ have their own prerequisites and procedures.
 | --- | --- |
 | Package source, recipe, and installed-payload identity | [Build and publication](Build.md); [`test_package_provenance.py`](../Tests/test_package_provenance.py) and [`test_upstream_provenance.py`](../Tests/test_upstream_provenance.py). |
 | Signed manifests, artifacts, and publication observation | [`test_signed_feed.py`](../Tests/test_signed_feed.py), [`test_buildartifacts.py`](../Tests/test_buildartifacts.py), and [`test_publication.py`](../Tests/test_publication.py). |
-| Update interruption, guest shutdown, and restoration | [`test_coordinator.py`](../Tests/test_coordinator.py), [`test_vmrun.py`](../Tests/test_vmrun.py), and [repeated lifecycle tests](ReleaseDiagnostics.md#repeated-lifecycle-tests). |
-| Disk admission, stale members, and recovery | [`test_storage_admission.py`](../Tests/test_storage_admission.py), [`test_accounts_storage.py`](../Tests/test_accounts_storage.py), and [bootloader and mirror recovery](Commissioning.md#bootloader-and-mirror-recovery). |
-| Guest authority and SELinux confinement | [`test_confinement.py`](../Tests/test_confinement.py) and [QEMU containment](Hardening.md#qemu-containment). |
+| Persisted JSON and compiled-policy equivalence | [`test_rust_common.py`](../Tests/test_rust_common.py), [`test_rust_storage.py`](../Tests/test_rust_storage.py), and [`test_rust_orchestration.py`](../Tests/test_rust_orchestration.py). |
+| Update interruption, guest shutdown, and restoration | Rust tests in [`coordinator.rs`](../Sources/runtime/coordinator.rs), [`vms.rs`](../Sources/runtime/vms.rs), [`vmrun.rs`](../Sources/runtime/vmrun.rs), and [repeated lifecycle tests](ReleaseDiagnostics.md#repeated-lifecycle-tests). |
+| Disk admission, stale members, and recovery | Rust tests in [`admission.rs`](../Sources/runtime/admission.rs), [`install.rs`](../Sources/runtime/install.rs), [`bootloaders.rs`](../Sources/runtime/bootloaders.rs), and [bootloader and mirror recovery](Commissioning.md#bootloader-and-mirror-recovery). |
+| Guest authority and SELinux confinement | Rust tests in [`confinement.rs`](../Sources/runtime/confinement.rs), [`processes.rs`](../Sources/runtime/processes.rs), and [QEMU containment](Hardening.md#qemu-containment). |
+| System CA trust | Native TLS tests in [`Tests/runtime/tls.rs`](../Tests/runtime/tls.rs), [`test_system_trust.py`](../Tests/test_system_trust.py), and [TLS operating policy](Operations.md#authenticated-time-and-dns). |
 | Native networking, kernel interfaces, and device policy | [`Tests/acceptance/`](../Tests/acceptance/), [hardening](Hardening.md), and the selected probe's arguments and prerequisites. |
 | EFI loader failure and fallback | [`build-loader-probe.sh`](../Tests/acceptance/build-loader-probe.sh). |
 | Final signed-image and hardware behavior | [Release diagnostics](ReleaseDiagnostics.md) and [commissioning](Commissioning.md). |
@@ -197,6 +223,39 @@ have their own prerequisites and procedures.
 Measurements are diagnostic. They do not replace correctness assertions or
 establish VM capacity from an idle host or isolated fixture. Record the actual
 source, image, fixture, configuration, results, and coverage limits.
+
+### Native probes with compiled helpers
+
+Build the test-only driver through `make test` on the supported toolchain before
+staging it into a disposable fixture. Keep the source revision and binary hash
+with its evidence. It exposes privileged library operations for tests and is
+never installed by the host or initrd RPMs. Stage it as a root-owned executable
+without other-account writes under a private `/run` directory in the selected
+fixture; do not install it as a production management interface.
+
+Run each Python harness with `PYTHONPATH=Sources:.` from the matching reviewed
+checkout. These probes call the compiled Rust implementation:
+
+| Probe | Required compiled input and fixture |
+| --- | --- |
+| [`management-network.py`](../Tests/acceptance/management-network.py) | `--runtime-driver /run/particleve-tests/runtime-contract-driver`; a disposable installed host, native networking and reviewed VM state. |
+| [`storage-service.py`](../Tests/acceptance/storage-service.py) | The storage-watch service file as its positional argument and `--runtime-driver`; a disposable installed systemd/firmware-witness fixture. |
+| [`storage-member-counters.py`](../Tests/acceptance/storage-member-counters.py) | `--runtime-driver`; a disposable root fixture with Btrfs-backed `/var/tmp` and loop/device-mapper support. |
+| [`radio-policy.py`](../Tests/acceptance/radio-policy.py) | `--expect-installation`, reviewed `--source-dir` and `--runtime-binary` under `/run`; an isolated QEMU component fixture with the native RFKill units, no installed radio-policy service and no exposed radios. Use the matching RPM's compiled radio helper. |
+
+The startup descriptor/ACL comparison runs separately as
+`PYTHONPATH=Sources:. PVE_RUNTIME_DRIVER=DRIVER python3 -m Tests.runtime.startup-contract`
+inside an isolated uid-0 fixture with ACL tools. Read each harness's complete
+prerequisites before execution. Component observations must identify staged
+helpers and remain distinct from acceptance of the final signed image and its
+installed service paths.
+
+The [Landlock handoff probe](../Tests/runtime/landlock-handoff.py) takes
+`--runtime-driver` and runs the compiled sender boundary in a separate,
+unprivileged process on a system with the supported Landlock ABI. It creates its
+own disposable directory, verifies inherited-descriptor closure and permitted
+reads, and requires filesystem mutations to fail without changing retained data.
+The parent process retains its original authority.
 
 ## CI coverage and reproduction
 
@@ -206,7 +265,8 @@ revision, package identities, configuration, and diagnostics when reproducing it
 
 | Build or check | Coverage and local entry points |
 | --- | --- |
-| [Integration RPM](../.obs/particleve/rpm.spec) | Python unittest with warnings as errors and SELinux policy compilation. Source checks use `make check`; the package build also verifies its native build requirements. |
+| [GitHub source checks](../.github/workflows/check.yml) | Pinned Rust/Python setup, `make check`, upstream pin/patch verification and resolved image configuration. A passing `main` push can select system changes for OBS. |
+| [Host, initrd and build-tools RPMs](../.obs/particleve/rpm.spec) | Offline locked Rust build, strict formatting/Clippy, Rust and Python tests, SELinux policy compilation, and final ELF payload identity after normal RPM transformations. |
 | [Pinned mkosi RPM](../.obs/mkosi/mkosi.spec) | Exact upstream, recipe, and patch identity; installed-payload records; shell syntax checks for the OBS signing continuation. |
 | [fwupd EFI helper RPM](../.obs/fwupd-efi/fwupd-efi.spec) | Compiler diagnostics, retained SBAT/SBOM sections, payload identity, and separate PE signing. |
 | [Image build](../.obs/fedora/x86-64/mkosi.conf) | Runtime/initrd/tools dependencies, package origins, installed identities, security inventory, and required kernel, storage, and KVM support. |
@@ -218,10 +278,12 @@ stable systemd package changes trigger builds through OBS's dependency graph.
 Pinned upstream inputs change through their reviewed source and packaging
 updates. The generated dependency definition comes from all three mkosi trees.
 
-OBS runs the checks declared in each recipe. The integration RPM's unittest
-stage does not run the contributor's Ruff checks, and this checkout has no
-separate GitHub Actions workflow. Missing, skipped, or unavailable checks are
-not evidence that they passed; record required local results.
+OBS runs the checks declared in each recipe. The ParticleVE recipe runs offline
+Rust formatting, Clippy, Rust tests and Python unittest; contributor Ruff checks
+run through `make check` locally and in GitHub Actions. The source-selection
+workflow and versioned changelogs are described in
+[Build](Build.md#versions-and-source-selection). Missing, skipped, or unavailable
+checks are not evidence that they passed; record required local results.
 
 Image building and publication do not run every native acceptance case or
 commission a physical host. Run the selected signed-image and hardware checks
@@ -247,6 +309,7 @@ in this checkout and any configured alternatives.
 | `mkosi.cache/`, `mkosi.tools/`, and configured cache paths | Build cache and tools tree. Removing them requires rebuilding the affected outputs. |
 | `mkosi.output/`, `build/local-image/`, and configured output paths | Built images and artifacts. Preserve releases and matching verification evidence before removal. |
 | `.venv/`, `.ruff_cache/`, Python bytecode, `dist/`, and `*.egg-info/` | Local development environments and rebuildable packaging state. |
+| `target/` and configured Cargo targets | Rebuildable Rust binaries, tests and driver artifacts. Preserve copies and hashes needed by an active fixture before removal. |
 | `build/acceptance/`, commissioning records, and failure reproductions | Retained test evidence and investigation material. Preserve unresolved failures, source/image identities, and useful measurements. |
 | Signing keys, recovery material, and credentials | Private inputs, **not disposable cache**. Preserve them outside the checkout according to their ownership and recovery requirements. |
 

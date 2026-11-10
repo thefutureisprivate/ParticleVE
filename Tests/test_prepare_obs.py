@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,6 +25,7 @@ class PrepareObsTests(unittest.TestCase):
                 ".obs/particleve/_multibuild": "<multibuild/>\n",
                 "mkosi.extra/usr/lib/systemd/resolved.conf.d/50-particleve.conf": "[Resolve]\n",
                 "Sources/bin/fixture": "#!/bin/sh\nexit 0\n",
+                "Cargo.lock": "version = 4\n",
             }
             for name, content in files.items():
                 path = root / name
@@ -41,6 +43,20 @@ class PrepareObsTests(unittest.TestCase):
                     timeout=10,
                 )
             tree = result.stdout.strip()
+            cargo = root / "cargo-fixture"
+            configuration = (
+                '[source.crates-io]\nreplace-with = "vendored-sources"\n'
+                '[source.vendored-sources]\ndirectory = "vendor"\n'
+            )
+            cargo.write_text(
+                "#!/usr/bin/python3\n"
+                "import pathlib,sys\n"
+                "assert sys.argv[1:] == ['vendor','--locked','--versioned-dirs','vendor']\n"
+                "pathlib.Path('vendor').mkdir()\n"
+                "pathlib.Path('vendor/fixture').write_text('locked dependency fixture')\n"
+                f"print({configuration!r})\n"
+            )
+            cargo.chmod(0o755)
             for mask in (0o002, 0o077):
                 with self.subTest(umask=oct(mask)):
                     output = root / f"prepared-{mask:o}"
@@ -54,6 +70,8 @@ class PrepareObsTests(unittest.TestCase):
                             tree,
                             "--output",
                             output,
+                            "--cargo",
+                            cargo,
                         ],
                         cwd=root,
                         env=env,
@@ -95,3 +113,9 @@ class PrepareObsTests(unittest.TestCase):
                         (output / "particleve/particleve.obsinfo").read_text().splitlines()[-1],
                         "tree: " + tree,
                     )
+                    with tarfile.open(output / "particleve/vendor.tar.zst", "r:zst") as vendor:
+                        self.assertEqual(vendor.extractfile("Cargo.lock").read(), b"version = 4\n")
+                        self.assertEqual(
+                            vendor.extractfile("vendor/fixture").read(), b"locked dependency fixture"
+                        )
+                        self.assertIn(b'directory = "vendor"', vendor.extractfile(".cargo/config").read())

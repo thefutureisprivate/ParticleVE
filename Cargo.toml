@@ -1,0 +1,96 @@
+[package]
+name = "particleve"
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.99"
+license = "LGPL-2.1-or-later"
+publish = false
+
+[lib]
+path = "Sources/runtime/lib.rs"
+
+[[example]]
+name = "runtime-contract-driver"
+path = "Tests/runtime/driver.rs"
+
+[dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.154", features = ["float_roundtrip", "arbitrary_precision", "raw_value"] }
+sha2 = { version = "=0.11.1" }
+regex = { version = "=1.13.1" }
+libc = { version = "=0.2.191" }
+uuid = { version = "=1.29.2", features = ["v4", "v5", "serde"] }
+url = { version = "=2.5.8" }
+tempfile = { version = "=3.27.0" }
+chrono = { version = "=0.4.45" }
+chrono-tz = { version = "=0.10.4" }
+clap = { version = "=4.6.7", features = ["derive"] }
+signal-hook = { version = "=0.4.6" }
+ureq = { version = "=3.5.1", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "=0.23.46", default-features = false, features = ["std", "ring", "tls12"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+overflow-checks = true
+panic = "abort"
+debug = 2
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"
+
+[lints.clippy]
+all = "warn"
+
+[[bin]]
+name = "particleve-storage-admission"
+path = "Sources/runtime/bin/particleve-storage-admission.rs"
+
+[[bin]]
+name = "particleve-initrd-storage"
+path = "Sources/runtime/bin/particleve-initrd-storage.rs"
+
+[[bin]]
+name = "particleve-storage-shutdown"
+path = "Sources/runtime/bin/particleve-storage-shutdown.rs"
+
+[[bin]]
+name = "particleve-witness-write"
+path = "Sources/runtime/bin/particleve-witness-write.rs"
+
+[[bin]]
+name = "particleve-homed-account"
+path = "Sources/runtime/bin/particleve-homed-account.rs"
+
+[[bin]]
+name = "particleve-vm-start-guard"
+path = "Sources/runtime/bin/particleve-vm-start-guard.rs"
+
+[[bin]]
+name = "particleve-qemu"
+path = "Sources/runtime/bin/particleve-qemu.rs"
+
+[[bin]]
+name = "particleve-swtpm"
+path = "Sources/runtime/bin/particleve-swtpm.rs"
+
+[[bin]]
+name = "particleve-vm-stop"
+path = "Sources/runtime/bin/particleve-vm-stop.rs"
+
+[[bin]]
+name = "particleve-health-sender"
+path = "Sources/runtime/bin/particleve-health-sender.rs"
+
+[[bin]]
+name = "particleve-radio-policy"
+path = "Sources/runtime/bin/particleve-radio-policy.rs"
+
+[[bin]]
+name = "particleve-vm-run"
+path = "Sources/runtime/bin/particleve-vm-run.rs"
+
+[[bin]]
+name = "particleve"
+path = "Sources/runtime/bin/particleve.rs"

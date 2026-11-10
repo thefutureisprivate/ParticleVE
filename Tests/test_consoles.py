@@ -4,24 +4,26 @@ import base64
 import copy
 import json
 import tempfile
-import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from particleve.common import Deferred, Error
-from particleve.consoles import SERIAL_CONSOLES, baseline, profile, uki_profiles
-from particleve.contracts import PERSISTENT_STATE
-from particleve.linux import Linux
+from particleve.common import Error
+from particleve.consoles import SERIAL_CONSOLES, uki_profiles
 from particleve.release import inspect_uki
 from Tests.fixtures import release
+from Tests.runtime import RustDriverTests
 
 
-class ConsoleTests(unittest.TestCase):
+class ConsoleTests(RustDriverTests):
     def test_only_agreed_signed_choices_are_accepted(self):
-        self.assertIsNone(profile({}))
-        self.assertEqual(profile({"console": "console=ttyS0"}), "serial0-115200")
-        self.assertEqual(profile({"console": "console=ttyS3,9600n8"}), "serial3-9600")
+        self.assertIsNone(self.evaluate("consoles-profile", config={}))
+        self.assertEqual(
+            self.evaluate("consoles-profile", config={"console": "console=ttyS0"}), "serial0-115200"
+        )
+        self.assertEqual(
+            self.evaluate("consoles-profile", config={"console": "console=ttyS3,9600n8"}), "serial3-9600"
+        )
         for value in (
             "console=ttyS4",
             "console=ttyS0,12345n8",
@@ -29,8 +31,8 @@ class ConsoleTests(unittest.TestCase):
             "console=ttyS0 audit=0",
             None,
         ):
-            with self.subTest(value=value), self.assertRaisesRegex(Error, "unsupported"):
-                profile({"console": value})
+            with self.subTest(value=value):
+                self.assertIn("error", self.request("consoles-profile", config={"console": value}))
 
     def test_runtime_rejects_late_getty_without_the_selected_early_console(self):
         with tempfile.TemporaryDirectory() as td:
@@ -41,7 +43,10 @@ class ConsoleTests(unittest.TestCase):
             cmdline = root / "cmdline"
             cmdline.write_text("audit=1 console=tty0 console=ttyS0,115200n8\n")
             config = {"console": "console=ttyS0"}
-            self.assertEqual(baseline(config, proc=root, sys=root)["profile"], "serial0-115200")
+            self.assertEqual(
+                self.evaluate("consoles-baseline", config=config, proc=str(root), sys=str(root))["profile"],
+                "serial0-115200",
+            )
             for arguments, consoles in (
                 ("console=tty0", "tty0 ttyS0"),
                 ("console=tty0 console=ttyS0,9600n8", "tty0 ttyS0"),
@@ -50,28 +55,26 @@ class ConsoleTests(unittest.TestCase):
             ):
                 cmdline.write_text(arguments)
                 active.write_text(consoles)
-                with self.subTest(arguments=arguments, consoles=consoles), self.assertRaises(Error):
-                    baseline(config, proc=root, sys=root)
+                with self.subTest(arguments=arguments, consoles=consoles):
+                    self.assertIn(
+                        "error",
+                        self.request("consoles-baseline", config=config, proc=str(root), sys=str(root)),
+                    )
 
-    def test_boot_defaults_select_the_same_profile_for_candidate_and_retained_release(self):
-        backend = Linux.__new__(Linux)
-        backend.config = {"console": "console=ttyS2,38400n8"}
-        with tempfile.TemporaryDirectory() as td:
-            esp = Path(td)
+    def test_boot_defaults_select_same_signed_console_for_candidate_and_retained_release(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            esp = Path(temporary)
             (esp / "loader").mkdir()
-            for version, match in (("1", "1"), (None, "*")):
-                backend.default(esp, version)
+            for version, match in (("45.0.2.0-1.1", "45.0.2.0-1.1"), (None, "*")):
+                self.evaluate(
+                    "linux-default",
+                    esp=str(esp),
+                    version=version,
+                    config={"console": "console=ttyS2,38400n8"},
+                )
                 text = (esp / "loader/loader.conf").read_text()
                 self.assertIn(f"default ParticleVE_{match}_x86-64*.efi@serial2-38400\n", text)
                 self.assertEqual(text.count("default "), 1)
-
-    def test_earlier_boot_console_contract_is_not_migrated_by_generic_approval(self):
-        backend = Linux.__new__(Linux)
-        previous = {"persistent_state": {k: v for k, v in PERSISTENT_STATE.items() if k != "boot_console"}}
-        current = {"persistent_state": PERSISTENT_STATE.copy()}
-        for first, second in ((previous, current), (current, previous)):
-            with self.assertRaisesRegex(Deferred, "Boot-console contract has no migration"):
-                backend.compatibility_approved(first, second)
 
     def sections(self):
         manifest = release()

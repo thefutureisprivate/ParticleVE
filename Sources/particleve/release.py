@@ -4,13 +4,11 @@ import base64
 import json
 import re
 import shlex
-import tempfile
-import urllib.request
 import uuid
 from pathlib import Path
 
-from .common import Error, digest, hash_file, read_json, require, run
-from .config import VERITY_SIGNATURE_SIZE, VERSION, https_url, integer, version_key
+from .common import hash_file, read_json, require, run
+from .config import VERITY_SIGNATURE_SIZE, integer, version_key
 from .consoles import SERIAL_CONSOLES, uki_profiles
 
 KINDS = ("usr", "verity", "verity_sig", "uki", "bootloader", "fwupd_efi")
@@ -182,105 +180,3 @@ def inspect_uki(path, manifest):
             policy = (entry["pol"], entry.get("ref"))
             require(policy not in policies, "UKI profiles reuse a PCR policy")
             policies.add(policy)
-
-
-def download(url, destination, *, size_limit):
-    # Never downgrade HTTPS via a redirect.
-    class HTTPSOnly(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, req, fp, code, msg, headers, newurl):
-            https_url(newurl)
-            return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-    https_url(url)
-    opener = urllib.request.build_opener(HTTPSOnly())
-    try:
-        with opener.open(url, timeout=60) as response:
-            # Stream artifacts; a /usr image must not consume host RAM.
-            destination = Path(destination)
-            destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-            with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as stream:
-                temporary = Path(stream.name)
-                try:
-                    received = 0
-                    while chunk := response.read(1024 * 1024):
-                        received += len(chunk)
-                        require(received <= size_limit, f"download too large: {url}")
-                        stream.write(chunk)
-                    stream.flush()
-                    import os
-
-                    os.fsync(stream.fileno())
-                    os.replace(temporary, destination)
-                finally:
-                    temporary.unlink(missing_ok=True)
-    except OSError as exc:
-        raise Error(f"download failed: {url}: {exc}") from exc
-
-
-def fetch(feed, cache, keyring, certificate, *, version=None):
-    feed = https_url(feed)
-    cache = Path(cache)
-    cache.mkdir(parents=True, exist_ok=True, mode=0o700)
-    with tempfile.TemporaryDirectory(dir=cache) as temporary:
-        directory = Path(temporary)
-        require(version is None or VERSION.fullmatch(version), "invalid requested version")
-        for name in ("SHA256SUMS", "SHA256SUMS.asc"):
-            download(f"{feed}/{name}", directory / name, size_limit=8 * 1024 * 1024)
-        index = checksums(directory, keyring)
-        available = {}
-        for name in index:
-            if match := re.fullmatch(r"ParticleVE_([0-9.-]+)_x86-64\.release\.json", name):
-                require(VERSION.fullmatch(match[1]), "unsupported image version in authenticated feed")
-                available[match[1]] = name
-        require(
-            available and (version is None or version in available),
-            "requested complete release is not published",
-        )
-        chosen = version or max(available, key=version_key)
-        filename = available[chosen]
-        download(f"{feed}/{filename}", directory / filename, size_limit=2 * 1024 * 1024)
-        manifest = verify_directory(directory, keyring, certificate, artifacts=False)
-        require(manifest["version"] == chosen, "feed returned a different release")
-        target = cache / chosen
-        if target.exists():
-            old = verify_directory(target, keyring, certificate, artifacts=False)
-            require(digest(old) == digest(manifest), "immutable release changed in the feed")
-            for item in manifest["artifacts"].values():
-                candidate = target / item["file"]
-                if (
-                    candidate.is_file()
-                    and candidate.stat().st_size == item["size"]
-                    and hash_file(candidate) == item["sha256"]
-                ):
-                    import shutil
-
-                    shutil.copyfile(candidate, directory / item["file"])
-        for item in manifest["artifacts"].values():
-            if not (directory / item["file"]).exists():
-                download(f"{feed}/{item['file']}", directory / item["file"], size_limit=item["size"])
-        verify_directory(directory, keyring, certificate)
-        if target.exists():
-            # Keep the original authenticated metadata; replace only validated missing cache resources.
-            for item in manifest["artifacts"].values():
-                (directory / item["file"]).replace(target / item["file"])
-        else:
-            directory.rename(target)
-        return target, manifest
-
-
-def transfers(manifest, *, disk, source, current):
-    version_key(current)
-    files = {}
-    for order, kind in enumerate(("verity_sig", "verity", "usr"), 10):
-        item = manifest["artifacts"][kind]
-        filename = item["file"].replace(manifest["version"], "@v", 1)
-        partition_type = {"usr": "usr", "verity": "usr-verity", "verity_sig": "usr-verity-sig"}[kind]
-        files[f"{order}-{kind}.transfer"] = (
-            f"[Transfer]\nProtectVersion={current}\nVerify=yes\n\n"
-            f"[Source]\nType=regular-file\nPath={source}\nPathRelativeTo=root\nMatchPattern={filename}\n\n"
-            f"[Target]\nType=partition\nPath={disk}\nPathRelativeTo=root\n"
-            f"MatchPattern=PVE_@v\nMatchPartitionType={partition_type}\n"
-            f"PartitionUUID={item['partition_uuid']}\n"
-            "PartitionFlags=0\nReadOnly=yes\nInstancesMax=2\n"
-        )
-    return files

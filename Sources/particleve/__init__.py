@@ -1,1 +1,1 @@
-"""Small, fail-closed integration layer for a ParticleOS virtualization host."""
+"""ParticleVE image construction, artifact verification and publication utilities."""

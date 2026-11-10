@@ -11,6 +11,17 @@ Use Python 3.14 or newer for first-party tools and tests. The Python requirement
 and Ruff settings live in [`pyproject.toml`](../pyproject.toml); the supported
 source-check entry points live in the [`Makefile`](../Makefile).
 
+Installed host and initrd code uses Rust 1.99.1, edition 2024, pinned in
+[`rust-toolchain.toml`](../rust-toolchain.toml). [`Cargo.toml`](../Cargo.toml)
+and [`Cargo.lock`](../Cargo.lock) own the exact dependency set. Rust builds keep
+overflow checks in release mode, thin LTO, frame pointers, x86-64-v2 targeting,
+RELRO and immediate symbol binding. No build-host CPU tuning is permitted.
+`particleve.version` owns the full Fedora/PVE source version; Cargo uses its
+three PVE components. `Tools/version.py` keeps both manifests, the Cargo lock
+and RPM declarations consistent. Native Fedora RPM builds retain the distro
+compiler flags, removing only its warning-cap flag before enforcing project
+diagnostics as errors.
+
 ## Current build configuration
 
 The [coding standards](CodingStandards.md#baseline-and-module-boundaries)
@@ -25,7 +36,9 @@ for the build inputs; update their related checks and recipes together.
 | ParticleOS | This fork retains the upstream revision recorded in `sources.lock.json`; no second upstream tree is composed over it. |
 | mkosi | Exact upstream commit and declared version in `sources.lock.json`, with the reviewed [OBS continuation patch](../.obs/mkosi/mkosi-obs-continuation.patch), [initrd module-index patch](../.obs/mkosi/mkosi-initrd-module-indexes.patch), [build-metadata patch](../.obs/mkosi/mkosi-build-metadata.patch), and [RPM recipe](../.obs/mkosi/mkosi.spec). The configuration's minimum version is not a substitute for this pin. |
 | fwupd EFI helper | Exact upstream commit and version in `sources.lock.json`; [recipe](../.obs/fwupd-efi/fwupd-efi.spec), [diagnostic patch](../.obs/fwupd-efi/fwupd-efi-sbom-linker-message.patch), separate PE signing, and SBAT/SBOM checks. |
-| Python | `>=3.14`, including the integration and build-tools RPMs. |
+| Rust | 1.99.1 with rustfmt and Clippy; runtime and initrd native binaries. |
+| Shared runtime/build policy | [`Sources/particleve/runtime-policy.json`](../Sources/particleve/runtime-policy.json); required kernel configuration, sysctls, TPM creation policy and SELinux boolean expectations. Rust embeds the same data read by Python build checks. |
+| Python | `>=3.14` for build tools and tests; upstream Python tools retain their upstream dependency requirements. |
 | Ruff | The repository's configured rules and formatter; exact CI version and wheel hashes in [CI requirements](../.github/requirements.txt). Record the version used for a verification run. |
 | Image packages and privileged files | The ParticleVE profile, generated dependency summary, [privilege policy](../.obs/particleve/security-policy.json), and final-image checks. |
 | OBS project, source branch, repositories, and feed | [`.obs/site.json`](../.obs/site.json); public generated inputs are reviewed source. |
@@ -35,12 +48,14 @@ dependency graph. Pinning the source tools does not freeze those repositories.
 Each release records exact package versions, origins, source identities, and
 artifact hashes so its inputs remain identifiable.
 
-## Python and system interface contracts
+## Runtime and system interface contracts
 
-`make check` runs Ruff, formatting and shell syntax checks, then unittest with
-`-W error`. Python modules used by the initrd and independent upstream RPMs must
-retain their documented dependency boundary; adding a host-only dependency can
-break a build or early boot even when source tests pass.
+`make check` runs Rust formatting, Clippy, runtime tests, the compiled contract
+driver, Ruff, shell syntax checks and Python unittest with `-W error`. OBS uses
+the native Cargo vendor source service with updates disabled and the lock
+required; compilation and checks run offline. The `particleve-initrd` RPM carries
+the same storage admission executable used by the host, without the host
+administration dependency set or a first-party Python runtime.
 
 The image uses native systemd-vmspawn service templates, machined/machinectl,
 networkd, resolved, homed, and sysupdate. Package-family checks prevent mixing
@@ -50,13 +65,20 @@ before the image depends on it.
 
 The direct Linux syscall helpers validate their supported host ABI. The TLS
 health sender requires the Landlock ABI checked by
-[`Sources/particleve/landlock.py`](../Sources/particleve/landlock.py). Changes to these interfaces
+[`Sources/runtime/landlock.rs`](../Sources/runtime/landlock.rs). Changes to these interfaces
 require native verification in addition to source tests.
 
 ## Native build and signing contracts
 
 The RPM recipes declare the compiler and build-tool dependencies for native
-components. The fwupd helper builds with warnings as errors and retains both
+components. ParticleVE's host and initrd RPMs are architecture-specific ELF
+packages; the build-tools component retains Python. The native recipe pins
+Rust, Cargo, rustfmt and Clippy to the toolchain release, preserves Fedora's
+other compiler flags, and uses full GDB for Rust debug-script inspection during
+normal RPM processing. Resolved dependency licenses and upstream notice texts
+ship with both Rust runtime components.
+
+The fwupd helper builds with warnings as errors and retains both
 SBAT and SBOM sections. Its narrow patch changes a successful linker-selection
 message to informational severity; it does not suppress compiler diagnostics.
 

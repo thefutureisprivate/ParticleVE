@@ -27,6 +27,11 @@ jobs:
       - name: Install source-check tools
         run: >-
           python3 -m pip install --require-hashes --only-binary=:all: -r .github/requirements.txt
+      - name: Install the pinned Rust toolchain and native headers
+        run: |
+          rustup show
+          sudo apt-get update
+          sudo apt-get install --yes libselinux1-dev
       - name: Lint and unit tests
         run: make check
       - name: Verify upstream pins and downstream patches

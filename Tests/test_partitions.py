@@ -1,22 +1,20 @@
+"""Validate real Rust partition selection and full artifact readback with inert lsblk."""
+
 import copy
-import unittest
-from contextlib import nullcontext
+import hashlib
+import json
+import tempfile
 from pathlib import Path
-from tempfile import TemporaryDirectory
-from unittest.mock import patch
 
-from particleve import install
-from particleve.common import Error
-from particleve.layout import TYPES, calculate
-from particleve.linux import Linux
-from Tests.fixtures import devices, host, release
+from particleve.layout import MIB, TYPES
+from Tests.fixtures import release
+from Tests.runtime import RustDriverTests, native_environment
 
 
-class PartitionIdentityTests(unittest.TestCase):
+class PartitionIdentityTests(RustDriverTests):
     def setUp(self):
         self.release = release("45.0.1.5-1.1")
-        self.backend = Linux.__new__(Linux)
-        self.backend.manifest = {
+        self.manifest = {
             "devices": [{"role": role, "path": f"/dev/disk/by-id/test-{role}"} for role in ("a", "b")]
         }
         self.parts = [
@@ -31,16 +29,25 @@ class PartitionIdentityTests(unittest.TestCase):
             for kind in ("usr", "verity", "verity_sig")
         ]
 
-    def test_shared_label_selects_each_kind_only_on_the_requested_disk(self):
-        tree = [{"type": "disk", "children": self.parts}]
-        with patch("particleve.linux.inventory.block_tree", return_value=tree) as observe:
-            for role in ("a", "b"):
-                for kind in ("usr", "verity", "verity_sig"):
-                    with self.subTest(role=role, kind=kind):
-                        self.assertEqual(
-                            self.backend.matching_partition(role, self.release, kind), f"/dev/test-{kind}"
-                        )
-                        observe.assert_called_with(f"/dev/disk/by-id/test-{role}")
+    def selection(self, parts, role="a", kind="usr"):
+        with tempfile.TemporaryDirectory() as directory:
+            environment = native_environment(
+                directory,
+                {"lsblk": {"stdout": json.dumps({"blockdevices": [{"type": "disk", "children": parts}]})}},
+            )
+            return self.evaluate(
+                "linux-matching-partition",
+                manifest=self.manifest,
+                release=self.release,
+                role=role,
+                kind=kind,
+                environment=environment,
+            )
+
+    def test_shared_label_selects_each_kind_on_the_requested_disk(self):
+        for role in ("a", "b"):
+            for kind in ("usr", "verity", "verity_sig"):
+                self.assertEqual(self.selection(self.parts, role, kind), f"/dev/test-{kind}")
 
     def test_changed_identity_capacity_or_ambiguous_partition_is_rejected(self):
         for field, value in (
@@ -53,71 +60,74 @@ class PartitionIdentityTests(unittest.TestCase):
         ):
             parts = copy.deepcopy(self.parts)
             parts[0][field] = value
-            with (
-                self.subTest(field=field, value=value),
-                patch("particleve.linux.inventory.block_tree", return_value=parts),
-            ):
-                self.assertIsNone(self.backend.matching_partition("a", self.release, "usr"))
-        parts = [*self.parts, dict(self.parts[0])]
-        with patch("particleve.linux.inventory.block_tree", return_value=parts):
-            self.assertIsNone(self.backend.matching_partition("a", self.release, "usr"))
+            with self.subTest(field=field, value=value):
+                self.assertIsNone(self.selection(parts))
+        self.assertIsNone(self.selection([*self.parts, dict(self.parts[0])]))
 
-    def test_fresh_install_rejects_a_partial_os_label_without_state_or_esp_labels(self):
-        config, manifest = host(), release()
-        proposed = calculate(config, devices(), manifest)
-        for label in ("PVE_45.0.1.5-1.1", "ParticleVE-state-a"):
-            with (
-                self.subTest(label=label),
-                patch("particleve.install.plan", return_value=proposed),
-                patch("particleve.install.inventory.block_tree", return_value=[{"partlabel": label}]),
-                self.assertRaisesRegex(Error, "fresh install refuses existing/partial"),
-            ):
-                install.validate_plan(config, manifest, proposed, proposed["confirmation"])
-        with (
-            patch("particleve.install.plan", return_value=proposed),
-            patch("particleve.install.inventory.block_tree", return_value=[]),
-        ):
-            install.validate_plan(config, manifest, proposed, proposed["confirmation"])
+    def test_write_os_overwrites_signature_padding_and_verifies_all_native_targets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifacts, nodes, partitions = {}, [], []
+            for number, kind in enumerate(("verity_sig", "verity", "usr"), 1):
+                content = (
+                    (b'{"signature":"owned"}\0' + bytes(MIB - 22))
+                    if kind == "verity_sig"
+                    else (kind * 200).encode()
+                )
+                if kind == "verity_sig":
+                    content = content[:MIB].ljust(MIB, b"\0")
+                source, target = root / f"{kind}.raw", root / f"{kind}.partition"
+                source.write_bytes(content)
+                target.write_bytes(b"x" * len(content))
+                artifacts[kind] = {
+                    "file": source.name,
+                    "size": len(content),
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }
+                nodes.append({"partn": number, "name": str(target)})
+                partitions.append({"number": number, "role": "a_" + kind})
+            environment = native_environment(root, {"lsblk": {"stdout": json.dumps({"blockdevices": nodes})}})
+            (Path(environment["PATH"]) / "dd").symlink_to("/usr/bin/dd")
+            device = {"path": str(root / "selected-disk"), "partitions": partitions}
+            self.evaluate(
+                "install-write-os",
+                device=device,
+                release={"artifacts": artifacts},
+                directory=directory,
+                environment=environment,
+            )
+            for kind in artifacts:
+                self.assertEqual(
+                    (root / f"{kind}.partition").read_bytes(), (root / f"{kind}.raw").read_bytes()
+                )
+            self.assertEqual((root / "verity_sig.partition").stat().st_size, MIB)
 
-    def test_transfer_waits_for_final_partition_identity_and_propagates_queue_failure(self):
-        for queue_failure in (False, True):
-            state = {"written": False, "settled": False}
-            acquiring = copy.deepcopy(self.parts)
-            acquiring[0]["parttype"] = "ac8558b5-455e-4869-8c5e-d8272455c06a"
-
-            def native(args, *, state=state, queue_failure=queue_failure, **kwargs):
-                if args[0] == "udevadm":
-                    self.assertTrue(state["written"])
-                    self.assertEqual(args, ["udevadm", "settle", "--timeout=120"])
-                    self.assertGreater(kwargs["timeout"], 120)
-                    if queue_failure:
-                        raise Error("udev queue did not settle")
-                    state["settled"] = True
-                elif args[-2:] == ["update", self.release["version"]]:
-                    state["written"] = True
-
-            with (
-                self.subTest(queue_failure=queue_failure),
-                TemporaryDirectory() as directory,
-                patch(
-                    "particleve.linux.tempfile.TemporaryDirectory",
-                    return_value=nullcontext(directory),
-                ),
-                patch("particleve.linux.run", side_effect=native),
-                patch(
-                    "particleve.linux.inventory.block_tree",
-                    side_effect=lambda _, state=state, acquiring=acquiring: (
-                        self.parts if state["settled"] else acquiring
-                    ),
-                ),
-                patch("particleve.linux.hash_file", return_value="a" * 64),
-            ):
-                self.backend.cache = Path(directory) / "releases"
-                self.assertFalse(self.backend.verify_disk("a", self.release, boot=False))
-                if queue_failure:
-                    with self.assertRaisesRegex(Error, "udev queue did not settle"):
-                        self.backend.transfer("a", self.release, "45.0.1.4-1.1")
-                    self.assertFalse(self.backend.verify_disk("a", self.release, boot=False))
-                else:
-                    self.backend.transfer("a", self.release, "45.0.1.4-1.1")
-                    self.assertTrue(self.backend.verify_disk("a", self.release, boot=False))
+    def test_successful_native_writer_status_cannot_hide_a_bad_readback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, target = root / "sig.raw", root / "sig.partition"
+            source.write_bytes(b"expected")
+            target.write_bytes(b"old data")
+            environment = native_environment(
+                root,
+                {
+                    "lsblk": {"stdout": json.dumps({"blockdevices": [{"partn": 1, "name": str(target)}]})},
+                    "dd": {},
+                },
+            )
+            response = self.request(
+                "install-write-os",
+                device={"path": "fixture-disk", "partitions": [{"number": 1, "role": "a_verity_sig"}]},
+                release={
+                    "artifacts": {
+                        "verity_sig": {
+                            "file": source.name,
+                            "size": len(b"expected"),
+                            "sha256": hashlib.sha256(b"expected").hexdigest(),
+                        }
+                    }
+                },
+                directory=directory,
+                environment=environment,
+            )
+            self.assertIn("failed readback", response["error"])

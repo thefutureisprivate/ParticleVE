@@ -1,21 +1,16 @@
+"""Exercise durable configuration transactions through the compiled implementation."""
+
 import copy
-import io
 import json
-import subprocess
-import sys
 import tempfile
-import unittest
-from contextlib import redirect_stdout
 from pathlib import Path
-from unittest.mock import patch
 
-from particleve import cli, reconfigure
-from particleve.common import Error, digest, read_json, write_json
-from particleve.linux import Linux
+from particleve.common import digest, read_json, write_json
 from Tests.fixtures import host
+from Tests.runtime import RustDriverTests, native_environment
 
 
-class ReconfigurationTests(unittest.TestCase):
+class ReconfigurationTests(RustDriverTests):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -31,187 +26,190 @@ class ReconfigurationTests(unittest.TestCase):
         )
         write_json(self.directory / "commissioned.json", {"old": "approval"})
         write_json(self.config_file, self.previous)
+        self.log = self.directory / "native.jsonl"
+        self.environment = native_environment(self.directory / "commands", {"systemctl": {}}) | {
+            "PVE_NATIVE_COMMAND_LOG": str(self.log)
+        }
+
+    def fields(self):
+        return {"directory": str(self.directory), "destination": str(self.config_file)}
 
     def preview(self):
-        return reconfigure.reconfigure(self.directory, self.config_file, self.previous, self.proposed)
-
-    def apply(self, confirmation):
-        return reconfigure.reconfigure(
-            self.directory, self.config_file, self.previous, self.proposed, confirmation=confirmation
+        return self.evaluate(
+            "reconfigure-preview", **self.fields(), previous=self.previous, proposed=self.proposed
         )
 
-    def test_reviewed_policy_rebinds_and_can_initialize_for_recommissioning(self):
+    def apply(self, confirmation, **extra):
+        return self.evaluate(
+            "reconfigure-apply",
+            **self.fields(),
+            previous=self.previous,
+            proposed=self.proposed,
+            confirm=confirmation,
+            environment=self.environment,
+            **extra,
+        )
+
+    def transaction(self, plan):
+        return {
+            "plan": plan,
+            "previous_manifest": self.manifest,
+            "proposed_manifest": self.manifest | {"config_sha256": digest(self.proposed)},
+            "previous_config": self.previous,
+            "proposed_config": self.proposed,
+        }
+
+    def test_reviewed_policy_rebinds_and_invalidates_automation(self):
         plan = self.preview()
         self.assertTrue((self.directory / "commissioned.json").exists())
-        with patch("particleve.reconfigure.run") as commands:
-            result = self.apply(plan["confirmation"])
+        result = self.apply(plan["confirmation"])
         self.assertEqual(result["action"], "reconfigured")
-        self.assertEqual(commands.call_count, 1)
         self.assertEqual(read_json(self.config_file), self.proposed)
+        self.assertEqual(
+            read_json(self.directory / "installation.json"),
+            self.manifest | {"config_sha256": digest(self.proposed)},
+        )
         self.assertFalse((self.directory / "commissioned.json").exists())
         self.assertFalse((self.directory / "reconfiguration.json").exists())
-        backend = Linux(self.proposed, self.directory)
-        self.assertEqual(backend.manifest, {**self.manifest, "config_sha256": digest(self.proposed)})
         self.assertTrue(read_json(self.directory / "state.json")["maintenance"])
+        self.assertEqual(
+            [json.loads(line) for line in self.log.read_text().splitlines()],
+            [
+                [
+                    "systemctl",
+                    "disable",
+                    "--now",
+                    "systemd-sysupdate-update.timer",
+                    "particleve-maintenance.timer",
+                ]
+            ],
+        )
 
-    def test_interrupted_pair_of_writes_resumes_only_the_exact_reviewed_operation(self):
+    def test_interrupted_invalidation_keeps_exact_journal_and_resumes(self):
         plan = self.preview()
-        actual_write = write_json
-
-        def fail_manifest(path, value):
-            if Path(path).name == "installation.json":
-                raise OSError("disposable interruption after writing configuration")
-            actual_write(path, value)
-
-        with (
-            patch("particleve.reconfigure.run"),
-            patch("particleve.reconfigure.write_json", side_effect=fail_manifest),
-            self.assertRaises(OSError),
-        ):
-            self.apply(plan["confirmation"])
+        failure = native_environment(self.directory / "interrupted", {"systemctl": {"code": 1}})
+        self.assertIn(
+            "error",
+            self.request(
+                "reconfigure-apply",
+                **self.fields(),
+                previous=self.previous,
+                proposed=self.proposed,
+                confirm=plan["confirmation"],
+                environment=failure,
+            ),
+        )
+        self.assertEqual(read_json(self.directory / "reconfiguration.json"), self.transaction(plan["plan"]))
         self.assertFalse((self.directory / "commissioned.json").exists())
-        with self.assertRaisesRegex(Error, "reconfiguration interrupted"):
-            Linux(self.proposed, self.directory)
-        self.assertTrue(self.preview()["resume"])
-        with patch("particleve.reconfigure.run"):
-            self.apply(plan["confirmation"])
-        self.assertEqual(Linux(self.proposed, self.directory).config, self.proposed)
+        result = self.apply(plan["confirmation"])
+        self.assertEqual(result["action"], "reconfigured")
+        self.assertFalse((self.directory / "reconfiguration.json").exists())
 
-    def test_disk_or_layout_change_is_rejected_before_any_write_or_command(self):
-        for path, value in ((["disks", 0, "serial"], "another"), (["storage", "esp_mib"], 4096)):
+    def test_fixed_disk_layout_identity_network_and_trust_changes_never_mutate(self):
+        for path, value in (
+            (["disks", 0, "serial"], "another"),
+            (["storage", "esp_mib"], 4096),
+            (["hostname"], "foreign"),
+            (["time", "sources", 0, "server"], "other.example.org"),
+        ):
             candidate = copy.deepcopy(self.proposed)
             target = candidate
             for part in path[:-1]:
                 target = target[part]
             target[path[-1]] = value
-            with (
-                self.subTest(path=path),
-                patch("particleve.reconfigure.write_json") as writes,
-                patch("particleve.reconfigure.run") as commands,
-                self.assertRaisesRegex(Error, "operational policy"),
-            ):
-                reconfigure.reconfigure(
-                    self.directory, self.config_file, self.previous, candidate, confirmation="bad"
-                )
-            writes.assert_not_called()
-            commands.assert_not_called()
+            self.assertIn(
+                "error",
+                self.request(
+                    "reconfigure-apply",
+                    **self.fields(),
+                    previous=self.previous,
+                    proposed=candidate,
+                    confirm="bad",
+                    environment=self.environment,
+                ),
+            )
+            self.assertFalse(self.log.exists())
+            self.assertFalse((self.directory / "reconfiguration.json").exists())
+            self.assertEqual(read_json(self.config_file), self.previous)
 
-    def test_fresh_process_resumes_after_reboot_without_either_temporary_input(self):
+    def test_fresh_process_resumes_without_either_original_input_file(self):
         plan = self.preview()
-        expected = digest(self.proposed)
-        old_file, new_file = self.directory / "run-before.json", self.directory / "run-next.json"
-        write_json(old_file, self.previous)
-        write_json(new_file, self.proposed)
-        actual_write = write_json
-
-        def interrupt(path, value):
-            if Path(path).name == "installation.json":
-                raise OSError("power lost after replacing active configuration")
-            actual_write(path, value)
-
-        with (
-            patch("particleve.reconfigure.run"),
-            patch("particleve.reconfigure.write_json", side_effect=interrupt),
-            self.assertRaises(OSError),
-        ):
-            self.apply(plan["confirmation"])
-        old_file.unlink()
-        new_file.unlink()
-        del self.previous, self.proposed
-        program = """import sys
-from unittest.mock import patch
-from particleve.cli import execute, parser
-with patch('particleve.cli.os.geteuid', return_value=0), patch('particleve.reconfigure.run'):
-    execute(parser().parse_args(sys.argv[1:]))
-"""
-        args = [
-            sys.executable,
-            "-c",
-            program,
-            "--config",
-            str(self.config_file),
-            "--state-dir",
-            str(self.directory),
-            "reconfigure",
-            "--resume",
-        ]
-        preview = json.loads(subprocess.check_output(args, text=True))
-        self.assertEqual(preview["confirmation"], plan["confirmation"])
-        self.assertTrue(preview["resume"])
-        self.assertTrue((self.directory / "reconfiguration.json").exists())
-        result = json.loads(subprocess.check_output([*args, "--confirm", plan["confirmation"]], text=True))
+        write_json(self.directory / "reconfiguration.json", self.transaction(plan["plan"]))
+        write_json(self.config_file, self.proposed)
+        for installed in (self.manifest, self.transaction(plan["plan"])["proposed_manifest"]):
+            write_json(self.directory / "installation.json", installed)
+            result = self.evaluate("reconfigure-preview", **self.fields(), resume=True)
+            self.assertEqual(result["confirmation"], plan["confirmation"])
+            self.assertTrue(result["resume"])
+        result = self.evaluate(
+            "reconfigure-apply",
+            **self.fields(),
+            resume=True,
+            confirm=plan["confirmation"],
+            environment=self.environment,
+        )
         self.assertEqual(result["action"], "reconfigured")
-        self.assertEqual(read_json(self.directory / "installation.json")["config_sha256"], expected)
-        self.assertEqual(digest(read_json(self.config_file)), expected)
+        self.assertEqual(
+            read_json(self.directory / "installation.json")["config_sha256"], digest(self.proposed)
+        )
         self.assertFalse((self.directory / "reconfiguration.json").exists())
-        self.assertFalse((self.directory / "commissioned.json").exists())
-        self.assertTrue(read_json(self.directory / "state.json")["maintenance"])
 
-    def test_resume_rejects_changed_confirmation_or_active_binding_before_mutation(self):
+    def test_resume_rejects_changed_confirmation_active_binding_and_journal(self):
         plan = self.preview()
-        with (
-            patch("particleve.reconfigure.invalidate", side_effect=OSError("interrupted")),
-            self.assertRaises(OSError),
-        ):
-            self.apply(plan["confirmation"])
-        journal = read_json(self.directory / "reconfiguration.json")
-        self.assertEqual(journal["previous_config"], self.previous)
-        for confirmation, change in (("wrong", False), (plan["confirmation"], True)):
-            if change:
-                candidate = copy.deepcopy(self.previous)
-                candidate["maintenance"]["minimum_available_ram_mib"] = 1536
-                write_json(self.config_file, candidate)
-            with (
-                patch("particleve.reconfigure.write_json") as writes,
-                patch("particleve.reconfigure.run") as commands,
-                self.assertRaises(Error),
-            ):
-                reconfigure.reconfigure(
-                    self.directory, self.config_file, confirmation=confirmation, resume=True
-                )
-            writes.assert_not_called()
-            commands.assert_not_called()
-
-    def test_resume_rejects_altered_journal_inputs(self):
-        plan = self.preview()
-        with (
-            patch("particleve.reconfigure.invalidate", side_effect=OSError("interrupted")),
-            self.assertRaises(OSError),
-        ):
-            self.apply(plan["confirmation"])
-        journal = read_json(self.directory / "reconfiguration.json")
+        journal = self.transaction(plan["plan"])
+        write_json(self.directory / "reconfiguration.json", journal)
+        self.assertIn(
+            "error",
+            self.request(
+                "reconfigure-apply",
+                **self.fields(),
+                resume=True,
+                confirm="wrong",
+                environment=self.environment,
+            ),
+        )
+        active = copy.deepcopy(self.previous)
+        active["maintenance"]["minimum_available_ram_mib"] = 1536
+        write_json(self.config_file, active)
+        self.assertIn(
+            "error",
+            self.request(
+                "reconfigure-apply",
+                **self.fields(),
+                resume=True,
+                confirm=plan["confirmation"],
+                environment=self.environment,
+            ),
+        )
+        write_json(self.config_file, self.previous)
         journal["previous_config"]["maintenance"]["minimum_available_ram_mib"] = 2048
         write_json(self.directory / "reconfiguration.json", journal)
-        with (
-            patch("particleve.reconfigure.run") as commands,
-            self.assertRaisesRegex(Error, "previous configuration"),
-        ):
-            reconfigure.reconfigure(
-                self.directory, self.config_file, confirmation=plan["confirmation"], resume=True
-            )
-        commands.assert_not_called()
-
-    def test_status_and_disable_do_not_need_a_valid_configuration_binding(self):
-        write_json(self.config_file, self.proposed)
-        args = cli.parser().parse_args(
-            ["--config", str(self.config_file), "--state-dir", str(self.directory), "status"]
+        self.assertIn(
+            "previous configuration",
+            self.request(
+                "reconfigure-apply",
+                **self.fields(),
+                resume=True,
+                confirm=plan["confirmation"],
+                environment=self.environment,
+            )["error"],
         )
-        with redirect_stdout(io.StringIO()) as output, patch("particleve.cli.Linux") as backend:
-            self.assertEqual(cli.execute(args), 0)
-        self.assertIn('"valid": false', output.getvalue())
-        backend.assert_not_called()
-        self.config_file.write_text("invalid JSON")
-        args.command = "disable-automation"
-        with (
-            patch("particleve.cli.os.geteuid", return_value=0),
-            patch("particleve.reconfigure.run") as commands,
-            redirect_stdout(io.StringIO()),
-        ):
-            self.assertEqual(cli.execute(args), 0)
-        self.assertEqual(commands.call_count, 1)
-        self.assertFalse((self.directory / "commissioned.json").exists())
+        self.assertFalse(self.log.exists())
+        self.assertTrue((self.directory / "commissioned.json").exists())
 
-    def test_invalid_json_still_has_a_diagnostic_status(self):
-        self.config_file.write_text("invalid JSON")
-        status = reconfigure.binding_status(self.config_file, self.directory)
+    def test_status_and_disable_do_not_need_valid_configuration_binding(self):
+        write_json(self.config_file, self.proposed)
+        status = self.evaluate(
+            "reconfigure-status", config_path=str(self.config_file), directory=str(self.directory)
+        )
         self.assertFalse(status["config_binding"]["valid"])
+        self.config_file.write_text("invalid JSON")
+        status = self.evaluate(
+            "reconfigure-status", config_path=str(self.config_file), directory=str(self.directory)
+        )
+        self.assertFalse(status["config_binding"]["valid"])
+        self.assertEqual(
+            self.evaluate("disable-automation", directory=str(self.directory), environment=self.environment),
+            {"automation_enabled": False},
+        )
+        self.assertFalse((self.directory / "commissioned.json").exists())

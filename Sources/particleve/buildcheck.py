@@ -205,15 +205,17 @@ def root_check(root, *, tree="usr", output=None, source_dir=None):
     implementation = None
     upstream = {}
     security = None
-    if tree in ("usr", "tools"):
+    if tree in ("usr", "tools", "initrd"):
         require(source_dir is not None, "package identity needs the expected image source checkout")
         implementation = implementation_digest(source_dir)
-        verify_package(
-            root, "integration" if tree == "usr" else "build-tools", implementation, source=source_dir
-        )
-        upstream = upstream_inputs(source_dir)
-        component = "fwupd-efi" if tree == "usr" else "mkosi"
-        verify_upstream_package(root, component, upstream[component])
+        component = {"usr": "integration", "tools": "build-tools", "initrd": "initrd"}[tree]
+        verify_package(root, component, implementation, source=source_dir)
+        if tree == "usr":
+            verify_package(root, "initrd", implementation, source=source_dir)
+        if tree != "initrd":
+            upstream = upstream_inputs(source_dir)
+            component = "fwupd-efi" if tree == "usr" else "mkosi"
+            verify_upstream_package(root, component, upstream[component])
     query = "%{NAME}|%{EVR}|%{VENDOR}|%{DISTURL}\n"
     rows = [
         line.split("|", 3) for line in run(["rpm", "--root", root, "-qa", "--qf", query]).stdout.splitlines()
@@ -438,19 +440,11 @@ def root_check(root, *, tree="usr", output=None, source_dir=None):
             timeout=120,
         )
     elif tree == "initrd":
-        require(source_dir is not None, "initrd admission needs the expected source checkout")
-        for module in ("__init__", "common", "admission", "startup"):
-            expected = Path(source_dir) / "Sources/particleve" / f"{module}.py"
-            installed = root / "usr/lib/particleve/particleve" / f"{module}.py"
-            require(
-                installed.is_file() and hash_file(installed) == hash_file(expected),
-                "initrd admission source mismatch",
-            )
+        require(not (root / "usr/lib/particleve/particleve").exists(), "obsolete Python initrd runtime")
         for executable in (
-            "usr/bin/python3",
-            "usr/bin/env",
             "usr/sbin/ldconfig",
             "usr/libexec/particleve-storage-admission",
+            "usr/libexec/particleve-initrd-storage",
         ):
             require((root / executable).is_file(), f"initrd admission tool is missing: {executable}")
         run(

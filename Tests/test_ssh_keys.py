@@ -2,12 +2,9 @@
 
 import base64
 import unittest
-from types import SimpleNamespace
-from unittest.mock import patch
 
-from particleve import config
-from particleve.common import Error
 from Tests.fixtures import host
+from Tests.runtime import RustDriverTests
 
 # Public test vectors only: RFC 8032 test 1 and the SEC 2 P-256 generator.
 ED25519 = bytes.fromhex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
@@ -31,15 +28,15 @@ SK_ED = public("sk-ssh-ed25519@openssh.com", ED25519, b"ssh:particleve-test")
 SK_EC = public("sk-ecdsa-sha2-nistp256@openssh.com", b"nistp256", P256, b"ssh:particleve-test")
 
 
-class SSHKeyTests(unittest.TestCase):
+class SSHKeyTests(RustDriverTests):
     def test_native_parser_accepts_both_fido2_types_and_owner_recovery(self):
         for key in (ED, SK_ED, SK_EC):
             with self.subTest(kind=key.split()[0]):
-                self.assertTrue(config.ssh_key(key))
-                self.assertTrue(config.ssh_key(key + " owner primary"))
+                self.assertTrue(self.evaluate("config-ssh-key", key=key))
+                self.assertTrue(self.evaluate("config-ssh-key", key=key + " owner primary"))
                 candidate = host()
                 candidate["admin_ssh_keys"] = [ED, key]
-                config.validate(candidate)
+                self.evaluate("config-validate", config=candidate)
 
     def test_native_parser_rejects_malformed_complete_key_formats(self):
         for key in (ED, SK_ED, SK_EC):
@@ -47,7 +44,9 @@ class SSHKeyTests(unittest.TestCase):
             blob = base64.b64decode(body)
             for broken in (blob[:-1], blob + b"\x00", b"\xff\xff\xff\xff" + blob[4:]):
                 with self.subTest(kind=kind, blob=broken.hex()):
-                    self.assertFalse(config.ssh_key(kind + " " + base64.b64encode(broken).decode()))
+                    self.assertFalse(
+                        self.evaluate("config-ssh-key", key=kind + " " + base64.b64encode(broken).decode())
+                    )
         for key in (
             public("ssh-ed25519", ED25519[:-1]),
             public("sk-ssh-ed25519@openssh.com", ED25519),
@@ -57,9 +56,9 @@ class SSHKeyTests(unittest.TestCase):
             "ssh-ed25519 " + SK_ED.split()[1],
         ):
             with self.subTest(key=key):
-                self.assertFalse(config.ssh_key(key))
+                self.assertFalse(self.evaluate("config-ssh-key", key=key))
 
-    def test_options_controls_multiline_and_unsupported_types_never_reach_openssh(self):
+    def test_options_controls_multiline_and_unsupported_types_are_rejected(self):
         for value in (
             None,
             1,
@@ -75,33 +74,17 @@ class SSHKeyTests(unittest.TestCase):
             ED + "\x00comment",
             ED + "\x1b[31mcomment",
             ED + "\tcomment",
-            ED + "\ud800",
             ED + " " + "x" * 8192,
         ):
-            with self.subTest(value=value), patch.object(config, "run") as parser:
-                self.assertFalse(config.ssh_key(value))
-                parser.assert_not_called()
-
-    def test_parser_uses_only_the_public_blob_and_fails_closed_on_diagnostics(self):
-        for returncode, stderr in ((1, ""), (0, "unexpected warning\n"), (1, "invalid key")):
-            with (
-                self.subTest(returncode=returncode, stderr=stderr),
-                patch.object(
-                    config, "run", return_value=SimpleNamespace(returncode=returncode, stderr=stderr)
-                ) as parser,
-            ):
-                self.assertFalse(config.ssh_key(SK_ED + " private comment is never forwarded"))
-                self.assertEqual(parser.call_args.kwargs["input"], SK_ED + "\n")
-                self.assertEqual(parser.call_args.kwargs["timeout"], 2)
-        with patch.object(config, "run", side_effect=Error("helper unavailable")), self.assertRaises(Error):
-            config.ssh_key(SK_ED)
+            with self.subTest(value=value):
+                self.assertFalse(self.evaluate("config-ssh-key", key=value))
 
     def test_owner_key_collection_is_bounded(self):
         for keys in (None, [], ED, {"key": ED}, [ED] * 17):
             candidate = host()
             candidate["admin_ssh_keys"] = keys
-            with self.subTest(keys=keys), self.assertRaises(Error):
-                config.validate(candidate)
+            with self.subTest(keys=keys):
+                self.assertIn("error", self.request("config-validate", config=candidate))
 
 
 if __name__ == "__main__":

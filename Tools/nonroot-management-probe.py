@@ -3,17 +3,30 @@
 import errno
 import json
 import os
+import platform
+import re
 import secrets
 import socket
 import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, "/usr/lib/particleve")
-from particleve.common import require
-from particleve.linux import image_version
 
-image_version()
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+
+# This code is transported over SSH without importing an installed Python package.
+release = platform.freedesktop_os_release()
+require(release.get("IMAGE_ID") == "ParticleVE", "this is not a ParticleVE OS")
+number = r"(?:0|[1-9][0-9]{0,5})"
+require(
+    re.fullmatch(
+        rf"{number}\.{number}\.{number}\.{number}-{number}\.{number}", release.get("IMAGE_VERSION", "")
+    ),
+    "invalid running image version",
+)
 require(os.geteuid() != 0, "management rejection requires a non-root SSH session")
 require("wheel" not in subprocess.check_output(["id", "-nG"], text=True).split(), "use a nonadministrator")
 paths = json.load(sys.stdin)["vm_sockets"]

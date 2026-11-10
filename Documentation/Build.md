@@ -13,13 +13,31 @@ evidence are described in [ReleaseDiagnostics.md](ReleaseDiagnostics.md).
 base, mkosi revision and fwupd-efi. Fedora 45 and the upstream stable systemd
 repository apply to runtime, initrd and build tools. Installed RPM origins and
 family versions are checked during the build, rather than inferred from names.
-The integration and build-tools RPMs also carry an implementation-content identity
+The host, initrd and build-tools RPMs also carry an implementation-content identity
 and hashes of their installed payloads. The image checkout computes the expected
 identity from runtime modules, helpers, policy sources, trust and packaging inputs.
-Both RPMs must match before image generation; final signing checks their payloads
+All three RPMs must match before image generation; final signing checks their payloads
 again before publishing a manifest. A failed or delayed independent source webhook
 therefore cannot publish new implementation inputs with an old coordinator or
 signing helper. Documentation-only changes retain the same implementation identity.
+
+The shared [RPM recipe](../.obs/particleve/rpm.spec) produces three components:
+
+| RPM | Installed role |
+| --- | --- |
+| `particleve` | Native host CLI, service helpers, VM handoffs, SELinux policy and public signing trust. |
+| `particleve-initrd` | Native storage admission, initrd assembly and shutdown witness helpers, used by both the host and initrd. |
+| `particleve-build-tools` | Python artifact verification and metadata assembly in the image build environment. |
+
+The host package requires its matching initrd subpackage. The initrd installs
+only the early-boot component and its native dependencies. Python build tools
+and test harnesses are not installed as host or initrd runtime helpers.
+
+Runtime dependencies are vendored by the native OBS Cargo source service from
+the reviewed `Cargo.lock`, with dependency updates disabled. RPM builds and
+checks run offline using the pinned Rust toolchain. Native ELF identities are
+recorded after Fedora's ordinary stripping and debug-information processing;
+upstream dependency license and notice texts accompany the runtime packages.
 The independently built mkosi and fwupd-efi RPMs also carry their own upstream
 pin, recipe and patch identities, plus installed-payload hashes. Their build
 records are produced after Fedora's BRP transformations. The source service keeps
@@ -65,7 +83,7 @@ changes before publishing the source revision that OBS will build.
 The generated `.obs/fedora/x86-64/mkosi.conf` schedules dependencies from all three
 resolved trees. OBS builds the checkout's root `mkosi.conf`, supplies the advancing
 `CI_CNT.B_CNT` image version, and rebuilds on transitive dependency changes.
-`.obs/` supplies the pinned mkosi, integration/build hooks and separately
+`.obs/` supplies the pinned mkosi, host/initrd/build-tools recipe and separately
 PE-signed fwupd helper. The pinned mkosi RPM requires the build-tools subpackage,
 so OBS installs the final-verification and native signing tools in its worker;
 image `BuildPackages=` alone schedules downloads without installing those tools.
@@ -123,25 +141,59 @@ installed key, both independent boot paths and TPM recovery testing; no implicit
 trust migration is permitted. The rotation and image-retirement procedures keep
 those authority changes explicit and preserve a usable owner recovery path.
 
+## Versions and source selection
+
+[`particleve.version`](../particleve.version) owns
+`FEDORA_MAJOR.PVE_MAJOR.PVE_MINOR.PVE_PATCH`. A signed image appends both native
+OBS counters: `FEDORA_MAJOR.PVE_MAJOR.PVE_MINOR.PVE_PATCH-OBS_CHECKIN.OBS_BUILD`,
+for example `45.0.2.0-1.2`. The check-in counter starts at 1 for each new source
+version; dependency rebuilds can advance the image counters without changing
+the source version or Git revision. Local mkosi configuration uses the `-0.0`
+suffix until the builder supplies its counters.
+
+Use [`Tools/version.py`](../Tools/version.py) to advance a patch for fixes or a
+minor for substantial features. PVE major changes require the owner's explicit
+instruction. The tool synchronizes the image configuration, RPM and Python
+metadata, Cargo manifest and lock. Cargo uses the three PVE components because
+its package version has three fields. `make check` verifies these declarations
+and the pinned Rust toolchain requirements together.
+
+Reviewed development enters `main`. The
+[source workflow](../.github/workflows/check.yml) runs `make check`, verifies
+upstream pins and patches, and resolves the image configuration. For a passing
+push to `main`, [`Tools/build_source.py`](../Tools/build_source.py) compares the
+candidate tree with `build`. System-input changes advance that ref. Changes
+confined to `Documentation/`, `Tests/`, `.github/` and the tool's other ancillary
+paths stay on `main` and accompany the next selected system change. They do not
+create a source release or request an OBS source rebuild by themselves.
+
+The workflow publishes one GitHub Release for each full source version, tagged
+`vFEDORA_MAJOR.PVE_MAJOR.PVE_MINOR.PVE_PATCH`, with commit notes since the previous
+source release. [`Tools/source_releases.py`](../Tools/source_releases.py) prepares
+the notes without publishing unless `--publish` is supplied. OBS image counters
+do not create separate GitHub Releases.
+
 ## Source updates and uploads
 
-The signed implementation and upstream Git history have been published.
-The source repository is `https://github.com/thefutureisprivate/particleve`, branch
-`main`. The three `.obs/*/_service` definitions track that branch and extract the relevant
-recipes. Integration tarballs are created by native OBS source services; pinned
-upstream mkosi/fwupd sources are downloaded from their immutable GitHub commit
-URLs. Four package-scoped source-service webhooks avoid granting OBS a GitHub
-personal access token. Dependency rebuilds use OBS's native repository graph.
-No permanent external runner is required.
+The source repository and OBS ref are declared in [`.obs/site.json`](../.obs/site.json).
+The three `.obs/*/_service` definitions follow `build`; the ParticleVE package's
+native SCM bridge also tracks that ref. OBS creates the ParticleVE source tarball
+before vendoring the exact Cargo lock. The mkosi/fwupd services extract their
+reviewed build inputs and download upstream sources at the locked immutable
+commits. Package-scoped source-service credentials avoid a GitHub personal
+access token. Dependency rebuilds use OBS's native repository graph.
 
-Historical verification: all four GitHub registrations triggered an automatic
-refresh to commit `fd52ed982ddb80f8163aa70dd8f35a7ecb1fdf23`. That observation
-establishes the tested source-refresh path; check current delivery, package, and
-image results independently when diagnosing a later publication.
+[Renovate configuration](../.github/renovate.json) opens reviewed updates for the
+mkosi/fwupd source pins and recipes, Cargo dependencies and configured CI tools.
+Automerge is disabled. Updates must retain matching locks, recipes, license
+notices and required acceptance coverage; source checks alone do not qualify a
+new signed image.
 
-`Tools/obs-upload.py` commits reviewed source directories atomically. Its
-credential file is two lines (OBS username/password), mode 0600; credentials are
-sent only to `api.opensuse.org`, redirects are refused, and no credential is
+`Tools/obs-upload.py particleve` configures the Git-managed package from the
+declared ref. For mkosi and fwupd-efi, the tool uploads a supplied reviewed source
+directory atomically. Its credential file is two lines (OBS username/password),
+mode 0600; credentials are sent only to `api.opensuse.org`, redirects are refused,
+and no credential is
 written to sources. Keep this credential file and all private keys outside Git,
 source archives, and image inputs.
 
@@ -158,8 +210,8 @@ PYTHONPATH=Sources:. python3 Tools/check-publication.py --site .obs/site.json \
 ```
 
 The observer directory must be private to that user. The check reads the declared
-GitHub branch, all four native OBS source-service revisions, the required package
-build states and project/package maintainer metadata. It verifies the feed's GPG-signed
+GitHub branch, native OBS source revisions, all four required build targets and
+project/package maintainer metadata. It verifies the feed's GPG-signed
 index and indexed manifest, then checks HTTPS availability and declared size for
 all six artifacts. HTTP downgrade redirects are rejected. Availability checks do
 not replace full payload hashing and PE/verity verification by the normal release
@@ -195,9 +247,10 @@ systemd dependency refreshes continue through OBS's transitive repository graph;
 pinned mkosi/fwupd recipe changes remain reviewed source changes.
 
 Project policy grants maintenance to the declared owner alone; the observer
-detects deviation from that policy. The four source-service
-tokens are scoped to their individual packages and require no GitHub personal
-access token. There is no external CI workflow dependency. The image builder
+detects deviation from that policy. Source-service tokens are scoped to their
+individual packages and require no GitHub personal access token. GitHub-hosted
+CI selects checked source updates; OBS performs package/image builds and signing
+without a permanently provisioned external runner. The image builder
 requires repository access to resolve its declared RPMs; this configuration does
 not claim an offline or independently network-isolated image worker. Restrict
 operator access and protect signing/trust/recipe changes in the source and OBS

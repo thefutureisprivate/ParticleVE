@@ -6,7 +6,8 @@
   "enabledManagers": [
     "custom.regex",
     "github-actions",
-    "pip_requirements"
+    "pip_requirements",
+    "cargo"
   ],
   "automerge": false,
   "pinDigests": true,

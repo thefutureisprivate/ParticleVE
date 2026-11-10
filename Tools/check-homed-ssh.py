@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 from particleve.common import require, run
-from particleve.linux import image_version
+from particleve.versioning import image_version
 
 require(os.geteuid() == 0, "run this acceptance check as root on the target ParticleVE host")
 image_version()  # Do not modify a developer workstation's account database.

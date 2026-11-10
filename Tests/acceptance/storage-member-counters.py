@@ -6,6 +6,7 @@ probe creates three loop/linear devices; injected I/O errors affect only those
 devices. No installed member, admission witness, or VM is changed.
 """
 
+import argparse
 import errno
 import fcntl
 import json
@@ -19,8 +20,48 @@ import time
 import uuid
 from pathlib import Path
 
-from particleve.admission import member_errors
-from particleve.common import require, run
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument(
+    "--runtime-driver",
+    type=Path,
+    required=True,
+    help="test-only Rust runtime driver provisioned in the disposable fixture",
+)
+args = parser.parse_args()
+args.runtime_driver = args.runtime_driver.resolve(strict=True)
+
+
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+
+def run(command, *, timeout=60):
+    return subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=True)
+
+
+def member_errors(record, target, mapper):
+    result = subprocess.run(
+        [str(args.runtime_driver)],
+        input=json.dumps(
+            {
+                "operation": "admission-member-errors",
+                "record": record,
+                "target": str(target),
+                "mapper": str(mapper),
+            }
+        )
+        + "\n",
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    require(not result.stderr, result.stderr)
+    response = json.loads(result.stdout)
+    require("ok" in response, response)
+    return tuple(response["ok"])
+
 
 require(os.geteuid() == 0, "run only in a disposable native host")
 directory = Path(tempfile.mkdtemp(prefix="particleve-counter-", dir="/var/tmp"))
@@ -33,7 +74,7 @@ loops = []
 tables = {}
 mounted = False
 copy = None
-result = {"filesystem_uuid": fsid, "replacement_samples": 0}
+result = {"filesystem_uuid": fsid, "replacement_samples": 0, "runtime_driver": str(args.runtime_driver)}
 
 
 def command(*args):

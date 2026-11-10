@@ -4,6 +4,7 @@ import contextlib
 import errno
 import json
 import os
+import platform
 import pty
 import re
 import select
@@ -12,10 +13,22 @@ import sys
 import termios
 import time
 
-sys.path.insert(0, "/usr/lib/particleve")
-from particleve.linux import image_version
 
-image_version()
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+
+# This code is transported over SSH without importing an installed Python package.
+release = platform.freedesktop_os_release()
+require(release.get("IMAGE_ID") == "ParticleVE", "this is not a ParticleVE OS")
+number = r"(?:0|[1-9][0-9]{0,5})"
+require(
+    re.fullmatch(
+        rf"{number}\.{number}\.{number}\.{number}-{number}\.{number}", release.get("IMAGE_VERSION", "")
+    ),
+    "invalid running image version",
+)
 if os.geteuid() == 0:
     raise SystemExit("run0 acceptance requires the disposable non-root SSH session")
 password = json.load(sys.stdin)["password"]

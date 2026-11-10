@@ -4,10 +4,10 @@ import contextlib
 import fcntl
 import json
 import os
-import selectors
+import platform
+import ssl
 import subprocess
 import tempfile
-import time
 from pathlib import Path
 
 
@@ -16,7 +16,7 @@ class Error(Exception):
 
 
 class Deferred(Error):
-    """A maintenance action must leave the host running."""
+    """A conflicting operation must leave the existing owner undisturbed."""
 
 
 def require(condition, message):
@@ -24,11 +24,12 @@ def require(condition, message):
         raise Error(message)
 
 
-def require_active_services(*units):
-    # is-active with several names succeeds when any one is active.
-    for unit in units:
-        result = run(["systemctl", "is-active", "--quiet", unit], check=False)
-        require(result.returncode == 0, f"required service is not active: {unit}")
+def system_tls_context():
+    """Use OpenSSL's distribution trust paths, independent of per-tool CA overrides."""
+    if platform.freedesktop_os_release().get("ID") == "fedora":
+        return ssl.create_default_context(cafile="/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
+    paths = ssl.get_default_verify_paths()
+    return ssl.create_default_context(cafile=paths.openssl_cafile, capath=paths.openssl_capath)
 
 
 def _unique(pairs):
@@ -116,51 +117,6 @@ def run(args, *, input=None, timeout=120, check=True):
     return result
 
 
-def capture_bounded(args, *, timeout=10, maximum_bytes=65536):
-    """Read a diagnostic child's two streams within one byte/time budget."""
-    buffers = {"stdout": bytearray(), "stderr": bytearray()}
-    deadline = time.monotonic() + timeout
-    try:
-        with subprocess.Popen(
-            [str(arg) for arg in args],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env={**os.environ, "LC_ALL": "C", "SYSTEMD_PAGER": "cat", "SYSTEMD_COLORS": "0"},
-        ) as child:
-            try:
-                with selectors.DefaultSelector() as selector:
-                    for name in buffers:
-                        selector.register(getattr(child, name), selectors.EVENT_READ, name)
-                    while selector.get_map():
-                        remaining = deadline - time.monotonic()
-                        require(remaining > 0, "diagnostic observation exceeded its deadline")
-                        for key, _ in selector.select(remaining):
-                            data = os.read(key.fd, 65536)
-                            if not data:
-                                selector.unregister(key.fileobj)
-                                continue
-                            buffers[key.data].extend(data)
-                            require(
-                                sum(map(len, buffers.values())) <= maximum_bytes,
-                                "diagnostic observation exceeds its size limit",
-                            )
-                status = child.wait(timeout=max(0.1, deadline - time.monotonic()))
-            finally:
-                # Never signal the observed daemon, a service cgroup or a VM.
-                if child.poll() is None:
-                    child.kill()
-                    child.wait(timeout=5)
-    except (OSError, subprocess.TimeoutExpired, UnicodeError) as exc:
-        raise Error("diagnostic observation unavailable: " + type(exc).__name__) from exc
-    try:
-        return subprocess.CompletedProcess(
-            args, status, buffers["stdout"].decode("utf-8"), buffers["stderr"].decode("utf-8")
-        )
-    except UnicodeError as exc:
-        raise Error("diagnostic observation is not UTF-8") from exc
-
-
 def hash_file(path, size=None):
     import hashlib
 
@@ -176,13 +132,3 @@ def hash_file(path, size=None):
             if remaining is not None:
                 remaining -= len(chunk)
     return result.hexdigest()
-
-
-def array_uuid(name):
-    fields = dict(
-        line.split("=", 1)
-        for line in run(["mdadm", "--detail", "--export", f"/dev/md/{name}"]).stdout.splitlines()
-        if "=" in line
-    )
-    require(fields.get("MD_UUID"), f"array UUID unavailable: {name}")
-    return fields["MD_UUID"]

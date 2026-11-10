@@ -22,7 +22,7 @@ reading, verification, and documentation responsibilities.
 | Document | Contents |
 | --- | --- |
 | [Architecture and security decisions](Architecture.md) | Process authority, module ownership, storage and network contracts, and security invariants. |
-| [Coding standards](CodingStandards.md) | Python, shell, concurrency, ownership, native system interfaces, and privileged-boundary requirements. |
+| [Coding standards](CodingStandards.md) | Rust, Python, shell, concurrency, ownership, native system interfaces, and privileged-boundary requirements. |
 | [Toolchain baseline](Toolchain.md) | Pinned tools and platform, package selection, kernel policy, and build-specific constraints. |
 | [Hardening policy](Hardening.md) | Boot and runtime protections, guest containment, privileged execution, network/time/DNS policy, physical interfaces, and measured mitigation decisions. |
 
@@ -37,6 +37,11 @@ reading, verification, and documentation responsibilities.
 
 - [Build and diagnostic tools](../Tools): use the entry points documented in
   [Development](Development.md) and [Build](Build.md).
+- [Rust host and initrd implementation](../Sources/runtime): the installed CLI,
+  service helpers and privileged boundaries; use the [toolchain baseline](Toolchain.md).
+- [Compiled contract tests](../Tests/runtime) and Python test harnesses:
+  follow [tests and diagnostics](Development.md#tests-and-diagnostics), including
+  the required fixture inputs for staged native helpers.
 - [Native acceptance fixtures](../Tests/acceptance): use the matching procedures
   in [Hardening](Hardening.md), [Release diagnostics](ReleaseDiagnostics.md), and
   [Commissioning](Commissioning.md).

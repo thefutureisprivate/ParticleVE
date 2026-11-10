@@ -148,8 +148,10 @@ Operational policy changes use the reviewed
 [`reconfigure` transaction](Operations.md) under persistent maintenance before
 new commissioning evidence is supplied. Keep the previously bound configuration
 for that review. Disk identities use the dedicated replacement procedure; the
-policy transaction does not change layout, network, host identity, trust or access
-settings. Diagnostics and automation-disable remain available with an invalid
+policy transaction does not change layout, network, host identity or access
+settings. Its only trust exception is the explicitly reviewed one-way
+[NTS transition to system CA trust](Operations.md#operational-reconfiguration).
+Diagnostics and automation-disable remain available with an invalid
 configuration binding.
 
 ## Reporting and persistent startup policy
@@ -158,10 +160,18 @@ Commissioning also requires `external_health_reporting` evidence: the
 selected endpoint must receive a correctly identified report, reject unauthorized
 credentials, retain its own receipt time and detect a stopped sender. Exercise
 TLS/redirect refusal, outage and recovery with both guests running. Record the
-active report timer and selected endpoint/CA/age policy. Automatic OS eligibility
+active report timer, selected endpoint and age policy, and the system CA trust
+used for TLS. Reporting keeps `private_ca=false`; separate CA bundles are not
+accepted. Automatic OS eligibility
 rejects an old record without this binding or a changed reporting policy. A missing
 receiver blocks commissioning; supplying software does not provision a receiver
 or commission the owner's machine.
+
+NTS and DNS-over-TLS also use system CA trust. Exercise trusted connections,
+unknown CA, wrong name and certificate-expiry rejection with the actual image.
+Install any owner-required anchors through the OS trust configuration, then
+collect the corresponding positive and negative evidence. Transport acceptance
+does not establish release-signing, Secure Boot or TPM recovery acceptance.
 
 `persistent_startup_policy` evidence must cover the signed initrd's read-only
 configuration check, approved installation settings and native VM drop-ins,

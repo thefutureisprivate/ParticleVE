@@ -185,6 +185,7 @@ def postoutput():
         view.mkdir()
         (view / "usr").symlink_to(root, target_is_directory=True)
         verify_package(view, "integration", verification["implementation_sha256"])
+        verify_package(view, "initrd", verification["implementation_sha256"])
         verify_package(Path("/"), "build-tools", verification["implementation_sha256"])
         verify_upstream_package(view, "fwupd-efi", verification["upstream_inputs"]["fwupd-efi"])
         verify_upstream_package(Path("/"), "mkosi", verification["upstream_inputs"]["mkosi"])

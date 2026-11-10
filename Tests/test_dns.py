@@ -1,11 +1,29 @@
-import copy
-import unittest
+"""Exercise strict resolver policy through the compiled implementation."""
 
-from particleve.common import Error
-from particleve.config import validate as validate_host
-from particleve.dns import BUILTIN_NTA, assess, endpoint
-from particleve.network import render
+import copy
+
 from Tests.fixtures import host
+from Tests.runtime import RustDriverTests
+
+BUILTIN_NTA = {
+    "home.arpa",
+    "10.in-addr.arpa",
+    "168.192.in-addr.arpa",
+    "d.f.ip6.arpa",
+    "170.0.0.192.in-addr.arpa",
+    "171.0.0.192.in-addr.arpa",
+    "ipv4only.arpa",
+    "resolver.arpa",
+    "corp",
+    "home",
+    "internal",
+    "intranet",
+    "lan",
+    "local",
+    "private",
+    "test",
+    *(f"{index}.172.in-addr.arpa" for index in range(16, 32)),
+}
 
 
 def configured():
@@ -49,24 +67,27 @@ def observation(config):
     ]
 
 
-class DNSPolicyTests(unittest.TestCase):
+class DNSPolicyTests(RustDriverTests):
     def test_private_routes_require_strict_tls_dnssec_and_scoped_exceptions(self):
         config = configured()
-        validate_host(config)
-        files = render(config)
+        self.evaluate("config-validate", config=config)
+        files = self.evaluate("network-render", config=config)
         global_config = files["etc/systemd/resolved.conf.d/50-particleve.conf"]
         self.assertIn("DNSOverTLS=yes\nDNSSEC=yes\n", global_config)
         self.assertIn("FallbackDNS=\n", global_config)
         self.assertNotIn("opportunistic", global_config)
         link = files["etc/systemd/network/30-particleve-mgmt0.network"]
-        self.assertIn("DNS=192.0.2.53#dns.example.org\n", link)
-        self.assertIn("Domains=~corp.example.org\n", link)
-        self.assertIn("DNSDefaultRoute=no\n", link)
-        self.assertIn("DNSSECNegativeTrustAnchors=unsigned.corp.example.org\n", link)
+        for line in (
+            "DNS=192.0.2.53#dns.example.org",
+            "Domains=~corp.example.org",
+            "DNSDefaultRoute=no",
+            "DNSSECNegativeTrustAnchors=unsigned.corp.example.org",
+        ):
+            self.assertIn(line + "\n", link)
         self.assertNotIn("NTP=", link)
         self.assertFalse(any("timesyncd" in name for name in files))
         self.assertEqual(
-            endpoint({"address": "2001:db8::53", "tls_name": "dns.example.org"}),
+            self.evaluate("dns-endpoint", server={"address": "2001:db8::53", "tls_name": "dns.example.org"}),
             "[2001:db8::53]#dns.example.org",
         )
 
@@ -103,13 +124,17 @@ class DNSPolicyTests(unittest.TestCase):
                 route["domains"] = ["."]
             else:
                 dns["opportunistic"] = True
-            with self.subTest(mutation=mutation), self.assertRaises((Error, ValueError)):
-                validate_host(config)
+            with self.subTest(mutation=mutation):
+                self.assertIn("error", self.request("config-validate", config=config))
 
     def test_effective_policy_detects_transport_downgrade_routing_and_trust_drift(self):
         config = configured()
         expected = observation(config)
-        self.assertTrue(assess(config["network"]["dns"], expected, ["mgmt0"])["strict_tls"])
+        self.assertTrue(
+            self.evaluate("dns-assess", policy=config["network"]["dns"], observed=expected, links=["mgmt0"])[
+                "strict_tls"
+            ]
+        )
         for mutation in (
             "tls",
             "dnssec",
@@ -161,11 +186,15 @@ class DNSPolicyTests(unittest.TestCase):
                 rows[2]["scopes"] = [{"protocol": "llmnr"}]
             else:
                 rows.append(rows[1])
-            with self.subTest(mutation=mutation), self.assertRaises(Error):
-                assess(config["network"]["dns"], rows, ["mgmt0"])
+            with self.subTest(mutation=mutation):
+                self.assertIn(
+                    "error",
+                    self.request(
+                        "dns-assess", policy=config["network"]["dns"], observed=rows, links=["mgmt0"]
+                    ),
+                )
 
     def test_obsolete_installation_contract_cannot_be_implicitly_converted(self):
         config = host()
         config["schema"] = 1
-        with self.assertRaisesRegex(Error, "no implicit migrations"):
-            validate_host(config)
+        self.assertIn("no implicit migrations", self.request("config-validate", config=config)["error"])

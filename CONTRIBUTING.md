@@ -44,6 +44,7 @@ Then read the documents relevant to the area you will investigate or change:
 
 | Area | Read before working |
 | --- | --- |
+| Rust runtime or initrd helpers | [Coding standards](Documentation/CodingStandards.md), [Toolchain](Documentation/Toolchain.md), and the compiled-test and native-fixture procedures in [Development](Documentation/Development.md#tests-and-diagnostics), plus the affected subsystem contracts below. |
 | Module ownership, storage, encryption, or mirror admission | The affected sections of [Architecture and security decisions](Documentation/Architecture.md) and the storage procedures in [Operations](Documentation/Operations.md). |
 | VM lifecycle, maintenance, bootloaders, or OS fallback | [Architecture](Documentation/Architecture.md), [Operations](Documentation/Operations.md), and the relevant [release diagnostics](Documentation/ReleaseDiagnostics.md). Read the tests for interruption, shutdown refusal, stale state, and recovery before changing these boundaries. |
 | Guest isolation, SELinux, service authority, or kernel interfaces | [Hardening policy](Documentation/Hardening.md), the architecture invariants, and the relevant native fixtures under [Tests/acceptance](Tests/acceptance). |
@@ -66,6 +67,7 @@ additional risk-specific checks supplement the ordinary language checks.
 
 | Change | Required checks |
 | --- | --- |
+| Rust runtime or initrd helpers | Run `make check` with the pinned Rust toolchain: formatting, Clippy with warnings as errors, Rust tests and the compiled contract driver used by Python tests. Exercise the affected native entry point and apply the relevant subsystem checks below. |
 | Python source, tests, or first-party tools | Run `make check` with Python 3.14+ and the configured Ruff checks. Exercise the affected command's behavior as well as its unit tests. |
 | Shell hooks, units, image configuration, or build settings | Run `make check` and, when image configuration or dependencies change, `make summary` with the pinned mkosi and configured public site inputs. Inspect generated dependencies and the affected native service behavior. |
 | Storage, boot, TPM, update transactions, or persistent authority | Also exercise the affected disposable native acceptance cases, including interruption and failure paths, in the [release diagnostics](Documentation/ReleaseDiagnostics.md) and [commissioning matrix](Documentation/Commissioning.md). |
@@ -138,8 +140,11 @@ temporary investigation notes and agent plans out of permanent project docs.
 Retain historical verification or benchmark evidence when it explains a decision,
 but label its date, source revision, configuration, method, and limitations.
 Separate those observations from current requirements and reproducible commands.
-Explain current ownership and behavior without requiring readers to know a
-migration phase or former implementation. Keep historical evidence in labeled
-sections. Link to authoritative version/limit definitions when repeating their
-values adds no useful context, and update documentation indexes and build-coverage
+Write product documentation for the completed, working system. Keep task
+progress and implementation status in review records and conversation, rather
+than presenting features as unfinished. Explain ownership and behavior without
+requiring readers to know a migration phase or former implementation. Keep
+historical evidence in labeled sections. Link to authoritative version/limit
+definitions when repeating their values adds no useful context, and update
+documentation indexes and build-coverage
 summaries when their linked workflows change.

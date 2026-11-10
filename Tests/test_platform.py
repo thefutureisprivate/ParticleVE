@@ -3,15 +3,18 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from particleve import config, layout, network, release
+from particleve import layout, release
 from particleve.common import Error, atomic_write, read_json
 from Tests.fixtures import ROOT, devices, host
 from Tests.fixtures import release as fixture_release
+from Tests.runtime import RustDriverTests
 
 
-class PlatformTests(unittest.TestCase):
+class PlatformTests(RustDriverTests):
     def test_layout_uses_smaller_disk_and_explicit_partitions(self):
-        result = layout.calculate(config.validate(host()), devices(), fixture_release())
+        result = self.evaluate(
+            "layout-calculate", config=host(), devices=devices(), release=fixture_release()
+        )
         first, second = result["devices"]
         self.assertEqual(
             [(p["offset"], p["size"]) for p in first["partitions"]],
@@ -19,7 +22,7 @@ class PlatformTests(unittest.TestCase):
         )
         self.assertNotEqual(first["partitions"][0]["uuid"], second["partitions"][0]["uuid"])
         for disk in result["devices"]:
-            script = layout.sfdisk_script(disk)
+            script = self.evaluate("sfdisk-script", device=disk)
             self.assertIn("unit: sectors", script)
             self.assertEqual(len(disk["partitions"]), 9)
             self.assertTrue(
@@ -30,13 +33,15 @@ class PlatformTests(unittest.TestCase):
         observed = devices()
         for disk in observed:
             disk["logical_sector"] = 4096
-        result = layout.calculate(host(), observed, fixture_release())
-        self.assertIn("start=256,", layout.sfdisk_script(result["devices"][0]))
+        result = self.evaluate("layout-calculate", config=host(), devices=observed, release=fixture_release())
+        self.assertIn("start=256,", self.evaluate("sfdisk-script", device=result["devices"][0]))
 
     def test_signature_slots_have_no_unwritten_growth_tail(self):
         candidate = host()
         candidate["storage"]["usr_growth_percent"] = 90
-        result = layout.calculate(candidate, devices(), fixture_release())
+        result = self.evaluate(
+            "layout-calculate", config=candidate, devices=devices(), release=fixture_release()
+        )
         for disk in result["devices"]:
             signatures = [p for p in disk["partitions"] if p["role"].endswith("_verity_sig")]
             self.assertEqual([p["size"] for p in signatures], [layout.MIB, layout.MIB])
@@ -50,8 +55,13 @@ class PlatformTests(unittest.TestCase):
                 observed[1]["identity"] = observed[0]["identity"]
             else:
                 observed[0]["logical_sector"] = 520
-            with self.subTest(mutation=mutation), self.assertRaises(Error):
-                layout.calculate(host(), observed, fixture_release())
+            with self.subTest(mutation=mutation):
+                self.assertIn(
+                    "error",
+                    self.request(
+                        "layout-calculate", config=host(), devices=observed, release=fixture_release()
+                    ),
+                )
 
     def test_config_rejects_unsafe_inputs(self):
         for path, value in (
@@ -72,27 +82,26 @@ class PlatformTests(unittest.TestCase):
             for key in path[:-1]:
                 target = target[key]
             target[path[-1]] = value
-            with self.subTest(path=path), self.assertRaises(Error):
-                config.validate(candidate)
+            with self.subTest(path=path):
+                self.assertIn("error", self.request("config-validate", config=candidate))
 
     def test_network_single_owner_and_cycles(self):
         candidate = host()
         candidate["network"]["bridges"] = [{"name": "br0"}]
         candidate["network"]["links"][0]["bridge"] = "br0"
         candidate["network"]["management"] = "br0"
-        rendered = network.render(config.validate(candidate))
+        rendered = self.evaluate("network-render", config=self.evaluate("config-validate", config=candidate))
         physical = rendered["etc/systemd/network/30-particleve-mgmt0.network"]
         self.assertIn("Bridge=br0", physical)
         self.assertNotIn("Address=", physical)
-        firewall = network.firewall(candidate)
+        firewall = self.evaluate("network-firewall", config=candidate)
         self.assertIn("ip6 saddr 2001:db8:1::/64", firewall)
         self.assertNotIn("flush ruleset", firewall)
         self.assertNotIn("forward", firewall)
         for prefix in ("vt-*", "ns-*"):
             self.assertIn(f'iifname "{prefix}" meta nfproto ipv4 udp sport 68 udp dport 67 accept', firewall)
         candidate["network"]["vlans"] = [{"name": "v10", "id": 10, "parent": "br0", "bridge": "br0"}]
-        with self.assertRaises(Error):
-            config.validate(candidate)
+        self.assertIn("error", self.request("config-validate", config=candidate))
 
     def test_release_requires_complete_immutable_artifacts(self):
         manifest = fixture_release()
@@ -117,7 +126,7 @@ class PlatformTests(unittest.TestCase):
     def test_serial_console_is_an_explicit_per_installation_getty(self):
         candidate = host()
         candidate["console"] = "console=ttyS2,38400n8"
-        files = network.render(config.validate(candidate))
+        files = self.evaluate("network-render", config=self.evaluate("config-validate", config=candidate))
         self.assertIn(
             "serial-getty@ttyS2.service",
             files["etc/systemd/system/getty.target.d/50-particleve-console.conf"],
@@ -138,8 +147,9 @@ class PlatformTests(unittest.TestCase):
                     item["partition_uuid"], item["partition_uuid"].replace("-", "")
                 )
         for disk in host()["disks"]:
-            definitions = release.transfers(
-                manifest,
+            definitions = self.evaluate(
+                "release-transfers",
+                manifest=manifest,
                 disk=disk["path"],
                 source="/var/cache/particleve/45.0.1.2-1.1",
                 current="45.0.1.1-1.1",

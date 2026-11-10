@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import quote, urlsplit
 from xml.etree import ElementTree
 
-from particleve.common import digest, require
+from particleve.common import digest, require, system_tls_context
 from particleve.config import https_url, integer, version_key
 from particleve.release import checksums, verify_directory
 
@@ -43,7 +43,9 @@ def request(url, *, size_limit=1024 * 1024, method="GET"):
         parsed.scheme == "https" and parsed.hostname and not parsed.username and not parsed.password,
         "publication requests require HTTPS without credentials",
     )
-    opener = urllib.request.build_opener(HTTPSRedirects())
+    opener = urllib.request.build_opener(
+        HTTPSRedirects(), urllib.request.HTTPSHandler(context=system_tls_context())
+    )
     try:
         opened = opener.open(
             urllib.request.Request(

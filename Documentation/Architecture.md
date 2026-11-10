@@ -12,6 +12,12 @@ machinectl, and the journal. External configuration owns VM definitions,
 resource allocations, networking attachments, and startup policy. The host
 does not need a second management service to maintain a parallel VM inventory.
 
+The installed ParticleVE CLI, privileged handoffs, service helpers and early-boot
+storage code are Rust executables under verified `/usr`. Python is used for
+build/publication tooling and test harnesses. Runtime regression tests exercise
+the compiled implementation. The helpers preserve the native systemd interfaces
+and the persisted contracts described below.
+
 The Fedora 45 userspace and upstream stable systemd package family are combined
 with Fedora's supported kernel packages, configuration, and patches. Kernel
 updates follow the Fedora package repositories and the normal OBS image rebuild
@@ -176,7 +182,8 @@ alone never authorize a stale NOCOW replica. See
 
 ## Persistent startup configuration
 
-Verified `/usr` owns host executables, libraries, Python modules, and policy.
+Verified `/usr` owns host executables, libraries, upstream interpreter modules,
+and policy.
 Native system extensions, configuration extensions, and portable host-service
 activation are masked. Persistent executable hooks, generators, loader inputs,
 PAM/udev/polkit code, and local service executables must be absent, empty, or
@@ -223,7 +230,7 @@ Exact RPM versions remain provenance. A compatible package-only update does
 not require an arbitrary version-pair approval, but a changed stored interface
 requires explicit review and retained-OS access evidence. Updates do not
 automatically convert or rewind identities or data. See
-[`Sources/particleve/contracts.py`](../Sources/particleve/contracts.py).
+[`Sources/runtime/contracts.rs`](../Sources/runtime/contracts.rs).
 
 ## VM lifecycle and confinement
 
@@ -282,6 +289,11 @@ as chrony with only `CAP_SYS_TIME`, no UDP command listener, and encrypted
 persistent state. Activation requires fresh authenticated agreement from
 independent reviewed operators. It checks time before stopping VMs and again
 before reboot, rejecting excessive steps or lost trust.
+
+HTTPS clients, NTS and DNS-over-TLS use the system CA trust store. Owner-required
+CA anchors are provisioned through the OS trust configuration; individual tools
+do not select separate CA bundles. Transport trust is distinct from the public
+keys that verify release signatures, Secure Boot and PCR authorization.
 
 The dedicated activation timer starts at 04:30 Europe/Berlin with no persistent
 catch-up. Readiness, mirror health, capacity, commissioning, firmware exclusion,

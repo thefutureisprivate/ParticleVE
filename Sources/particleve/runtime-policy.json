@@ -1,0 +1,62 @@
+{
+  "kernel_required": [
+    "MEMFD_CREATE",
+    "SECURITY_SELINUX",
+    "SECURITY_LANDLOCK",
+    "SECCOMP",
+    "SECCOMP_FILTER",
+    "BPF",
+    "BPF_SYSCALL",
+    "CGROUP_BPF",
+    "BPF_JIT",
+    "MODULES",
+    "MODULE_SIG",
+    "SECURITY_LOCKDOWN_LSM",
+    "LOCK_DOWN_IN_EFI_SECURE_BOOT",
+    "IOMMU_SUPPORT",
+    "STRICT_KERNEL_RWX",
+    "STRICT_MODULE_RWX",
+    "CGROUPS",
+    "MEMCG",
+    "CGROUP_PIDS",
+    "CGROUP_SCHED",
+    "FAIR_GROUP_SCHED",
+    "CFS_BANDWIDTH",
+    "BLK_CGROUP",
+    "BLK_DEV_THROTTLING",
+    "PSI",
+    "VT",
+    "VT_CONSOLE",
+    "SERIAL_8250",
+    "SERIAL_8250_CONSOLE"
+  ],
+  "schema": 1,
+  "selinux_booleans": {
+    "virt_use_execmem": false,
+    "virt_use_nfs": false,
+    "virt_use_samba": false
+  },
+  "sysctls": {
+    "dev.tty.ldisc_autoload": "0",
+    "fs.protected_fifos": "2",
+    "fs.protected_hardlinks": "1",
+    "fs.protected_regular": "2",
+    "fs.protected_symlinks": "1",
+    "kernel.dmesg_restrict": "1",
+    "kernel.kexec_load_disabled": "1",
+    "kernel.kptr_restrict": "2",
+    "kernel.perf_event_paranoid": "2",
+    "kernel.randomize_va_space": "2",
+    "kernel.unprivileged_bpf_disabled": "2",
+    "kernel.yama.ptrace_scope": "2",
+    "vm.memfd_noexec": "1",
+    "vm.mmap_min_addr": "65536",
+    "vm.mmap_rnd_bits": "32",
+    "vm.mmap_rnd_compat_bits": "16",
+    "vm.unprivileged_userfaultfd": "0"
+  },
+  "tpm_profile": {
+    "Attributes": "no-sha1-signing,no-sha1-verification",
+    "Name": "custom:particleve"
+  }
+}

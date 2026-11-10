@@ -11,6 +11,19 @@ VERSION = re.compile(rf"({NUMBER})\.({NUMBER})\.({NUMBER})\.({NUMBER})-({NUMBER}
 OBS_RECIPE = Path(".obs/particleve/rpm.spec")
 
 
+def image_version():
+    """Read the running image identity for externally executed Python probes."""
+    values = dict(
+        line.split("=", 1) for line in Path("/usr/lib/os-release").read_text().splitlines() if "=" in line
+    )
+    if values.get("IMAGE_ID", "").strip('"') != "ParticleVE":
+        raise ValueError("this is not a ParticleVE OS")
+    version = values["IMAGE_VERSION"].strip('"')
+    if not VERSION.fullmatch(version):
+        raise ValueError("invalid running image version")
+    return version
+
+
 def source_key(value):
     match = SOURCE_VERSION.fullmatch(value)
     if not match or int(match[1]) == 0:
