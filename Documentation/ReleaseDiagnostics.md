@@ -144,6 +144,16 @@ code, verifies its input remains unchanged and removes its temporary private
 keys. This establishes the native PE verifier boundary, not firmware revocation
 or an accepted release build.
 
+The [disposable UEFI fixture](Development.md#disposable-uefi-trust-transitions)
+adds actual OVMF decisions: its separately trusted controller records
+`EFI_ACCESS_DENIED` or `EFI_SECURITY_VIOLATION` for unauthorized or revoked candidates, executes the
+authorized candidates and continues after each attempt. Certificate and
+image-hash retirement are distinct cases; dual-signed images and virtual USB
+media are included. Require post-boot public-variable readback and unchanged
+input hashes. This component's offline variable provisioning does not establish
+authenticated firmware updates, physical platform behavior, TPM unlock or
+independent installed-disk recovery.
+
 ## Release evidence
 
 Retain matching artifacts and evidence together. The evidence must identify

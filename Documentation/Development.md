@@ -263,6 +263,57 @@ exact commit and checks the contents. It exercises CA addition, removal, distrus
 expiration, wrong names, stale outputs, redirect refusal and injected Git/SSL
 configuration. Source pins remain checked independently of transport trust.
 
+### Disposable UEFI trust transitions
+
+[`uefi-trust.py`](../Tests/acceptance/uefi-trust.py) builds the
+[`EFI controller and candidate probes`](../Tests/acceptance/efi-trust.c) for
+OVMF. Preparation needs the supported Fedora GCC/gnu-efi toolchain, OpenSSL,
+sbsigntools, pesign, virt-firmware, mtools, dosfstools and util-linux. Run preparation in a
+disposable tool environment. Select a matching current 4-MiB Secure-Boot-capable
+OVMF code image and blank variable template; the probe copies both into a new private
+directory and never updates their originals.
+
+```sh
+mkdir -m 0700 /tmp/particleve-uefi-inputs
+qemu-img convert -f qcow2 -O raw \
+  /usr/share/edk2/ovmf/OVMF_CODE_4M.secboot.qcow2 /tmp/particleve-uefi-inputs/code.fd
+qemu-img convert -f qcow2 -O raw \
+  /usr/share/edk2/ovmf/OVMF_VARS_4M.qcow2 /tmp/particleve-uefi-inputs/vars.fd
+python3 Tests/acceptance/uefi-trust.py prepare \
+  --firmware-code /tmp/particleve-uefi-inputs/code.fd \
+  --firmware-vars /tmp/particleve-uefi-inputs/vars.fd \
+  --work-directory /tmp/particleve-uefi-trust
+unshare --user --map-root-user --mount --fork --kill-child \
+  python3 -W error Tests/acceptance/uefi-trust.py run \
+    --work-directory /tmp/particleve-uefi-trust --usb-controller ehci
+python3 -W error Tests/acceptance/uefi-trust.py inspect \
+  --work-directory /tmp/particleve-uefi-trust
+```
+
+The run phase requires QEMU/KVM, util-linux and an isolated development host with
+KVM access and memory headroom. It refuses an ordinary host-root namespace.
+Each 512-MiB VM exposes only copied firmware and a private read-only disk with a GPT ESP;
+no OS, TPM, host installation disks or network is attached. QEMU process/file
+limits and a bounded deadline contain failed probes. Fresh RSA4096 test keys
+are removed before any VM boots; public certificates and artifacts remain for
+inspection.
+
+The 18 cases cover certificate introduction, overlap, removal, certificate
+revocation and Authenticode-hash revocation, including virtual USB media.
+Select `--usb-controller xhci` or `ehci` explicitly for the interface under test;
+the default is xHCI and the example selects EHCI. Use a separate prepared fixture
+for each controller. The result names that controller; a successful run does not
+establish another controller's boot/discovery behavior. There is no automatic
+controller substitution after a failure.
+The independently trusted controller checks Secure Boot/User Mode, records the
+firmware's exact `LoadImage` result, checks candidate execution and continues
+after a refusal. The inspect phase reads back effective `PK`, `KEK`, `db` and
+`dbx` from every completed variable store. Inputs and read-only images must
+retain their hashes. Provisioning uses private offline variable editing; this
+does not test authenticated variable-update transports, physical firmware,
+encrypted owner recovery or a complete signed-image transition. Those belong
+to the [release acceptance matrix](ReleaseDiagnostics.md#trust-transition-acceptance).
+
 ### Native probes with compiled helpers
 
 Build the test-only driver through `make test` on the supported toolchain before
