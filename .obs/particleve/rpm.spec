@@ -1,7 +1,7 @@
 # Native OBS rpm flavor; the default build consumes these RPMs for the image.
 %global _buildshell /bin/bash
 Name:           particleve
-Version:        45.0.2.1
+Version:        45.0.2.2
 Release:        1%{?dist}
 Summary:        ParticleVE host installation and maintenance coordinator
 # Project sources are LGPL; statically linked crates select MIT where dual
@@ -195,6 +195,10 @@ install -m0644 Sources/particleve/runtime-policy.json %{buildroot}%{_prefix}/lib
 %{_libexecdir}/particleve-obs-postoutput
 
 %changelog
+* Tue Nov 10 2026 ParticleVE maintainers <thefutureisprivate@users.noreply.github.com> - 45.0.2.2-1
+- Merge local and homed NSS group members for native polkit administrator selection.
+- Reject image NSS configurations that hide homed wheel membership.
+
 * Tue Nov 10 2026 ParticleVE maintainers <thefutureisprivate@users.noreply.github.com> - 45.0.2.1-1
 - Rebuild shared Fedora CA views from the active image and reviewed local trust.
 - Refresh native TLS clients and invalidate NTS sessions when system trust changes.

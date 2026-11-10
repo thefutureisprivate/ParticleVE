@@ -72,6 +72,28 @@ def check_resolver_defaults(root):
     require((root / relative).stat().st_mode & 0o004, "resolver defaults are not publicly readable")
 
 
+def check_homed_nss(root):
+    """Polkit must enumerate homed members of the native local wheel group."""
+    factory = Path(root) / "usr/share/factory/etc"
+    authority = factory / "nsswitch.conf"
+    directory = factory / "authselect"
+    source = directory / "nsswitch.conf"
+    require(
+        authority.is_symlink() and authority.readlink() == Path("/etc/authselect/nsswitch.conf"),
+        "factory NSS must use the selected authselect configuration",
+    )
+    require(
+        not directory.is_symlink() and directory.is_dir() and not source.is_symlink() and source.is_file(),
+        "factory authselect NSS must be an image-owned regular file",
+    )
+    rows = [line.split("#", 1)[0].split() for line in source.read_text().splitlines()]
+    groups = [row for row in rows if row[:1] == ["group:"]]
+    require(
+        groups == [["group:", "files", "[SUCCESS=merge]", "systemd"]],
+        "NSS must merge local and homed group members for native polkit administration",
+    )
+
+
 def check_radio_rules(root):
     for path in (root / "usr/lib/udev/rules.d").glob("*.rules"):
         require(
@@ -371,6 +393,7 @@ def root_check(root, *, tree="usr", output=None, source_dir=None):
             "pam_systemd_home.so" in (root / "usr/lib/pam.d/system-auth").read_text(),
             "upstream PAM homed integration missing",
         )
+        check_homed_nss(root)
         require(
             "particleve-homed-account" in (root / "usr/lib/pam.d/system-auth").read_text(),
             "homed account policy missing",

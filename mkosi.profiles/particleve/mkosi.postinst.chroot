@@ -64,6 +64,28 @@ augenrules
 rm -rf /usr/share/factory/etc/selinux /usr/share/factory/etc/audit
 # Keep the packaged SSH/PAM stack, adding only the required homed account gate.
 # Root remains the independently accessible recovery/bootstrap account.
+# NSS must include homed members when polkit expands the native wheel group.
+# authselect's local profile supplies both providers but stops at files by default.
+python3 - <<'PY'
+from pathlib import Path
+
+link = Path('/etc/nsswitch.conf')
+path = Path('/etc/authselect/nsswitch.conf')
+if not link.is_symlink() or link.readlink() != path or path.is_symlink():
+    raise RuntimeError('unexpected authselect NSS authority')
+lines = path.read_text().splitlines(keepends=True)
+rows = [(index, line.split('#', 1)[0].split()) for index, line in enumerate(lines)]
+groups = [(index, fields) for index, fields in rows if fields[:1] == ['group:']]
+if len(groups) != 1 or groups[0][1] not in (
+    ['group:', 'files', 'systemd'],
+    ['group:', 'files', '[SUCCESS=merge]', 'systemd'],
+):
+    raise RuntimeError('unexpected authselect group lookup providers')
+lines[groups[0][0]] = 'group: files [SUCCESS=merge] systemd\n'
+path.write_text(''.join(lines))
+PY
+# Capture the selected authselect link instead of systemd's generic factory file.
+rm -f /usr/share/factory/etc/nsswitch.conf
 for stack in sshd system-auth password-auth; do
     test -f "/usr/lib/pam.d/$stack"
     sed -i '1i account requisite pam_exec.so quiet /usr/libexec/particleve-homed-account' "/usr/lib/pam.d/$stack"
