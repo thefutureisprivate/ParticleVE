@@ -217,6 +217,7 @@ have their own prerequisites and procedures.
 | Guest authority and SELinux confinement | Rust tests in [`confinement.rs`](../Sources/runtime/confinement.rs), [`processes.rs`](../Sources/runtime/processes.rs), and [QEMU containment](Hardening.md#qemu-containment). |
 | System CA trust | Native TLS tests in [`Tests/runtime/tls.rs`](../Tests/runtime/tls.rs), [`test_system_trust.py`](../Tests/test_system_trust.py), [`test_sourcegit.py`](../Tests/test_sourcegit.py), the [native trust lifecycle probe](../Tests/acceptance/system-trust.py), the [native Git probe](../Tests/acceptance/source-trust.py), and [TLS operating policy](Operations.md#authenticated-time-and-dns). |
 | Native networking, kernel interfaces, and device policy | [`Tests/acceptance/`](../Tests/acceptance/), [hardening](Hardening.md), and the selected probe's arguments and prerequisites. |
+| Trust transition | [`test_release_trust.py`](../Tests/test_release_trust.py) calls the compiled and publication checksum verifiers with real GPG keys. [`pe-trust.py`](../Tests/acceptance/pe-trust.py) takes `--efi READ_ONLY_PE_INPUT` and tests native PE signatures with ephemeral keys; it never executes its input. Both are component checks; use the [full transition matrix](ReleaseDiagnostics.md#trust-transition-acceptance) for firmware, TPM, modules and boot. |
 | EFI loader failure and fallback | [`build-loader-probe.sh`](../Tests/acceptance/build-loader-probe.sh). |
 | Final signed-image and hardware behavior | [Release diagnostics](ReleaseDiagnostics.md) and [commissioning](Commissioning.md). |
 

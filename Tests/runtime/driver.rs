@@ -108,6 +108,10 @@ fn evaluate(request: &Value) -> Result<Value> {
                 .ok_or_else(|| Error::new("invalid test wall clock"))?,
         ),
         "release-validate" => particleve::release::validate(field(request, "manifest")?),
+        "release-checksums" => Ok(json!(particleve::release::checksums(
+            Path::new(text(field(request, "directory")?)?),
+            Path::new(text(field(request, "keyring")?)?),
+        )?)),
         "system-tls-download" => {
             let destination = Path::new(text(field(request, "destination")?)?);
             particleve::release::download(text(field(request, "url")?)?, destination, 65536)?;

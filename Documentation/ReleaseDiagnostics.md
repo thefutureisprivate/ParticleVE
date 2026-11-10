@@ -10,6 +10,7 @@ signed-image checks.
 - [Preparing a release](#preparing-a-release)
 - [Distribution release](#distribution-release)
 - [Repeated lifecycle tests](#repeated-lifecycle-tests)
+- [Trust-transition acceptance](#trust-transition-acceptance)
 - [Release evidence](#release-evidence)
 - [Investigating a boot or management failure](#investigating-a-boot-or-management-failure)
 - [Physical firmware and capacity checks](#physical-firmware-and-capacity-checks)
@@ -109,6 +110,39 @@ for harnesses that require `--runtime-driver` or `--runtime-binary`. Retain the
 helper hash and matching source, and distinguish staged component code from the
 release's installed binaries. Source tests, a successful RPM build or a staged
 helper cannot establish final signed-image acceptance.
+
+## Trust-transition acceptance
+
+Use the [supervised transition procedure](Operations.md#trust-rotation-and-image-retirement)
+with disposable signing identities, copied firmware variables and explicitly
+selected disposable disks/TPM state. Never enroll a test identity into physical
+firmware or use production private signing keys in a fixture.
+
+| Boundary | Required positive and negative evidence |
+| --- | --- |
+| Release-index introduction | Old signatures pass the original keyring; new signatures fail it. Both pass the explicit overlap keyring. An unrelated key in GPG's default keyring does not gain release authority. |
+| Release-index retirement | New signatures pass the final keyring; old and unrelated signatures fail it. Modified indices, duplicate entries and unsafe paths remain rejected. Record the compiled runtime and publication verifier results. |
+| Firmware introduction and retirement | Read back the effective `db`/`dbx`, boot the intended old/new EFI artifacts at each step, then demonstrate retired-artifact rejection. Check the actual firmware decision; `sbverify` alone does not inspect firmware revocation. |
+| Verity authority | Record the accepted certificate and root-hash signature for each normal/recovery image. Establish the actual verified `/usr` mount, and reject a tampered root hash or a signature from an unauthorized authority. PE acceptance alone does not establish this boundary. |
+| Module authority | Record the booted kernel's effective accepted/revoked keys. Load a supported signed inert module and reject unsigned/untrusted or retired signatures as applicable. State explicitly when the transition leaves Fedora module authority unchanged. |
+| PCR authority and recovery | Record public-key fingerprints, PCR7 state, signed-PCR11 policy and exact LUKS token/keyslot identities on both state members and swap. Verify intended unattended unlock and wrong/retired-policy rejection, and independently exercise the preserved owner recovery method. |
+| Independent boot and data | Test each selected disk, retained working loaders and the final recovery medium after introduction and retirement. Follow stale-member isolation/rebuild rules; compare guest disk, EFI and virtual-TPM identity markers across the transition. |
+| Vulnerable-image retirement | Reject a revoked UKI/loader from both ESPs and external media while the replacement/recovery paths still work. Feed removal and deletion of local copies alone do not prove revocation. |
+
+The native GPG regression in [`Tests/test_release_trust.py`](../Tests/test_release_trust.py)
+calls the compiled Rust checksum verifier and Python publication verifier with
+fresh temporary keyrings. It covers release-index authority only. It does not
+establish firmware revocation, kernel module policy, PCR unsealing, independent
+boot or acceptance of a complete signed image. Keep component results separate
+from the installation matrix above.
+
+Run [`pe-trust.py`](../Tests/acceptance/pe-trust.py) with
+`--efi READ_ONLY_PE_INPUT` in a disposable tool environment containing OpenSSL
+and sbsigntools. It signs private copies with fresh RSA4096 identities, tests
+old/new and dual-signed acceptance, rejects unrelated signatures and modified
+code, verifies its input remains unchanged and removes its temporary private
+keys. This establishes the native PE verifier boundary, not firmware revocation
+or an accepted release build.
 
 ## Release evidence
 

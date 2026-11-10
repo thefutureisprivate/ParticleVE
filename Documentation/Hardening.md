@@ -488,6 +488,9 @@ does not reverse firmware `db`/`dbx` changes. Security-sensitive trust changes
 are supervised maintenance, never implicit configuration cleanup. Record the
 selected release/firmware mechanisms and accepted/rejected artifact evidence;
 do not invent a generic command that rotates every trust store together.
+Use the [supervised transition sequence](Operations.md#trust-rotation-and-image-retirement)
+and [trust-transition acceptance matrix](ReleaseDiagnostics.md#trust-transition-acceptance)
+to bind introduction, overlap, retirement and recovery to the actual verifiers.
 
 Optional independent boot attestation is separate from ordinary monitoring.
 Its deployment contract requires fresh challenges, expected measurements and

@@ -23,6 +23,7 @@ supported interface for externally configured VMs. Use
 - [Disk replacement](#disk-replacement)
 - [Supervised firmware maintenance](#supervised-firmware-maintenance)
 - [Bootloader trials and fallback](#bootloader-trials-and-fallback)
+- [Trust rotation and image retirement](#trust-rotation-and-image-retirement)
 - [External health reporting](#external-health-reporting)
 
 ## Configuration and recovery
@@ -880,6 +881,83 @@ loader quarantines the candidate hash instead of promoting it. Promotion require
 matching BootCurrent, LoaderImageIdentifier, ESP and file hash after OS health
 assessment and native blessing. The retained loader blob and promotion journal
 survive OS cache cleanup and interrupted promotion.
+
+## Trust rotation and image retirement
+
+Trust changes are supervised maintenance with an owner-reviewed transition
+record. Name the old and new public fingerprints, affected artifacts, selected
+release and recovery images, firmware mechanism, acceptance results and rollback
+boundary. Keep private signing material off the host. A compromised signing key
+cannot independently authenticate its own replacement; verify the replacement
+through an owner-controlled channel.
+
+| Authority | Effective verifier and transition boundary |
+| --- | --- |
+| Release index | `/usr/lib/particleve/trust/releases.gpg` authenticates `SHA256SUMS`; a reviewed bridge image can carry the old and new public keys. Removing the old key rejects its signatures in that image, including cached metadata. |
+| PE and verity artifacts | The selected image's `secure-boot.crt` verifies the UKI, loader and fwupd helper; its verity trust also belongs to that image. Firmware separately authorizes EFI execution through its actual `db`/`dbx` policy. A release-key overlap does not change these verifiers. |
+| Signed PCR11 policy | `pcr-public-key.pem` authorizes the signed PCR11 policy in each enrolled LUKS token. The OBS build requires its public key to match the project PE certificate. A project-certificate change therefore includes an explicit PCR-authority transition. |
+| Kernel modules | The booted kernel's accepted keyrings and revocation policy authorize modules. The Fedora kernel/module packages retain their own authority; changing the OBS certificate or firmware database is not proof of module-key retirement. |
+
+Use the following sequence for the selected platform, testing it first in a
+disposable installation:
+
+1. Run `particleve disable-automation`, then enter persistent maintenance with
+   `particleve maintenance enter --reason 'reviewed trust rotation'`. Verify
+   independent owner unlock and console access. Retain the existing working
+   loaders and data/VM identities. Prepare a recovery image authorized by the
+   intended final trust policy before removing any authority.
+2. Authenticate the bridge and replacement releases with their explicitly
+   selected release keyrings and PE certificates. The runtime uses one selected
+   PE certificate; concatenating certificates does not establish an acceptance
+   policy. If the running image cannot verify the replacement, use the reviewed
+   independent recovery path. Do not disable signature checks or replace trust
+   files in verified `/usr` to force an ordinary update through.
+3. Introduce the new firmware authority using the platform's owner-controlled
+   procedure while preserving the reviewed recovery route. Read back the
+   effective databases and verify actual EFI acceptance. PCR7 binds Secure Boot
+   policy, so firmware trust changes can invalidate an existing TPM enrollment.
+   Use owner recovery when necessary; do not enroll a recovery environment into
+   normal unattended unlock.
+4. Boot the intended normal image through UEFI. For each state LUKS device and
+   encrypted swap, preserve the owner recovery slot and record the exact TPM
+   tokens/keyslots before enrolling the current PCR7 plus signed-PCR11 policy.
+   `particleve enroll-tpm` adds and verifies the current image's policy under
+   maintenance without wiping old slots. Record what changed; its success does
+   not prove that old authority was removed. Do not use a blanket TPM-slot wipe
+   while an old boot path is still required.
+5. Test both disks independently through their normal and retained loader paths,
+   following mirror admission and rebuild procedures between sole-member boots.
+   Prove unattended unlock under every retained normal image, explicit owner
+   recovery, VM disk/EFI/TPM identity preservation, and the intended accepted and
+   rejected artifacts for each trust role. Keep an old loader only while it
+   remains authorized and required by the reviewed transition.
+6. Retire old authority only after the replacement and recovery routes pass.
+   Remove only the reviewed obsolete LUKS token/keyslot identities, preserving
+   the recovery slot and the tested current enrollments. Firmware changes can
+   require another owner-recovery boot and enrollment under the final PCR7 state.
+   Re-test independent boot and unlock after the final trust changes. Record
+   effective keyrings, firmware databases, module keys and LUKS token identities.
+7. Clear staged firmware work, pass health checks, leave maintenance with
+   `particleve maintenance leave --reviewed`, and collect fresh commissioning
+   evidence before enabling automation. An interrupted or failed transition
+   stays in maintenance with its recovery information intact.
+
+Old-image retirement is a separate decision from ordinary slot cleanup. Record
+the vulnerable UKI/loader identities, remove their local boot entries and copies
+from both ESPs, and apply the selected platform's verified revocation mechanism
+when rejection of externally supplied copies is required. Removing an image from
+the feed or cache does not revoke it. A shared signing-certificate revocation can
+also invalidate otherwise usable releases and recovery media; where supported,
+image-specific `dbx` entries use the PE/COFF Authenticode digest, not an ordinary
+whole-file checksum. Test rejection from external media as well as both disks,
+and prove that the selected recovery image still boots. OS fallback never undoes
+firmware revocation or rewinds encrypted host/guest data.
+
+See the [systemd enrollment semantics](https://www.freedesktop.org/software/systemd/man/262/systemd-cryptenroll.html),
+[UEFI authorization and revocation rules](https://uefi.org/specs/UEFI/2.11/32_Secure_Boot_and_Driver_Signing.html#authorization-process),
+and [kernel module-signing policy](https://www.kernel.org/doc/html/latest/admin-guide/module-signing.html).
+The [release diagnostic matrix](ReleaseDiagnostics.md#trust-transition-acceptance)
+defines the evidence required for this procedure.
 
 ## External health reporting
 
