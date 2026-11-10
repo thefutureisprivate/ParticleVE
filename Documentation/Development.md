@@ -390,6 +390,29 @@ authentication or maintenance, whole-host pressure, or the selected signed
 image. Apply the [allocator adoption policy](Hardening.md#advanced-userspace-and-kernel-mitigations)
 and full release matrix before selecting an allocator for host use.
 
+The separate [`fwupd.py`](../Tests/acceptance/allocator/fwupd.py) probe exercises
+the packaged fwupd service and its actual SELinux domain and seccomp policy.
+It requires that service to be initially inactive. In the same prepared UEFI
+component VM, with fwupd and its native dependencies installed, run:
+
+```sh
+python3 -W error /run/particleve-allocator/fwupd.py \
+  --expect-machine-uuid "$DISPOSABLE_VM_UUID" \
+  --payload-record /run/particleve-allocator/payload.json \
+  --output /run/particleve-allocator/fwupd-result.json
+```
+
+Nine interleaved cases compare glibc, default and light through native service
+starts and matching CLI/D-Bus device discovery. A temporary runtime drop-in
+selects only the allocator; the probe checks actual mappings, process authority
+and unchanged confinement properties. It records the effective `AT_SECURE`
+value rather than assuming the loader honored the environment. After stopping
+the daemon, it restores the original unit, verifies the shared CA bundle and
+selected firmware boot/trust-variable fingerprints, and removes its override.
+The startup and resource observations describe discovery in the selected
+virtual fixture. Firmware installation, transport compatibility and subsequent
+recovery follow the separate [supervised procedure](Operations.md#supervised-firmware-maintenance).
+
 ### Native probes with compiled helpers
 
 Build the test-only driver through `make test` on the supported toolchain before
