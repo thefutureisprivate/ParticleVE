@@ -17,6 +17,7 @@ from Tests.fixtures import devices, host, release
 from Tests.runtime import RustDriverTests
 from Tools.source_releases import main as publish_releases
 from Tools.source_releases import release_plan
+from Tools.trust import system_trust_paths
 
 
 class VersionTests(RustDriverTests):
@@ -233,14 +234,28 @@ class SourceReleaseTests(unittest.TestCase):
         created = []
 
         def command(arguments, **kwargs):
+            if arguments[0] == "gh":
+                self.assertEqual(kwargs["env"]["GH_HOST"], "github.com")
+                self.assertEqual(kwargs["env"]["SSL_CERT_FILE"], system_trust_paths()["cafile"])
+                self.assertEqual(kwargs["env"]["SSL_CERT_DIR"], system_trust_paths()["capath"])
             if arguments[:2] == ["gh", "api"]:
+                self.assertEqual(arguments[arguments.index("--hostname") + 1], "github.com")
                 return SimpleNamespace(stdout="v45.0.1.1\n")
             if arguments[:3] == ["gh", "release", "create"]:
+                self.assertEqual(arguments[arguments.index("--repo") + 1], "github.com/owner/repository")
                 created.append(arguments)
                 return SimpleNamespace(stdout="created")
             return real_run(arguments, **kwargs)
 
         with (
+            patch.dict(
+                os.environ,
+                {
+                    "SSL_CERT_FILE": "/alternate/cli-ca",
+                    "SSL_CERT_DIR": "/alternate/cli-directory",
+                    "GH_HOST": "alternate.invalid",
+                },
+            ),
             patch("Tools.source_releases.Path.cwd", return_value=self.root),
             patch("Tools.source_releases.run", side_effect=command),
             patch(

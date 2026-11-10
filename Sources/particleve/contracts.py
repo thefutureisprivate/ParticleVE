@@ -5,6 +5,7 @@
 PERSISTENT_STATE = {
     "schema": 1,
     "host_state": "particleve-host-state-v3",
+    "system_ca": "fedora-shared-volatile-v1",
     "storage_admission": "uefi-witness-v1",
     "bootloaders": "independent-efi-trial-v1",
     "boot_console": "signed-uki-console-profiles-v1",

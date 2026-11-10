@@ -22,6 +22,11 @@ and RPM declarations consistent. Native Fedora RPM builds retain the distro
 compiler flags, removing only its warning-cap flag before enforcing project
 diagnostics as errors.
 
+The OBS vendor archive supplies `.cargo/config`. The RPM preparation step moves
+that generated configuration to `.cargo/config.toml` before invoking the pinned
+Cargo, retaining its contents and lock verification without deprecated-name
+diagnostics. Local OBS reproduction emits the same vendor archive layout.
+
 ## Current build configuration
 
 The [coding standards](CodingStandards.md#baseline-and-module-boundaries)

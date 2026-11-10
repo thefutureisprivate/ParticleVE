@@ -295,6 +295,16 @@ CA anchors are provisioned through the OS trust configuration; individual tools
 do not select separate CA bundles. Transport trust is distinct from the public
 keys that verify release signatures, Secure Boot and PCR authorization.
 
+Local CA anchors and distrust inputs are root-owned startup authority under
+`/etc/pki/ca-trust/source`, bound by commissioning. Package defaults remain in
+verified `/usr`. Native Fedora extraction produces volatile shared views before
+network clients start; one atomic view switch publishes a complete extraction.
+Only the two exact generated-view aliases may point from `/etc/pki` into `/run`.
+Their data never changes the approved startup digest. A trust refresh restarts
+the long-running TLS clients and invalidates saved NTS client sessions when the
+native trust view changes, preserving other clock and host state. The versioned
+system-CA layout has no implicit migration or incompatible retained-image boot.
+
 The dedicated activation timer starts at 04:30 Europe/Berlin with no persistent
 catch-up. Readiness, mirror health, capacity, commissioning, firmware exclusion,
 and the complete pending release are checked before touching guests. Starts

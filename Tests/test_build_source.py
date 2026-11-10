@@ -68,6 +68,8 @@ class BuildSourceTests(unittest.TestCase):
             ".github/workflows/check.yml",
             "Tests/test_runtime.py",
             "Tools/source_releases.py",
+            "Tools/sourcegit.py",
+            "Tools/trust.py",
             "Tools/build_source.py",
             "Tools/Examples/site.json",
             ".obs/site.json",

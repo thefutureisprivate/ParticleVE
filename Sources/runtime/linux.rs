@@ -325,6 +325,10 @@ impl Linux {
         }
         for (field_name, message) in [
             (
+                "system_ca",
+                "System-CA layout contract has no migration; provision a new installation",
+            ),
+            (
                 "host_state",
                 "Host-state contract has no migration; provision a new installation",
             ),

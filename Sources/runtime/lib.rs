@@ -36,6 +36,7 @@ pub mod resourceusage;
 pub mod security;
 pub mod startup;
 pub mod storage;
+pub mod systemtrust;
 pub mod timesync;
 pub mod versioning;
 pub mod vmrun;

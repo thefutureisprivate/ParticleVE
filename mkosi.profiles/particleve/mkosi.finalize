@@ -8,7 +8,9 @@ PYTHONPATH="$SRCDIR/Sources" python3 "$SRCDIR/Tools/check-build.py" --root / --t
 PYTHONPATH="$SRCDIR/Sources" python3 - "$BUILDROOT" <<'PY'
 import sys
 from particleve.security import apply_image_privileges, write_tpm_profile
+from particleve.systemtrust import write_layout
 write_tpm_profile(sys.argv[1])
+write_layout(sys.argv[1])
 apply_image_privileges(sys.argv[1])
 PY
 PYTHONPATH="$SRCDIR/Sources" python3 "$SRCDIR/Tools/check-build.py" --root "$BUILDROOT" \

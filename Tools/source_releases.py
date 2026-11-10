@@ -8,6 +8,7 @@ from pathlib import Path
 
 from particleve.common import atomic_write, require, run
 from particleve.versioning import source_key
+from Tools.trust import system_tls_environment
 
 
 def git(root, *arguments, check=True):
@@ -62,12 +63,15 @@ def main():
                 [
                     "gh",
                     "api",
+                    "--hostname",
+                    "github.com",
                     "--paginate",
                     f"repos/{args.repository}/releases",
                     "--jq",
                     ".[] | select(.draft == false) | .tag_name",
                 ],
                 timeout=300,
+                env=system_tls_environment() | {"GH_HOST": "github.com"},
             ).stdout.splitlines()
         )
     for index, release in enumerate(plan):
@@ -89,7 +93,7 @@ def main():
                 "create",
                 release["tag"],
                 "--repo",
-                args.repository,
+                "github.com/" + args.repository,
                 "--target",
                 release["commit"],
                 "--title",
@@ -99,6 +103,7 @@ def main():
                 "--latest=" + ("true" if index == len(plan) - 1 else "false"),
             ],
             timeout=120,
+            env=system_tls_environment() | {"GH_HOST": "github.com"},
         )
     atomic_write(args.output / "releases.json", (json.dumps(plan, indent=2) + "\n").encode(), 0o644)
     print(json.dumps({"source_versions": [item["version"] for item in plan], "published": args.publish}))

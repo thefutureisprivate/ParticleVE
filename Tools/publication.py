@@ -11,9 +11,10 @@ from pathlib import Path
 from urllib.parse import quote, urlsplit
 from xml.etree import ElementTree
 
-from particleve.common import digest, require, system_tls_context
+from particleve.common import digest, require
 from particleve.config import https_url, integer, version_key
 from particleve.release import checksums, verify_directory
+from Tools.trust import system_tls_context
 
 PACKAGES = {
     "particleve": ("Fedora_45", "particleve:rpm", "particleve"),

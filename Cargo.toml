@@ -1,6 +1,6 @@
 [package]
 name = "particleve"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.99"
 license = "LGPL-2.1-or-later"
@@ -94,3 +94,11 @@ path = "Sources/runtime/bin/particleve-vm-run.rs"
 [[bin]]
 name = "particleve"
 path = "Sources/runtime/bin/particleve.rs"
+
+[[bin]]
+name = "particleve-system-trust"
+path = "Sources/runtime/bin/particleve-system-trust.rs"
+
+[[bin]]
+name = "particleve-nts-trust"
+path = "Sources/runtime/bin/particleve-nts-trust.rs"

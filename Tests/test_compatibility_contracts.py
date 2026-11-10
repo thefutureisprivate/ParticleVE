@@ -57,6 +57,7 @@ class CompatibilityContractTests(RustDriverTests):
             "vm_unit",
             "storage_admission",
             "bootloaders",
+            "system_ca",
         ):
             old = {"persistent_state": copy.deepcopy(PERSISTENT_STATE)}
             new = copy.deepcopy(old)
@@ -65,4 +66,35 @@ class CompatibilityContractTests(RustDriverTests):
                 self.assertIn(
                     "error",
                     self.request("compatibility-approved", directory=directory, first=old, second=new),
+                )
+
+    def test_an_old_factory_ca_layout_cannot_receive_generic_migration_approval(self):
+        current = {"persistent_state": copy.deepcopy(PERSISTENT_STATE)}
+        previous = copy.deepcopy(current)
+        del previous["persistent_state"]["system_ca"]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            evidence = root / "evidence.json"
+            write_json(evidence, {"claimed": "retained safety"})
+            write_json(
+                root / "compatibility.json",
+                [
+                    {
+                        "release_sha256": [digest(previous), digest(current)],
+                        "retained_os_safe": True,
+                        "approved_by": "owner",
+                        "evidence": str(evidence),
+                        "evidence_sha256": hash_file(evidence),
+                    }
+                ],
+            )
+            for first, second in ((previous, current), (current, previous)):
+                self.assertIn(
+                    "no migration",
+                    self.request(
+                        "compatibility-approved",
+                        directory=directory,
+                        first=first,
+                        second=second,
+                    )["error"],
                 )

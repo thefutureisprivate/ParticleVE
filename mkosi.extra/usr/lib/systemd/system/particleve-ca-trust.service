@@ -1,0 +1,42 @@
+[Unit]
+Description=Extract the active Fedora shared system CA trust
+DefaultDependencies=no
+Requires=systemd-tmpfiles-setup.service
+After=local-fs.target systemd-tmpfiles-setup.service
+Before=sysinit.target network-pre.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/particleve-system-trust
+RemainAfterExit=yes
+RuntimeDirectory=particleve-ca-trust
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=restart
+TimeoutStartSec=2min
+UMask=0022
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/run/particleve-ca-trust
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+LimitCORE=0
+
+[Install]
+WantedBy=sysinit.target

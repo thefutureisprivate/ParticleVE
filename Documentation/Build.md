@@ -78,6 +78,19 @@ PYTHONPATH=Sources:. python3 Tools/obs-project.py --site .obs/site.json --summar
 image. The configuration tools write public generated inputs. Review those
 changes before publishing the source revision that OBS will build.
 
+Source fetching and upstream-tag checks use native Git with the distribution CA
+bundle and directory. They enforce certificate verification, ignore per-user Git
+configuration and disable inherited repository selection and replacement objects.
+Only HTTPS source URLs without embedded credentials are accepted; URL rewrites
+and redirects are refused. Install any required CA in the system store; a
+tool-specific bundle does not change source trust. Immutable revision, release-tag
+and patch checks remain independent of transport authentication.
+The GitHub release tool likewise selects the distribution trust paths for its
+GitHub CLI child and fixes the publication host to `github.com`.
+Workstation network policy lives in [`Tools/trust.py`](../Tools/trust.py), outside
+the installed build-verification library, so changes confined to these tools
+follow the ancillary-change rule below.
+
 ## OBS dependencies and package builds
 
 The generated `.obs/fedora/x86-64/mkosi.conf` schedules dependencies from all three

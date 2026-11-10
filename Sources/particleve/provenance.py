@@ -22,8 +22,11 @@ TOOLS_MODULES = (
     "kernelruntime",
     "consoles",
     "versioning",
+    "systemtrust",
 )
 BINARIES = {
+    "particleve-system-trust": "usr/libexec/particleve-system-trust",
+    "particleve-nts-trust": "usr/libexec/particleve-nts-trust",
     "particleve": "usr/bin/particleve",
     "particleve-health-sender": "usr/libexec/particleve-health-sender",
     "particleve-radio-policy": "usr/libexec/particleve-radio-policy",

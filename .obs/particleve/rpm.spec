@@ -1,7 +1,7 @@
 # Native OBS rpm flavor; the default build consumes these RPMs for the image.
 %global _buildshell /bin/bash
 Name:           particleve
-Version:        45.0.2.0
+Version:        45.0.2.1
 Release:        1%{?dist}
 Summary:        ParticleVE host installation and maintenance coordinator
 # Project sources are LGPL; statically linked crates select MIT where dual
@@ -44,6 +44,8 @@ Requires:       smartmontools
 Requires:       gnupg2
 Requires:       sbsigntools
 Requires:       systemd-ukify
+Requires:       ca-certificates
+Requires:       p11-kit-trust
 
 # BRP strips ELF binaries and generates debuginfo before these final identities.
 %global __os_install_post %{expand:%{__os_install_post}}\
@@ -102,6 +104,10 @@ cp Cargo.lock Cargo.lock.source
 tar -xf %{SOURCE1}
 cmp Cargo.lock.source Cargo.lock
 rm Cargo.lock.source
+# The current OBS vendor service emits .cargo/config. Consume its contents
+# through the filename required by the pinned Cargo, before any Cargo command.
+test ! -e .cargo/config.toml
+mv .cargo/config .cargo/config.toml
 
 %build
 %set_build_flags
@@ -137,7 +143,7 @@ export GDB=/usr/bin/gdb
 install -d %{buildroot}%{_prefix}/lib/particleve/trust
 install -m0644 mkosi.extra/usr/lib/particleve/trust/* %{buildroot}%{_prefix}/lib/particleve/trust/
 install -D -m0755 target/release/particleve %{buildroot}%{_bindir}/particleve
-for helper in health-sender radio-policy storage-admission initrd-storage witness-write homed-account vm-stop vm-start-guard vm-run; do
+for helper in health-sender radio-policy storage-admission initrd-storage witness-write homed-account vm-stop vm-start-guard vm-run system-trust nts-trust; do
     install -D -m0755 target/release/particleve-$helper %{buildroot}%{_libexecdir}/particleve-$helper
 done
 install -D -m0755 target/release/particleve-qemu %{buildroot}%{_libexecdir}/particleve-qemu/qemu
@@ -149,7 +155,7 @@ install -d %{buildroot}%{_prefix}/lib/particleve-build/particleve
 install -m0644 Sources/particleve/__init__.py Sources/particleve/common.py Sources/particleve/config.py Sources/particleve/release.py \
     Sources/particleve/kernels.py Sources/particleve/buildartifacts.py Sources/particleve/contracts.py Sources/particleve/provenance.py \
     Sources/particleve/package_sources.py Sources/particleve/security.py Sources/particleve/kernelruntime.py \
-    Sources/particleve/consoles.py Sources/particleve/versioning.py Sources/particleve/layout.py \
+    Sources/particleve/consoles.py Sources/particleve/versioning.py Sources/particleve/layout.py Sources/particleve/systemtrust.py \
     %{buildroot}%{_prefix}/lib/particleve-build/particleve/
 install -D -m0755 Tools/obs-postoutput %{buildroot}%{_libexecdir}/particleve-obs-postoutput
 install -m0644 Sources/particleve/runtime-policy.json %{buildroot}%{_prefix}/lib/particleve-build/particleve/
@@ -160,6 +166,8 @@ install -m0644 Sources/particleve/runtime-policy.json %{buildroot}%{_prefix}/lib
 %{_bindir}/particleve
 %{_libexecdir}/particleve-health-sender
 %{_libexecdir}/particleve-radio-policy
+%{_libexecdir}/particleve-system-trust
+%{_libexecdir}/particleve-nts-trust
 %{_libexecdir}/particleve-homed-account
 %{_libexecdir}/particleve-witness-write
 %{_libexecdir}/particleve-vm-stop
@@ -187,6 +195,10 @@ install -m0644 Sources/particleve/runtime-policy.json %{buildroot}%{_prefix}/lib
 %{_libexecdir}/particleve-obs-postoutput
 
 %changelog
+* Tue Nov 10 2026 ParticleVE maintainers <thefutureisprivate@users.noreply.github.com> - 45.0.2.1-1
+- Rebuild shared Fedora CA views from the active image and reviewed local trust.
+- Refresh native TLS clients and invalidate NTS sessions when system trust changes.
+
 * Tue Nov 10 2026 ParticleVE maintainers <thefutureisprivate@users.noreply.github.com> - 45.0.2.0-1
 - Rewrite installed host and initrd helpers in Rust while retaining storage and recovery contracts.
 - Build from the locked offline Cargo vendor archive with strict native Fedora hardening.

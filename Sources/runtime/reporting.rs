@@ -483,6 +483,66 @@ pub fn send(backend: &Linux) -> Result<Value> {
         .exec();
     Err(error.into())
 }
+fn credential_acl(uid: u32, permissions: u16) -> Vec<u8> {
+    // Linux UAPI posix_acl_xattr.h: version 2 followed by little-endian
+    // (tag, permissions, id) entries. Only root and this one UID get access;
+    // the owning group and other users get none, including through the mask.
+    let mut acl = Vec::with_capacity(44);
+    acl.extend(2_u32.to_le_bytes());
+    for (tag, access, id) in [
+        (1_u16, permissions, u32::MAX), // ACL_USER_OBJ
+        (2, permissions, uid),          // ACL_USER
+        (4, 0, u32::MAX),               // ACL_GROUP_OBJ
+        (16, permissions, u32::MAX),    // ACL_MASK
+        (32, 0, u32::MAX),              // ACL_OTHER
+    ] {
+        acl.extend(tag.to_le_bytes());
+        acl.extend(access.to_le_bytes());
+        acl.extend(id.to_le_bytes());
+    }
+    acl
+}
+fn credential_access(
+    owner: (u32, u32),
+    mode: u32,
+    uid: u32,
+    permissions: u16,
+    acl: Option<&[u8]>,
+) -> bool {
+    let owner_mode = u32::from(permissions) << 6;
+    // Current PID1 uses an exclusive named-user ACL where supported, or
+    // service ownership on its read-only mount. These are the two native
+    // representations in systemd v262.1 exec-credential.c.
+    (owner == (uid, uid) && mode == owner_mode && acl.is_none())
+        || (owner == (0, 0)
+            && mode == (owner_mode | (u32::from(permissions) << 3))
+            && acl == Some(credential_acl(uid, permissions).as_slice()))
+}
+fn credential_access_acl(file: &File) -> Result<Option<[u8; 44]>> {
+    let mut acl = [0_u8; 44];
+    // SAFETY: the descriptor is live, the name is NUL terminated and the
+    // writable buffer is exactly the advertised size. Larger ACLs fail closed.
+    let length = unsafe {
+        libc::fgetxattr(
+            file.as_raw_fd(),
+            c"system.posix_acl_access".as_ptr(),
+            acl.as_mut_ptr().cast(),
+            acl.len(),
+        )
+    };
+    if length < 0 {
+        let error = std::io::Error::last_os_error();
+        if matches!(error.raw_os_error(), Some(libc::ENODATA | libc::EOPNOTSUPP)) {
+            return Ok(None);
+        }
+        return Err(error.into());
+    }
+    require(
+        length as usize == acl.len(),
+        "service credential has an unexpected access ACL",
+    )?;
+    Ok(Some(acl))
+}
 pub fn sender_main() -> Result<Value> {
     let (mut real_uid, mut effective_uid, mut saved_uid) = (0, 0, 0);
     let (mut real_gid, mut effective_gid, mut saved_gid) = (0, 0, 0); // SAFETY: each call writes three live uid_t/gid_t scalars; group count query has a null pointer with zero capacity.
@@ -575,31 +635,55 @@ pub fn sender_main() -> Result<Value> {
         directory == Path::new("/run/credentials").join(unit),
         "TLS sender has no credential directory for its owning unit",
     )?;
-    let info = fs::symlink_metadata(&directory)?;
-    let name = std::ffi::CString::new(directory.as_os_str().as_encoded_bytes())
-        .map_err(|_| Error::new("invalid credential directory"))?;
-    let mut mount = std::mem::MaybeUninit::<libc::statvfs>::uninit(); // SAFETY: kernel writes one statvfs to aligned storage; CString is NUL terminated and live throughout call.
-    let stat_result = unsafe { libc::statvfs(name.as_ptr(), mount.as_mut_ptr()) };
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(directory)?;
+    let info = directory.metadata()?;
+    let acl = credential_access_acl(&directory)?;
+    let mut mount = std::mem::MaybeUninit::<libc::statvfs>::uninit();
+    // SAFETY: directory owns the live descriptor and mount is aligned writable
+    // storage for the kernel's complete result.
+    let stat_result = unsafe { libc::fstatvfs(directory.as_raw_fd(), mount.as_mut_ptr()) };
     require(stat_result == 0, "cannot inspect credential mount")?; // SAFETY: statvfs succeeded and initialized the entire result structure.
     let mount = unsafe { mount.assume_init() };
     require(
         info.is_dir()
-            && info.uid() == 0
-            && info.gid() == 0
-            && info.permissions().mode() & 0o7777 == 0o550
+            && credential_access(
+                (info.uid(), info.gid()),
+                info.permissions().mode() & 0o7777,
+                uid,
+                5,
+                acl.as_ref().map(|value| value.as_slice()),
+            )
             && mount.f_flag & libc::ST_RDONLY != 0,
         "service credentials are not in PID1's read-only private mount",
     )?;
-    let mut token_file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(directory.join("report-token"))?;
+    // SAFETY: directory owns the validated parent; the fixed child name cannot
+    // escape it, O_NOFOLLOW rejects substitution, and File takes sole ownership.
+    let descriptor = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            c"report-token".as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if descriptor < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    // SAFETY: openat returned a new descriptor, not owned anywhere else.
+    let mut token_file = unsafe { File::from_raw_fd(descriptor) };
     let info = token_file.metadata()?;
+    let acl = credential_access_acl(&token_file)?;
     require(
         info.is_file()
-            && info.uid() == 0
-            && info.gid() == 0
-            && info.permissions().mode() & 0o7777 == 0o440
+            && credential_access(
+                (info.uid(), info.gid()),
+                info.permissions().mode() & 0o7777,
+                uid,
+                4,
+                acl.as_ref().map(|value| value.as_slice()),
+            )
             && info.nlink() == 1
             && info.len() > 0
             && info.len() <= 2048,
@@ -626,6 +710,63 @@ pub fn sender_main() -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn pid1_acl_grants_access_to_only_the_selected_dynamic_uid() {
+        let acl = credential_acl(62294, 4);
+        // Captured after PID1's real credential handoff on the Fedora baseline.
+        assert_eq!(
+            hex(&acl),
+            "0200000001000400ffffffff0200040056f3000004000000ffffffff10000400ffffffff20000000ffffffff"
+        );
+        assert!(credential_access((0, 0), 0o440, 62294, 4, Some(&acl)));
+        let directory = credential_acl(62294, 5);
+        assert!(credential_access((0, 0), 0o550, 62294, 5, Some(&directory)));
+        assert!(!credential_access((0, 0), 0o440, 62295, 4, Some(&acl)));
+        assert!(!credential_access((0, 1), 0o440, 62294, 4, Some(&acl)));
+        assert!(!credential_access((0, 0), 0o640, 62294, 4, Some(&acl)));
+        assert!(!credential_access((0, 0), 0o440, 62294, 4, None));
+    }
+    #[test]
+    fn credential_acl_rejects_extra_grants_and_malformed_entries() {
+        let acl = credential_acl(62294, 4);
+        for length in 0..acl.len() {
+            assert!(!credential_access(
+                (0, 0),
+                0o440,
+                62294,
+                4,
+                Some(&acl[..length])
+            ));
+        }
+        for offset in 0..acl.len() {
+            let mut changed = acl.clone();
+            changed[offset] ^= 1;
+            assert!(!credential_access((0, 0), 0o440, 62294, 4, Some(&changed)));
+        }
+        let mut extra_user = acl.clone();
+        extra_user.extend([2, 0, 4, 0, 1, 0, 0, 0]);
+        assert!(!credential_access(
+            (0, 0),
+            0o440,
+            62294,
+            4,
+            Some(&extra_user)
+        ));
+    }
+    #[test]
+    fn ownership_based_credentials_require_exclusive_modes_and_no_acl() {
+        assert!(credential_access((62294, 62294), 0o400, 62294, 4, None));
+        assert!(credential_access((62294, 62294), 0o500, 62294, 5, None));
+        assert!(!credential_access((62294, 62294), 0o440, 62294, 4, None));
+        assert!(!credential_access((62294, 0), 0o400, 62294, 4, None));
+        assert!(!credential_access(
+            (62294, 62294),
+            0o400,
+            62294,
+            4,
+            Some(&credential_acl(62294, 4))
+        ));
+    }
     #[test]
     fn report_details_are_bounded_without_turning_missing_evidence_into_success() {
         assert!(summarize("storage", json!({})).is_err());

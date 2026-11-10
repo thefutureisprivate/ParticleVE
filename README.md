@@ -73,6 +73,12 @@ Python supports image construction, publication tools and tests; upstream tools
 retain their own runtime dependencies. The helpers use the existing systemd
 units, command paths and persistent-state contracts.
 
+TLS clients share Fedora's system CA trust store. The host regenerates its
+volatile trust outputs from the active image and authorized local anchors and
+distrust entries before network clients start. See the
+[trust operating policy](Documentation/Operations.md#authenticated-time-and-dns)
+for system-wide trust changes and service refreshes.
+
 OBS builds and signs releases for one authenticated feed. The host coordinator
 prepares the same release on both disks and requests an automatic reboot only
 after readiness checks and confirmed graceful VM exits. OS fallback selects a

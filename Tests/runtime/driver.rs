@@ -108,6 +108,16 @@ fn evaluate(request: &Value) -> Result<Value> {
                 .ok_or_else(|| Error::new("invalid test wall clock"))?,
         ),
         "release-validate" => particleve::release::validate(field(request, "manifest")?),
+        "system-tls-download" => {
+            let destination = Path::new(text(field(request, "destination")?)?);
+            particleve::release::download(text(field(request, "url")?)?, destination, 65536)?;
+            Ok(json!({"sha256":common::hash_file(destination, None)?}))
+        }
+        "system-tls-report" => particleve::reporting::deliver(
+            &json!({"schema":1,"result":"healthy"}),
+            text(field(request, "url")?)?,
+            b"ParticleVE-disposable-trust-check00",
+        ),
         "release-transfers" => Ok(json!(particleve::release::transfers(
             field(request, "manifest")?,
             text(field(request, "disk")?)?,

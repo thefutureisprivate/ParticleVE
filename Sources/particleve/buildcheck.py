@@ -12,6 +12,7 @@ from .consoles import uki_profiles
 from .contracts import PERSISTENT_STATE
 from .provenance import implementation_digest, upstream_inputs, verify_package, verify_upstream_package
 from .security import TPM_PROFILE, check_privileges, kernel_baseline
+from .systemtrust import check_layout
 
 
 def check_factory_links(root):
@@ -305,10 +306,14 @@ def root_check(root, *, tree="usr", output=None, source_dir=None):
         ):
             require((root / path).exists(), f"missing runtime artifact: {path}")
         check_factory_links(root)
+        check_layout(root)
         check_resolver_defaults(root)
         check_radio_rules(root)
         for name in (
             "systemd/system/chronyd-restricted.service.d/50-particleve.conf",
+            "systemd/system/particleve-ca-trust.service",
+            "systemd/system/systemd-resolved.service.d/60-system-trust.conf",
+            "systemd/system/fwupd.service.d/60-system-trust.conf",
             "systemd/ntp-units.d/50-chronyd.list",
             "systemd/resolved.conf.d/50-particleve.conf",
             "systemd/system/particleve-radio-policy.service",

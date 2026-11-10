@@ -210,6 +210,38 @@ with tempfile.TemporaryDirectory(prefix="particleve-startup-contract-") as tempo
     cache_row = next(entry for entry in cached["inputs"] if entry["path"] == "etc/ld.so.cache")
     assert cache_row == row("etc/ld.so.cache", "verified-usr-library-cache", 0o644)
     checks.append("native ldconfig cache paths restricted to verified usr aliases")
+    for name, target in (
+        ("etc/pki/ca-trust/extracted", "/run/particleve-ca-trust/extracted"),
+        ("etc/pki/tls/certs", "/run/particleve-ca-trust/extracted/pem/directory-hash"),
+    ):
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.symlink_to(target)
+    anchor = root / "etc/pki/ca-trust/source/anchors/local.pem"
+    anchor.parent.mkdir(parents=True)
+    anchor.write_text("owner-reviewed public CA input")
+    ca_inventory = observed(root)
+    write_json(receipt, {"startup_policy_sha256": ca_inventory["sha256"]})
+    assert observed(root, approved=True) == ca_inventory
+    generated = root / "run/particleve-ca-trust/extracted/pem/tls-ca-bundle.pem"
+    generated.parent.mkdir(parents=True)
+    generated.write_text("new active image's generated CA view")
+    assert observed(root, approved=True) == ca_inventory
+    anchor.write_text("changed local CA authority")
+    observed(root, approved=True, rejected="startup configuration changed")
+    anchor.write_text("owner-reviewed public CA input")
+    alias = root / "etc/pki/tls/certs"
+    alias.unlink()
+    alias.symlink_to("/run/unreviewed-certs")
+    observed(root, rejected="escapes verified usr")
+    alias.unlink()
+    alias.symlink_to("/run/particleve-ca-trust/extracted/pem/directory-hash")
+    unexpected = root / "etc/pki/alternate-certs"
+    unexpected.symlink_to("/run/particleve-ca-trust/extracted")
+    observed(root, rejected="escapes verified usr")
+    unexpected.unlink()
+    assert observed(root, approved=True) == ca_inventory
+    checks.append("only native generated-CA aliases may leave usr; local CA authority remains bound")
 print(
     json.dumps(
         {

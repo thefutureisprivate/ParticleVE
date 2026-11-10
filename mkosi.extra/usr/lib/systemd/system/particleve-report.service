@@ -1,6 +1,7 @@
 [Unit]
 Description=Send a bounded ParticleVE health observation to the owner-selected receiver
-After=network-online.target particleve-runtime-ready.service
+After=network-online.target particleve-runtime-ready.service particleve-ca-trust.service
+Requires=particleve-ca-trust.service
 Wants=network-online.target
 
 [Service]

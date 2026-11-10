@@ -4,8 +4,6 @@ import contextlib
 import fcntl
 import json
 import os
-import platform
-import ssl
 import subprocess
 import tempfile
 from pathlib import Path
@@ -22,14 +20,6 @@ class Deferred(Error):
 def require(condition, message):
     if not condition:
         raise Error(message)
-
-
-def system_tls_context():
-    """Use OpenSSL's distribution trust paths, independent of per-tool CA overrides."""
-    if platform.freedesktop_os_release().get("ID") == "fedora":
-        return ssl.create_default_context(cafile="/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem")
-    paths = ssl.get_default_verify_paths()
-    return ssl.create_default_context(cafile=paths.openssl_cafile, capath=paths.openssl_capath)
 
 
 def _unique(pairs):
@@ -99,21 +89,27 @@ def lock(directory):
         yield
 
 
-def run(args, *, input=None, timeout=120, check=True):
+def run(args, *, input=None, timeout=120, check=True, env=None, text=True):
     try:
         result = subprocess.run(
             [str(arg) for arg in args],
             input=input,
             capture_output=True,
-            text=True,
+            text=text,
             timeout=timeout,
             check=False,
-            env={**os.environ, "LC_ALL": "C", "SYSTEMD_PAGER": "cat", "SYSTEMD_COLORS": "0"},
+            env={
+                **(os.environ if env is None else env),
+                "LC_ALL": "C",
+                "SYSTEMD_PAGER": "cat",
+                "SYSTEMD_COLORS": "0",
+            },
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise Error(f"{args[0]}: {exc}") from exc
     if check and result.returncode:
-        raise Error(f"{args[0]} failed ({result.returncode}): {result.stderr.strip()}")
+        diagnostic = result.stderr if text else result.stderr.decode(errors="replace")
+        raise Error(f"{args[0]} failed ({result.returncode}): {diagnostic.strip()}")
     return result
 
 

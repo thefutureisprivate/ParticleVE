@@ -29,6 +29,7 @@ disable systemd-timesyncd.service
 disable chronyd.service
 disable chrony-wait.service
 enable chronyd-restricted.service
+enable particleve-ca-trust.service
 enable particleve-boot-watchdog.timer
 enable fwupd-refresh.timer
 enable sshd.socket

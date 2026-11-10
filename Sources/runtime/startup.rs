@@ -205,7 +205,7 @@ impl Inventory {
             let special = match path {
                 "etc/mtab" => Some("/proc/self/mounts"),
                 "etc/resolv.conf" => Some("/run/systemd/resolve/stub-resolv.conf"),
-                _ => None,
+                _ => crate::systemtrust::output_link(path),
             };
             require(
                 normalized.starts_with("/usr/")

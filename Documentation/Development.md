@@ -215,7 +215,7 @@ have their own prerequisites and procedures.
 | Update interruption, guest shutdown, and restoration | Rust tests in [`coordinator.rs`](../Sources/runtime/coordinator.rs), [`vms.rs`](../Sources/runtime/vms.rs), [`vmrun.rs`](../Sources/runtime/vmrun.rs), and [repeated lifecycle tests](ReleaseDiagnostics.md#repeated-lifecycle-tests). |
 | Disk admission, stale members, and recovery | Rust tests in [`admission.rs`](../Sources/runtime/admission.rs), [`install.rs`](../Sources/runtime/install.rs), [`bootloaders.rs`](../Sources/runtime/bootloaders.rs), and [bootloader and mirror recovery](Commissioning.md#bootloader-and-mirror-recovery). |
 | Guest authority and SELinux confinement | Rust tests in [`confinement.rs`](../Sources/runtime/confinement.rs), [`processes.rs`](../Sources/runtime/processes.rs), and [QEMU containment](Hardening.md#qemu-containment). |
-| System CA trust | Native TLS tests in [`Tests/runtime/tls.rs`](../Tests/runtime/tls.rs), [`test_system_trust.py`](../Tests/test_system_trust.py), and [TLS operating policy](Operations.md#authenticated-time-and-dns). |
+| System CA trust | Native TLS tests in [`Tests/runtime/tls.rs`](../Tests/runtime/tls.rs), [`test_system_trust.py`](../Tests/test_system_trust.py), [`test_sourcegit.py`](../Tests/test_sourcegit.py), the [native trust lifecycle probe](../Tests/acceptance/system-trust.py), the [native Git probe](../Tests/acceptance/source-trust.py), and [TLS operating policy](Operations.md#authenticated-time-and-dns). |
 | Native networking, kernel interfaces, and device policy | [`Tests/acceptance/`](../Tests/acceptance/), [hardening](Hardening.md), and the selected probe's arguments and prerequisites. |
 | EFI loader failure and fallback | [`build-loader-probe.sh`](../Tests/acceptance/build-loader-probe.sh). |
 | Final signed-image and hardware behavior | [Release diagnostics](ReleaseDiagnostics.md) and [commissioning](Commissioning.md). |
@@ -223,6 +223,44 @@ have their own prerequisites and procedures.
 Measurements are diagnostic. They do not replace correctness assertions or
 establish VM capacity from an idle host or isolated fixture. Record the actual
 source, image, fixture, configuration, results, and coverage limits.
+
+The native trust lifecycle probe runs as uid 0 in a disposable **rootless Fedora
+container**, with public source and the matching compiled contract driver mounted
+read-only. Keep the container's `/etc` and `/usr/share/pki` private; do not bind
+host trust directories into it. With `PYTHONPATH=Sources:.`, run:
+
+```sh
+python3 Tests/acceptance/system-trust.py --runtime-driver DRIVER \
+  --source-revision FULL_COMMIT_SHA --confirm-disposable-container
+```
+
+It requires OpenSSL and Fedora's `ca-certificates`, `p11-kit` and `p11-kit-trust`.
+The probe records their versions, bundle and binary identities, actual loopback
+TLS/HTTP observations, certificate failures and attempted CA overrides. It adds,
+removes and distrusts an ephemeral CA through the system inputs, observes the
+stale-bundle interval before extraction, repairs a stale output and verifies
+restoration. The Rust downloader, Rust health delivery and Python publication tool
+use their production trust loaders. This component probe does not establish
+the reporter's privilege handoff, daemon reload behavior,
+chrony NTS, resolved DoT, package-update boot or signed-image acceptance; exercise
+those boundaries separately in the selected disposable host.
+
+To exercise ParticleVE's materialized layout, mount the matching Fedora factory
+PKI subtree read-only, apply the generated `particleve-ca-trust.conf`, and run the
+matching compiled extraction helper before starting the probe. Pass its path as
+`--system-trust-helper HELPER`; every refresh then uses that native helper. Keep
+the factory mount distinct from the container's local source and volatile output
+directories. Verify the native unit ordering and the chrony-UID session boundary
+in the same fixture, then test the daemons under PID 1 and SELinux in the selected
+signed-image fixture.
+
+In the same disposable materialized layout, run
+`Tests/acceptance/source-trust.py --system-trust-helper HELPER --confirm-disposable-container`
+with `PYTHONPATH=Sources:.`. Fedora's `git-core` supplies the native HTTP backend.
+This probe serves ephemeral public Git objects over loopback TLS, fetches their
+exact commit and checks the contents. It exercises CA addition, removal, distrust,
+expiration, wrong names, stale outputs, redirect refusal and injected Git/SSL
+configuration. Source pins remain checked independently of transport trust.
 
 ### Native probes with compiled helpers
 

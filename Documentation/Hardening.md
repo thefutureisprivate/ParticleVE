@@ -202,6 +202,11 @@ After collecting a bounded report, native setpriv replaces the root inspector
 with PID 1's private dynamic user. The sender verifies empty capability sets,
 private real/effective/saved identities, no supplementary groups,
 no-new-privileges, seccomp, and sealed input before processing credentials/TLS.
+PID 1 grants credential access only to that dynamic identity and root. The sender
+checks the exact current-manager ACL or ownership representation, the read-only
+mount and the opened file identity; extra principals, write access and links are
+rejected. See the [credential handoff](Operations.md#external-health-reporting)
+for the access contract.
 There is no privileged parent parsing receiver responses.
 
 The sender closes inherited descriptors and requires Landlock ABI 5 or later.
@@ -227,6 +232,18 @@ ParticleVE's Rust and Python HTTPS clients load the distribution roots directly;
 per-tool CA bundles and `SSL_CERT_FILE`/`SSL_CERT_DIR` are not their trust
 configuration paths. Certificate-name and validity checks remain mandatory.
 Transport roots do not replace release-signing, Secure Boot or PCR authorization keys.
+The chrony service disables per-user PKCS#11 configuration, preserving the system
+trust policy even when its writable state contains a user module configuration.
+
+Generated CA bundles and OpenSSL's hashed directory live under `/run` and are
+rebuilt from the active image and reviewed local inputs before TLS services start.
+The extraction service has no capabilities, no IP sockets and write access only
+to its volatile output directory. Refresh restarts long-running TLS clients;
+chrony retains its drift state but discards cached client sessions after a trust
+change. Both native source policies and generated output bind those sessions,
+including distrust changes that leave a generated bundle unchanged. Local inputs,
+rather than generated output bytes, bind commissioning.
+See the [shared trust refresh procedure](Operations.md#authenticated-time-and-dns).
 
 Automatic activation requires two authenticated agreeing operators, fresh
 samples and authentication evidence, and the configured error/step bounds.

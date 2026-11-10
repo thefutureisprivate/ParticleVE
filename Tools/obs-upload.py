@@ -11,8 +11,9 @@ import urllib.request
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
-from particleve.common import read_json, require, system_tls_context
+from particleve.common import read_json, require
 from particleve.config import https_url
+from Tools.trust import system_tls_context
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("package", choices=("particleve", "mkosi", "fwupd-efi"))

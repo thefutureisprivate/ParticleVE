@@ -5,7 +5,7 @@ import ssl
 import unittest
 from unittest.mock import patch
 
-from particleve.common import system_tls_context
+from Tools.trust import system_tls_context
 
 
 class SystemTrustTests(unittest.TestCase):
