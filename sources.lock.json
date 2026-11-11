@@ -17,6 +17,16 @@
       "url": "https://github.com/fwupd/fwupd-efi.git",
       "revision": "ffeaa10aed8e91f5b8feaefc51faf71b3d034fd3",
       "version": "1.9"
+    },
+    "fedora_kernel": {
+      "url": "https://src.fedoraproject.org/rpms/kernel.git",
+      "revision": "5ec3867fa7eb3f5d4a521ffa8898689f5731a71f",
+      "branch": "f45"
+    },
+    "secureblue_kernel": {
+      "url": "https://github.com/secureblue/kernel.git",
+      "revision": "39911dc23b9a1c63e0da545d7540d93172e0c56b",
+      "branch": "live"
     }
   },
   "compatibility": "candidate inputs; image build, signing and hardware acceptance are release gates"

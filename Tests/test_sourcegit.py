@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from particleve.common import Error
@@ -116,3 +117,40 @@ class SourceGitTests(unittest.TestCase):
             ):
                 fetch(directory, "https://source.invalid/repository.git", "a" * 40)
             self.assertFalse(any("fetch" in call.args[0] for call in process.call_args_list))
+
+    def test_branch_transport_cannot_authorize_a_different_history(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            self.initialize(directory)
+            original = self.commit(directory, "reviewed original")
+            tip = self.commit(directory, "newer branch tip")
+            git(directory, "checkout", "--quiet", "--orphan", "unrelated")
+            unrelated = self.commit(directory, "unrelated history")
+            git(directory, "checkout", "--quiet", "source")
+            from Tools import sourcegit
+
+            native = sourcegit.run
+
+            def transport(arguments, **kwargs):
+                if "fetch" in arguments:
+                    # Replace only network I/O. Git still checks the real
+                    # commit graph rather than accepting the advertised tip.
+                    (directory / ".git/FETCH_HEAD").write_text(tip + "\n")
+                    return SimpleNamespace(stdout="", stderr="", returncode=0)
+                return native(arguments, **kwargs)
+
+            with patch("Tools.sourcegit.run", side_effect=transport):
+                fetch(directory, "https://source.invalid/repository.git", original, branch="f45")
+                self.assertEqual(git(directory, "rev-parse", "HEAD").stdout.strip(), tip)
+                with self.assertRaises(Error):
+                    fetch(directory, "https://source.invalid/repository.git", unrelated, branch="f45")
+
+    def test_invalid_branch_transport_fails_before_git_runs(self):
+        for branch in ("../f45", "--upload-pack=unexpected", "f45.lock", "f45\n", 45):
+            with (
+                self.subTest(branch=branch),
+                patch("Tools.sourcegit.run") as process,
+                self.assertRaises(Error),
+            ):
+                fetch(Path("/unused"), "https://source.invalid/repository.git", "a" * 40, branch=branch)
+            process.assert_not_called()

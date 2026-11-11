@@ -1,0 +1,764 @@
+{
+  "configuration": {
+    "CONFIG_6LOWPAN": "n",
+    "CONFIG_ACPI_APEI_EINJ": "n",
+    "CONFIG_ACPI_TABLE_UPGRADE": "n",
+    "CONFIG_AFS_FS": "n",
+    "CONFIG_AF_KCM": "n",
+    "CONFIG_AF_RXRPC": "n",
+    "CONFIG_AMT": "n",
+    "CONFIG_ATA_OVER_ETH": "n",
+    "CONFIG_ATM": "n",
+    "CONFIG_BAREUDP": "n",
+    "CONFIG_BLK_DEV_FD": "n",
+    "CONFIG_BLK_DEV_NULL_BLK": "n",
+    "CONFIG_BLK_DEV_RUST_NULL": "n",
+    "CONFIG_BLK_DEV_ZONED_LOOP": "n",
+    "CONFIG_BT_HCIVHCI": "n",
+    "CONFIG_CACHESTAT_SYSCALL": "n",
+    "CONFIG_CORESIGHT_STM": "n",
+    "CONFIG_CRASH_DM_CRYPT": "n",
+    "CONFIG_CRASH_DUMP": "n",
+    "CONFIG_CRYPTO_BENCHMARK": "n",
+    "CONFIG_DEBUG_NOTIFIERS": "y",
+    "CONFIG_DEVMEM": "n",
+    "CONFIG_DEVPORT": "n",
+    "CONFIG_DM_DELAY": "n",
+    "CONFIG_DM_DUST": "n",
+    "CONFIG_DM_FLAKEY": "n",
+    "CONFIG_DM_LOG_WRITES": "n",
+    "CONFIG_DRM_VGEM": "n",
+    "CONFIG_DRM_VKMS": "n",
+    "CONFIG_DW_XDATA_PCIE": "n",
+    "CONFIG_EFI_CUSTOM_SSDT_OVERLAYS": "n",
+    "CONFIG_EFI_SBAT_FILE": "\"kernel.sbat\"",
+    "CONFIG_EFI_TEST": "n",
+    "CONFIG_EQUALIZER": "n",
+    "CONFIG_GAMEPORT": "n",
+    "CONFIG_GNSS": "n",
+    "CONFIG_GPIB": "n",
+    "CONFIG_GPIO_SIM": "n",
+    "CONFIG_GPIO_VIRTUSER": "n",
+    "CONFIG_GTP": "n",
+    "CONFIG_HAMRADIO": "n",
+    "CONFIG_HIBERNATION": "n",
+    "CONFIG_HID_PXRC": "n",
+    "CONFIG_HSR": "n",
+    "CONFIG_HWPOISON_INJECT": "n",
+    "CONFIG_I2C_SLAVE_EEPROM": "n",
+    "CONFIG_I2C_STUB": "n",
+    "CONFIG_IEEE802154": "n",
+    "CONFIG_INFINIBAND": "n",
+    "CONFIG_INIT_ON_ALLOC_DEFAULT_ON": "y",
+    "CONFIG_INIT_ON_FREE_DEFAULT_ON": "y",
+    "CONFIG_INTEL_IOMMU_DEFAULT_ON": "y",
+    "CONFIG_INTEL_TH": "n",
+    "CONFIG_IOMMU_DEFAULT_DMA_LAZY": "n",
+    "CONFIG_IOMMU_DEFAULT_DMA_STRICT": "y",
+    "CONFIG_IO_STRICT_DEVMEM": "n",
+    "CONFIG_IPV6_ILA": "n",
+    "CONFIG_JOYSTICK_A3D": "n",
+    "CONFIG_JOYSTICK_ADC": "n",
+    "CONFIG_JOYSTICK_ADI": "n",
+    "CONFIG_JOYSTICK_ANALOG": "n",
+    "CONFIG_JOYSTICK_AS5011": "n",
+    "CONFIG_JOYSTICK_COBRA": "n",
+    "CONFIG_JOYSTICK_DB9": "n",
+    "CONFIG_JOYSTICK_FSIA6B": "n",
+    "CONFIG_JOYSTICK_GAMECON": "n",
+    "CONFIG_JOYSTICK_GF2K": "n",
+    "CONFIG_JOYSTICK_GRIP": "n",
+    "CONFIG_JOYSTICK_GRIP_MP": "n",
+    "CONFIG_JOYSTICK_GUILLEMOT": "n",
+    "CONFIG_JOYSTICK_IFORCE": "n",
+    "CONFIG_JOYSTICK_IFORCE_232": "n",
+    "CONFIG_JOYSTICK_IFORCE_USB": "n",
+    "CONFIG_JOYSTICK_INTERACT": "n",
+    "CONFIG_JOYSTICK_JOYDUMP": "n",
+    "CONFIG_JOYSTICK_MAGELLAN": "n",
+    "CONFIG_JOYSTICK_PSXPAD_SPI": "n",
+    "CONFIG_JOYSTICK_PSXPAD_SPI_FF": "n",
+    "CONFIG_JOYSTICK_PXRC": "n",
+    "CONFIG_JOYSTICK_QWIIC": "n",
+    "CONFIG_JOYSTICK_SEESAW": "n",
+    "CONFIG_JOYSTICK_SENSEHAT": "n",
+    "CONFIG_JOYSTICK_SIDEWINDER": "n",
+    "CONFIG_JOYSTICK_SPACEBALL": "n",
+    "CONFIG_JOYSTICK_SPACEORB": "n",
+    "CONFIG_JOYSTICK_STINGER": "n",
+    "CONFIG_JOYSTICK_TMDC": "n",
+    "CONFIG_JOYSTICK_TURBOGRAFX": "n",
+    "CONFIG_JOYSTICK_TWIDJOY": "n",
+    "CONFIG_JOYSTICK_WALKERA0701": "n",
+    "CONFIG_JOYSTICK_WARRIOR": "n",
+    "CONFIG_JOYSTICK_ZHENHUA": "n",
+    "CONFIG_KEXEC": "n",
+    "CONFIG_KEXEC_FILE": "n",
+    "CONFIG_KEXEC_HANDOVER": "n",
+    "CONFIG_KEXEC_HANDOVER_DEBUGFS": "n",
+    "CONFIG_KEXEC_JUMP": "n",
+    "CONFIG_KGDB": "n",
+    "CONFIG_KGDB_HONOUR_BLOCKLIST": "n",
+    "CONFIG_KGDB_LOW_LEVEL_TRAP": "n",
+    "CONFIG_KGDB_SERIAL_CONSOLE": "n",
+    "CONFIG_KGDB_TESTS": "n",
+    "CONFIG_KPROBES": "n",
+    "CONFIG_KPROBES_SANITY_TEST": "n",
+    "CONFIG_KPROBE_EVENTS": "n",
+    "CONFIG_LATENCYTOP": "n",
+    "CONFIG_LDISC_AUTOLOAD": "n",
+    "CONFIG_LIVEPATCH": "n",
+    "CONFIG_LIVEUPDATE": "n",
+    "CONFIG_LIVEUPDATE_MEMFD": "n",
+    "CONFIG_MEDIA_ANALOG_TV_SUPPORT": "n",
+    "CONFIG_MEDIA_DIGITAL_TV_SUPPORT": "n",
+    "CONFIG_MEDIA_RADIO_SUPPORT": "n",
+    "CONFIG_MEDIA_TEST_SUPPORT": "n",
+    "CONFIG_MEM_SOFT_DIRTY": "n",
+    "CONFIG_MMIOTRACE": "n",
+    "CONFIG_MODULE_SIG_ALL": "n",
+    "CONFIG_MODULE_SIG_KEY": "\"\"",
+    "CONFIG_MTD_MTDRAM": "n",
+    "CONFIG_MTD_NAND_NANDSIM": "n",
+    "CONFIG_NETCONSOLE": "n",
+    "CONFIG_NET_DSA": "n",
+    "CONFIG_NLMON": "n",
+    "CONFIG_NOZOMI": "n",
+    "CONFIG_NTB_PERF": "n",
+    "CONFIG_NTB_PINGPONG": "n",
+    "CONFIG_NTB_TOOL": "n",
+    "CONFIG_NVME_TARGET_FCLOOP": "n",
+    "CONFIG_PARPORT": "n",
+    "CONFIG_PCCARD": "n",
+    "CONFIG_PCIEAER_INJECT": "n",
+    "CONFIG_PFCP": "n",
+    "CONFIG_PRESERVE_FA_DUMP": "n",
+    "CONFIG_PROC_KCORE": "n",
+    "CONFIG_PROC_PAGE_MONITOR": "y",
+    "CONFIG_PROC_VMCORE": "n",
+    "CONFIG_PROVIDE_OHCI1394_DMA_INIT": "n",
+    "CONFIG_RC_CORE": "n",
+    "CONFIG_RING_BUFFER_BENCHMARK": "n",
+    "CONFIG_SCSI_DEBUG": "n",
+    "CONFIG_SERIAL_NONSTANDARD": "n",
+    "CONFIG_SLIP": "n",
+    "CONFIG_SND_DUMMY": "n",
+    "CONFIG_STM": "n",
+    "CONFIG_STRICT_DEVMEM": "n",
+    "CONFIG_SUNRPC_DEBUG": "n",
+    "CONFIG_SYSTEM_TRUSTED_KEYS": "\"certs/particleve-fedora.pem\"",
+    "CONFIG_USB_DUMMY_HCD": "n",
+    "CONFIG_USB_GSPCA": "n",
+    "CONFIG_USB_SERIAL_DEBUG": "n",
+    "CONFIG_VDPA_SIM": "n",
+    "CONFIG_VDPA_SIM_BLOCK": "n",
+    "CONFIG_VDPA_SIM_NET": "n",
+    "CONFIG_VIDEO_CS3308": "n",
+    "CONFIG_VIDEO_SAA6752HS": "n",
+    "CONFIG_VIRT_WIFI": "n",
+    "CONFIG_VSOCKETS_DIAG": "m",
+    "CONFIG_VSOCKMON": "n",
+    "CONFIG_X86_AMD_PSTATE_UT": "n",
+    "CONFIG_X86_IOPL_IOPERM": "n",
+    "CONFIG_X86_MCE_INJECT": "n",
+    "CONFIG_X86_VSYSCALL_EMULATION": "n",
+    "CONFIG_XDP_SOCKETS_DIAG": "n",
+    "CONFIG_XFS_ONLINE_SCRUB_STATS": "n",
+    "CONFIG_ZERO_CALL_USED_REGS": "y"
+  },
+  "fedora_version": {
+    "kabiversion": "7.3.3",
+    "pkgrelease": "300",
+    "specrpmversion": "7.3.3",
+    "specversion": "7.3.3",
+    "tarfile_release": "7.3.3"
+  },
+  "schema": 1,
+  "source_files": {
+    "Makefile.rhelver": {
+      "algorithm": "sha256",
+      "digest": "30632f2ad526043a64f24b421b4eccfcae6072209bbf9aed92134e4b565dc24d",
+      "mode": 420
+    },
+    "Module.kabi_aarch64": {
+      "algorithm": "sha256",
+      "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mode": 420
+    },
+    "Module.kabi_dup_aarch64": {
+      "algorithm": "sha256",
+      "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mode": 420
+    },
+    "Module.kabi_dup_ppc64le": {
+      "algorithm": "sha256",
+      "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mode": 420
+    },
+    "Module.kabi_dup_riscv64": {
+      "algorithm": "sha256",
+      "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mode": 420
+    },
+    "Module.kabi_dup_s390x": {
+      "algorithm": "sha256",
+      "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mode": 420
+    },
+    "Module.kabi_dup_x86_64": {
+      "algorithm": "sha256",
+      "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mode": 420
+    },
+    "Module.kabi_ppc64le": {
+      "algorithm": "sha256",
+      "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mode": 420
+    },
+    "Module.kabi_riscv64": {
+      "algorithm": "sha256",
+      "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mode": 420
+    },
+    "Module.kabi_s390x": {
+      "algorithm": "sha256",
+      "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mode": 420
+    },
+    "Module.kabi_x86_64": {
+      "algorithm": "sha256",
+      "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mode": 420
+    },
+    "Patchlist.changelog": {
+      "algorithm": "sha256",
+      "digest": "6fd5eb4bcc1bf63d2ec5a12b8d5efafe7c289df272f7081b1d776ea78398b5a8",
+      "mode": 420
+    },
+    "README.rst": {
+      "algorithm": "sha256",
+      "digest": "6a36ad1d379b68346d6e7db09a99393fb7ea550ed40aeef02cef0459372772db",
+      "mode": 420
+    },
+    "check-kabi": {
+      "algorithm": "sha256",
+      "digest": "591f599615c8bab7acf9564e96ffc67702aaef5d33031f4dc4edbcaa9148294d",
+      "mode": 493
+    },
+    "correct-spectre-flag-behavior.patch": {
+      "algorithm": "sha256",
+      "digest": "6bc50bb108d3053a0bad259ab081d5b7551032bfdcfbaa418f24b73a3183fe6f",
+      "mode": 420
+    },
+    "def_variants.yaml.fedora": {
+      "algorithm": "sha256",
+      "digest": "7ed6feec95f58623cd6bd73e28738d7ebb9aa78f39fb99b0d266cd8604d7f433",
+      "mode": 420
+    },
+    "def_variants.yaml.rhel": {
+      "algorithm": "sha256",
+      "digest": "96a6cce61baca7996bc9bd6e018be6365506832eefbfc220ac9b7ac396a853e8",
+      "mode": 420
+    },
+    "dracut-virt.conf": {
+      "algorithm": "sha256",
+      "digest": "845b50e8affe01d60b49518cf9e9f10fb6427537bbc2eac354236b82643e255f",
+      "mode": 420
+    },
+    "dtbloader.sbat.template": {
+      "algorithm": "sha256",
+      "digest": "9b469454b19d1fb65ae309a6f8873ad601085f8563a80c2002c4740074230517",
+      "mode": 420
+    },
+    "fedora-builtin.pem": {
+      "algorithm": "sha256",
+      "digest": "9cd2bebb166dc918c5ef5e9be363cb78cfaaf8c40cdc1943982c08772f919d12",
+      "mode": 420
+    },
+    "fedora-kernel-local": {
+      "algorithm": "sha256",
+      "digest": "778ee67a2d944d37dfd03d98f178086d2c1bf909c419085521450a4992d8cf53",
+      "mode": 420
+    },
+    "fedora-kernel.recipe": {
+      "algorithm": "sha256",
+      "digest": "8a963990f04d50f61ae1006cc65cda9f73579e77ebfd9c7bee49e75c7d9c6920",
+      "mode": 420
+    },
+    "fedora-sources": {
+      "algorithm": "sha256",
+      "digest": "c4bd419979f29f562ea0b6be337cc1a53e63771a64f1b978100cb79c08f5ffcd",
+      "mode": 420
+    },
+    "fedoraimaca.x509": {
+      "algorithm": "sha256",
+      "digest": "eea663869c34ccebcc3ddaa455d402e5e4fc32a4d7b97869907e74b229890e62",
+      "mode": 420
+    },
+    "filtermods.py": {
+      "algorithm": "sha256",
+      "digest": "4bdce4322b3d4934b71f0de0cd1ec1de95e47af8a661ee2f8c191a36424b4535",
+      "mode": 493
+    },
+    "flavors": {
+      "algorithm": "sha256",
+      "digest": "fd649b6ff6ee7e6fea9a20cbacb21cbbd27b5de543cfd1ad49655720d42c180a",
+      "mode": 420
+    },
+    "gating.yaml": {
+      "algorithm": "sha256",
+      "digest": "ea9b5b418f1969699f74e5d7f651a11034c3c1acb1d85a2efddebee1b9b4705d",
+      "mode": 420
+    },
+    "generate_all_configs.sh": {
+      "algorithm": "sha256",
+      "digest": "dd478738c6798afe650710a81356deca50829a688155a5da1fc938ee6d1b65d1",
+      "mode": 493
+    },
+    "kernel-aarch64-16k-debug-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "25000a03e7c5f8276d1a67b50a3a3eb72fca20e7ea3f13b31d57fb2113d37a52",
+      "mode": 420
+    },
+    "kernel-aarch64-16k-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "cb0a5d51891d8053c4304d8d08b5ae9ef8c0ec0261a5f3fe3122e89481a02498",
+      "mode": 420
+    },
+    "kernel-aarch64-64k-debug-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "109dcb0946af9782afa2b7f43e9beb086321d7c0a5b7d4f86a82df82ea9b3590",
+      "mode": 420
+    },
+    "kernel-aarch64-64k-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "3e6ffeb715e5fdb214ebb4aac86e5ed5305fcc5f293df7e88fc189e9c1bea4f6",
+      "mode": 420
+    },
+    "kernel-aarch64-debug-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "7affba80f345c68671f2909966967b9368836334fe2bf77588a644b38ef70ad9",
+      "mode": 420
+    },
+    "kernel-aarch64-debug-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "8b57c2224c0c401cae74d7fe0de178e133a1ecc858cb0215280f52d694ffcbdb",
+      "mode": 420
+    },
+    "kernel-aarch64-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "fcbcea81559ff1f1a1de9d1ab5ba90f35db21aa342850fd62b7e4b477bed80d3",
+      "mode": 420
+    },
+    "kernel-aarch64-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "c5d6a232ced454f8a26434204ed0333fc0bcdb3c079e9f1f186a85f47da9bea0",
+      "mode": 420
+    },
+    "kernel-aarch64-rt-64k-debug-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "2ac5fe4c52758bb31da70bd5dc934bd08bc8d51924bd17f39782f40d5c3880b7",
+      "mode": 420
+    },
+    "kernel-aarch64-rt-64k-debug-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "4e6ffca387e1c317ac53d7c1d2f031a65073d2bba55eec333842897486cd863d",
+      "mode": 420
+    },
+    "kernel-aarch64-rt-64k-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "7df9db9070c88cb9c600a5ded3eb3c9861715d6199b6422c51bb39d6f1cc6ae8",
+      "mode": 420
+    },
+    "kernel-aarch64-rt-64k-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "c4f6b896caa30cf2c392a71bd38f0c493087b5b7d575bc9445d579ed1920c625",
+      "mode": 420
+    },
+    "kernel-aarch64-rt-debug-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "34209189ab9cd12af47f46ac8e902a9b70d27a68872e38ba2712f471e087aa54",
+      "mode": 420
+    },
+    "kernel-aarch64-rt-debug-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "d2e20a2125e3a1a00dc8c75122449da110265d6e67a12b76d756bbaaf4d69e31",
+      "mode": 420
+    },
+    "kernel-aarch64-rt-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "fe00d83edf4b662c319b56530bdc0015f2e39350f29c0a2103e1cc44590f776b",
+      "mode": 420
+    },
+    "kernel-aarch64-rt-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "452bdfa9d8e5cf3da4bd74d2b4dfa19f28f55ae0da70c7e860347314c42f1645",
+      "mode": 420
+    },
+    "kernel-abi-stablelists-7.3.3.tar.xz": {
+      "algorithm": "sha512",
+      "digest": "d46d2c88d20ee47585be2ef8157a832b856cf25e6d35b3dee1ac050744f38fa897ebb3f7df7498a1fe065546e9fc7dd6e6eb174b6e1c617890a2d074c8b3366c",
+      "mode": 420
+    },
+    "kernel-kabi-dw-7.3.3.tar.xz": {
+      "algorithm": "sha512",
+      "digest": "47478f14f1a6a3fa6f549cd817584b82c84801a6cf59bd5be7c84dd7f8acb0d3072595b5b571d88738f6daf8d2a961c593c2b8c16104ecd6f49efe60cf8c01ff",
+      "mode": 420
+    },
+    "kernel-local": {
+      "algorithm": "sha256",
+      "digest": "4e45a4078363fab80e5c20a59484ba7d7d96699fff97f2e56777854d3fb50f26",
+      "mode": 420
+    },
+    "kernel-policy.json": {
+      "algorithm": "sha256",
+      "digest": "228c3d8ce6f371961469f22cbf6209c68374df1a9b8eb7be29eae8585820ea0f",
+      "mode": 420
+    },
+    "kernel-ppc64le-debug-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "4dc28726573cf9ab9610bdd835babcc2c22107b4e4546d4554b2f77968aae34b",
+      "mode": 420
+    },
+    "kernel-ppc64le-debug-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "c70d3aa5827895628fe5282b789310073d2957eb77ca8c6c02f66efcc2a68bd6",
+      "mode": 420
+    },
+    "kernel-ppc64le-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "b76341ef2301eb71557510aba6efc8d525c6ab3568da28f46d6b1bf052280f10",
+      "mode": 420
+    },
+    "kernel-ppc64le-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "1764d1bc8f3f611a85ab8e3b715d18c32e843ef3b183ef074b7906c594e1bf99",
+      "mode": 420
+    },
+    "kernel-riscv64-debug-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "43d94d3ad3bfe0e0695b465eea02f16cd05fa99b438f6d031056200f6570eebc",
+      "mode": 420
+    },
+    "kernel-riscv64-debug-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "9cfd168224ea444d8010dd8ca57ef2574fa3170bfe4542cf22198726b61196f0",
+      "mode": 420
+    },
+    "kernel-riscv64-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "ab87f82f1639632a6d83a59545f92a5113c3e2fb72dd8bcd871b99dc7464cd59",
+      "mode": 420
+    },
+    "kernel-riscv64-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "a6f6828c7d942066bbedcc6b5b6cdf4cd17d207ddb3313b4f2bc8a1334eeabf3",
+      "mode": 420
+    },
+    "kernel-riscv64-rt-debug-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "ef7e94cf468b222dbb09f7d3fe095310c1b55d1084c51d7c10266d332724fe4b",
+      "mode": 420
+    },
+    "kernel-riscv64-rt-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "c63b1dc42d678a4f797cf1afb12972586b7131efd1e7dcc8af762c098c505322",
+      "mode": 420
+    },
+    "kernel-s390x-debug-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "43de2908412fbb1cf3a31de0759ff1dbafd2369d809bbcd06fee819a6083a282",
+      "mode": 420
+    },
+    "kernel-s390x-debug-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "09e6178727eb242e2b719da0fbdbdff7f9bca946a255c9138205897b6c565848",
+      "mode": 420
+    },
+    "kernel-s390x-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "817836b2dbd6b67360dcb97c93e08ea80b76d523dbac7ff4011160a05587392e",
+      "mode": 420
+    },
+    "kernel-s390x-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "e6d29e212e3b75fe5d8d64fdf7a2c6dcce32165b51fd51f2490f8be5be1f10f1",
+      "mode": 420
+    },
+    "kernel-s390x-zfcpdump-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "940dbbc231840f7198c12a5f5cd9c338432e87c3f6a28b804e8100bdddeecf5d",
+      "mode": 420
+    },
+    "kernel-x86_64-debug-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "648b9cf3abdd682724f4c53625870220d10dd01d7e614e9c9408b644d9460810",
+      "mode": 420
+    },
+    "kernel-x86_64-debug-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "1069930f145866eb5752937793be80b138c6b9f0523ad0ed3629576a5ac220d0",
+      "mode": 420
+    },
+    "kernel-x86_64-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "aa3d8a265197d5db9d0cd6d909eb39f3be1d53d5ce3d4b4b725787b89065d1fb",
+      "mode": 420
+    },
+    "kernel-x86_64-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "45baa9dc17559e9eef24eb66bc5d66c1588914ad20b0ecb4755d33dbab48625e",
+      "mode": 420
+    },
+    "kernel-x86_64-rt-debug-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "45631649375b67845473d7adf9c5840004502ae068cba9c44a3ea299ef37aba1",
+      "mode": 420
+    },
+    "kernel-x86_64-rt-debug-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "40a3f8e288f1053eea10a2bdcb183aa74a69aeb168192fd843da7d81ad13fe8f",
+      "mode": 420
+    },
+    "kernel-x86_64-rt-fedora.config": {
+      "algorithm": "sha256",
+      "digest": "9c0622fa830b490d616607db41ddd63693623eb776a951037fc0099ed31e9514",
+      "mode": 420
+    },
+    "kernel-x86_64-rt-rhel.config": {
+      "algorithm": "sha256",
+      "digest": "e2b6548282e677d729666833db12659d24f9e58c43e5e48fa046e692dc26c786",
+      "mode": 420
+    },
+    "kernel.changelog": {
+      "algorithm": "sha256",
+      "digest": "c03aab1a22bfdf9d73f99d8b06cc0e49a647f5cc42e77432c219ea941be85e94",
+      "mode": 420
+    },
+    "kernel.recipe": {
+      "algorithm": "sha256",
+      "digest": "007420ea841764bff913fecf35fcb56ea98e070d5d55f54ca03e5d204a2b898c",
+      "mode": 420
+    },
+    "kernel.sbat.template": {
+      "algorithm": "sha256",
+      "digest": "4c9f5437019f21f608c01d78adab073bedddd07aae467954e102a114cd5b3933",
+      "mode": 420
+    },
+    "kernelbuild.py": {
+      "algorithm": "sha256",
+      "digest": "5ed04a39b340f444ca503d5b8e738005a7c62ba7456b66f574b735ec9784a85c",
+      "mode": 420
+    },
+    "kmap.py": {
+      "algorithm": "sha256",
+      "digest": "626db1d96b645c143104d888aaa7b5d54c4b205fe6d642d9e1f59aaaa0dbec6c",
+      "mode": 493
+    },
+    "kvm_stat.logrotate": {
+      "algorithm": "sha256",
+      "digest": "afb52ae8c2f82c8c7a1f6d7eed6cff3473ab0eef4a599dbd4b9585692851eb5e",
+      "mode": 420
+    },
+    "linux-7.3.3.tar.xz": {
+      "algorithm": "sha512",
+      "digest": "55e15001a7a1ca90b954a44eb75cf0d05e2c87a33f2fd4bc9a9758f05cfa4f9bd023deb9c2f7bcbf05150d610d9052847e55fde498c3bbdb3c791860808503b9",
+      "mode": 420
+    },
+    "linux-kernel-test.patch": {
+      "algorithm": "sha256",
+      "digest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "mode": 420
+    },
+    "merge.py": {
+      "algorithm": "sha256",
+      "digest": "475d841b83c49ac1963a74c732e6434199b2709222201aed3a0205f100fb9030",
+      "mode": 493
+    },
+    "mod-denylist.sh": {
+      "algorithm": "sha256",
+      "digest": "77209ececd6b04a40d817023190f53ffd7f0a88739c95c77d6e99f868f6fdbd4",
+      "mode": 493
+    },
+    "mod-sign.sh": {
+      "algorithm": "sha256",
+      "digest": "eafd51169ac8743d1784ae6885d418c6a962873f986cdd643449baf9976356c9",
+      "mode": 493
+    },
+    "nvidiabfdpu.x509": {
+      "algorithm": "sha256",
+      "digest": "fa04f907329bba42a1ca50579a35b666d706016623eafe24a7e478d6de2224d5",
+      "mode": 420
+    },
+    "nvidiagpuoot001.x509": {
+      "algorithm": "sha256",
+      "digest": "ca3aa0979f9426736d382747bba165e71ea4c42a2fb736d78fd8a4c4b7b58ad4",
+      "mode": 420
+    },
+    "nvidiajetsonsoc.x509": {
+      "algorithm": "sha256",
+      "digest": "42d74cbed7680fd58a4e24fa3b6cf298c0c0e8297dfe87f3dd7fd02290d08724",
+      "mode": 420
+    },
+    "partial-clang-debug-snip.config": {
+      "algorithm": "sha256",
+      "digest": "f1853225dde35a80d7a5469d5ca980fc89acd180b410c0f1c797fdfdd870d21b",
+      "mode": 420
+    },
+    "partial-clang-s390x-debug-snip.config": {
+      "algorithm": "sha256",
+      "digest": "c2e3c0d1177dc3d0e24e65083b8cf9801d246e5a84fc0362e336503466835599",
+      "mode": 420
+    },
+    "partial-clang-s390x-snip.config": {
+      "algorithm": "sha256",
+      "digest": "3fe84308a58eafa112c0697bc79049feec9b23645713d7ab30a415c7b34627c1",
+      "mode": 420
+    },
+    "partial-clang-snip.config": {
+      "algorithm": "sha256",
+      "digest": "1e284106aa73651584065bae01f8c605395aad163f977fb3c11771aa894248e3",
+      "mode": 420
+    },
+    "partial-clang_lto-aarch64-debug-snip.config": {
+      "algorithm": "sha256",
+      "digest": "9af81751698195719545490eae2a763d316a4ec0d10e94478bf87b4d9501b7c1",
+      "mode": 420
+    },
+    "partial-clang_lto-aarch64-snip.config": {
+      "algorithm": "sha256",
+      "digest": "78b18eda77be82f2e19ab5c1e2b2c7d0120012947f3af830c3e604cb9cf9d4a4",
+      "mode": 420
+    },
+    "partial-clang_lto-x86_64-debug-snip.config": {
+      "algorithm": "sha256",
+      "digest": "9af81751698195719545490eae2a763d316a4ec0d10e94478bf87b4d9501b7c1",
+      "mode": 420
+    },
+    "partial-clang_lto-x86_64-snip.config": {
+      "algorithm": "sha256",
+      "digest": "82540fe7b914998f05ecba7fd642c7cd67be33d08719adcc15f8640e8dfd1419",
+      "mode": 420
+    },
+    "partial-kgcov-debug-snip.config": {
+      "algorithm": "sha256",
+      "digest": "597bc0a195d5f49ef737f361a1c6c30bcb04444e1b6180ad7a6be08eb74bb4c1",
+      "mode": 420
+    },
+    "partial-kgcov-snip.config": {
+      "algorithm": "sha256",
+      "digest": "597bc0a195d5f49ef737f361a1c6c30bcb04444e1b6180ad7a6be08eb74bb4c1",
+      "mode": 420
+    },
+    "patch-7.3-redhat.patch": {
+      "algorithm": "sha256",
+      "digest": "8eae3c0ca737ce9159a9356581d2c168e6431f4ffda590d2795a06f65e6f942b",
+      "mode": 420
+    },
+    "process_configs.sh": {
+      "algorithm": "sha256",
+      "digest": "51d649f2e0e315776974c6580281c135cda8fd8aa917e789d5d1219240dc0696",
+      "mode": 493
+    },
+    "redhatsecureboot501.cer": {
+      "algorithm": "sha256",
+      "digest": "81ccee9747e67dd8c5e5d08ba5b336da9b9bcdbff89422f5a8cc2fa450b3f03e",
+      "mode": 420
+    },
+    "redhatsecurebootca5.cer": {
+      "algorithm": "sha256",
+      "digest": "40175d4c7c5ab4bd753a493f47952f1d8dcf1c219b836968a693e48bd4766135",
+      "mode": 420
+    },
+    "rheldup3.x509": {
+      "algorithm": "sha256",
+      "digest": "af61197112f29a3a52f3825d363fe3103dc98cad269763071ee86eb2aedc139b",
+      "mode": 420
+    },
+    "rhelima.x509": {
+      "algorithm": "sha256",
+      "digest": "b466265282193c17b3256b199ecc3bdd986797b4a82ad841de4a132132e9f6ab",
+      "mode": 420
+    },
+    "rhelima_centos.x509": {
+      "algorithm": "sha256",
+      "digest": "535ad7cda08187bc7dc22c62456e10990a42d7f87d1c741454525d1035430ebe",
+      "mode": 420
+    },
+    "rhelimaca1.x509": {
+      "algorithm": "sha256",
+      "digest": "adf5bbf5871e9658adaeadcfb7d6f7592f1091f8701c1e06dff9bd99cc893dda",
+      "mode": 420
+    },
+    "rhelkpatch1.x509": {
+      "algorithm": "sha256",
+      "digest": "59385d0b89010159180c6aa71a06f46e3381f6576341627b4b96363dfceeed68",
+      "mode": 420
+    },
+    "rpminspect.yaml": {
+      "algorithm": "sha256",
+      "digest": "d8a3e2db453e9dcf73c016e7125d3fb2cde5a3ef97f831ad42ab676807ba507a",
+      "mode": 420
+    },
+    "secureblue-copr_script.sh": {
+      "algorithm": "sha256",
+      "digest": "f5acf361ee823ae71f6f56f68efaf75eff27c688b1f5a8d295ca38cfca13b3fb",
+      "mode": 420
+    },
+    "secureblue.LICENSE": {
+      "algorithm": "sha256",
+      "digest": "844942ff5a165bcc0789521f0085baafc9fb75ca67a8ee37901af3ad5280030d",
+      "mode": 420
+    },
+    "uki-addons.sbat.template": {
+      "algorithm": "sha256",
+      "digest": "fa70b70432d18d7b4abfaa8b6bae3812344f94e60017c51824a8225181169780",
+      "mode": 420
+    },
+    "uki.sbat.template": {
+      "algorithm": "sha256",
+      "digest": "508c427a140ef076702a915d77196463c3ab1255b7cafe34671e84ff80e8a530",
+      "mode": 420
+    },
+    "uki_addons.json": {
+      "algorithm": "sha256",
+      "digest": "abe42303aeab05528e8f588b99de4687d1eff898b92135203bc24214c45aef4a",
+      "mode": 420
+    },
+    "uki_create_addons.py": {
+      "algorithm": "sha256",
+      "digest": "970c090b09c0cf1425c16baddf12905a90cb5c9f16492e095f7218aa650f91db",
+      "mode": 493
+    },
+    "x509.genkey.centos": {
+      "algorithm": "sha256",
+      "digest": "10fa5c6fa028d8459e10d8bbdfe91270390682f344ba43096c2e2eb4e2699c6e",
+      "mode": 420
+    },
+    "x509.genkey.fedora": {
+      "algorithm": "sha256",
+      "digest": "d3a98820f42c859c5bd2536625246d72f046730cb13bb04c69c062eb5c1e2c6d",
+      "mode": 420
+    },
+    "x509.genkey.rhel": {
+      "algorithm": "sha256",
+      "digest": "b799a32c1eb971bc7c2adf80952e42db49bd0128b374fc2d177d2b1a1dde0931",
+      "mode": 420
+    }
+  },
+  "spec_patches": {
+    "patches/add-spectre-patch.patch": "40f3cc0e65c6d7ea4f8283b79af227d2c4a297efad3f40b663c30c91e52dff83"
+  },
+  "upstream": {
+    "fedora_kernel": {
+      "branch": "f45",
+      "revision": "5ec3867fa7eb3f5d4a521ffa8898689f5731a71f",
+      "url": "https://src.fedoraproject.org/rpms/kernel.git"
+    },
+    "secureblue_kernel": {
+      "branch": "live",
+      "revision": "39911dc23b9a1c63e0da545d7540d93172e0c56b",
+      "url": "https://github.com/secureblue/kernel.git"
+    }
+  }
+}

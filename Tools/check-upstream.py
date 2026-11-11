@@ -11,6 +11,7 @@ from pathlib import Path
 
 from particleve.common import require, run
 from particleve.package_sources import COMPONENTS, source_identity
+from Tools.kernel_source import generate, write_generated
 from Tools.sourcegit import fetch, git
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -41,4 +42,11 @@ for component, name in COMPONENTS.items():
         if component == "mkosi":
             run(["bash", "-n", tree / "mkosi/resources/mkosi-obs/mkosi.build"])
     checked.append(component)
+lock = json.loads((root / "sources.lock.json").read_text())
+write_generated(
+    root / ".obs/kernel",
+    generate(root, lock, args.sources / "fedora_kernel", args.sources / "secureblue_kernel"),
+    check=True,
+)
+checked.append("kernel sources")
 print(json.dumps({"verified": checked}))

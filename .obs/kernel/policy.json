@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "overrides": {
+    "CONFIG_VSOCKETS_DIAG": {
+      "value": "m",
+      "reason": "Native host and guest transport diagnostics require vsock listener discovery."
+    },
+    "CONFIG_MODULE_SIG_KEY": {
+      "value": "\"\"",
+      "reason": "Do not generate or embed a new in-worker module-signing authority; OBS signs with the existing project key."
+    },
+    "CONFIG_MODULE_SIG_ALL": {
+      "value": "n",
+      "reason": "Modules are signed by the existing off-host OBS signing continuation after Fedora's normal build transformations."
+    },
+    "CONFIG_SYSTEM_TRUSTED_KEYS": {
+      "value": "\"certs/particleve-fedora.pem\"",
+      "reason": "Retain exactly the two Fedora built-in authorities observed on the approved stock baseline; do not embed the project key or any secureblue signing key."
+    },
+    "CONFIG_EFI_SBAT_FILE": {
+      "value": "\"kernel.sbat\"",
+      "reason": "Preserve Fedora kernel SBAT generation while signing is handled by the existing OBS continuation."
+    }
+  },
+  "spec_patches": [
+    "patches/add-spectre-patch.patch"
+  ],
+  "excluded_patches": {
+    "patches/trusted-keys.patch": "Preserve Fedora's approved built-in trust; do not introduce secureblue's additional signing authorities."
+  },
+  "retained_builtin": {
+    "file": "fedora-builtin.pem",
+    "sha256": "9cd2bebb166dc918c5ef5e9be363cb78cfaaf8c40cdc1943982c08772f919d12",
+    "baseline_kernel": "7.3.3-300.fc45.x86_64",
+    "certificate_sha256": [
+      "a2dc812fcf51516b5a6356381dc7f63de90f37d18ff8eef89aabb08ce1c0b030",
+      "eea663869c34ccebcc3ddaa455d402e5e4fc32a4d7b97869907e74b229890e62"
+    ]
+  }
+}

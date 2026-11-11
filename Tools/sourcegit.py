@@ -69,7 +69,7 @@ def git(root, *arguments, remote=None, **options):
     return run([*command, "-C", root, *arguments], env=environment(), **options)
 
 
-def fetch(root, url, revision):
+def fetch(root, url, revision, *, branch=None):
     require(
         isinstance(revision, str)
         and len(revision) <= 128
@@ -77,8 +77,26 @@ def fetch(root, url, revision):
         "fetch an immutable source commit or the checked release tag",
     )
     source_url(url)
+    require(
+        branch is None
+        or (
+            isinstance(branch, str)
+            and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", branch)
+            and re.fullmatch(r"[0-9a-f]{40}", revision)
+        ),
+        "branch transport requires a simple reviewed branch name and an immutable commit",
+    )
     # Native --get-url resolves aliases/insteadOf without contacting a peer.
     # Otherwise a local rewrite could select another URL's TLS exceptions.
     resolved = git(root, "ls-remote", "--get-url", url).stdout.strip()
     require(resolved == url, "source URL rewrites are unsupported; use the reviewed source lock")
-    return git(root, "fetch", "--no-progress", "--depth=1", url, revision, remote=url)
+    if branch is None:
+        return git(root, "fetch", "--no-progress", "--depth=1", url, revision, remote=url)
+    # Fedora's server does not serve unadvertised commits directly. Fetch a
+    # bounded advertised history, then verify ancestry and select the locked
+    # commit. The branch tip is transport, never the selected build input.
+    result = git(
+        root, "fetch", "--no-progress", "--no-tags", "--depth=64", url, "refs/heads/" + branch, remote=url
+    )
+    git(root, "merge-base", "--is-ancestor", revision, "FETCH_HEAD")
+    return result

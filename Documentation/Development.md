@@ -25,7 +25,8 @@ PYTHONPATH=Sources:. python3 Tools/configure-build.py --site .obs/site.json
 make summary
 ```
 
-`make sources` fetches the mkosi and fwupd-efi revisions in
+`make sources` fetches the mkosi, fwupd-efi, Fedora kernel packaging, and
+secureblue/kernel revisions in
 [`sources.lock.json`](../sources.lock.json). This checkout is the ParticleOS
 fork; its recorded upstream revision is provenance, not another tree to download.
 Existing source checkouts must match their pins and have clean worktrees.
@@ -88,6 +89,36 @@ tree's lock without changing it; fetching missing crates needs network access at
 this preparation stage. `--cargo` selects an explicit Cargo executable. The
 resulting RPM build uses those vendored sources offline. The normal OBS source
 services also prepare the separately pinned mkosi and fwupd-efi packages.
+
+### Kernel source preparation
+
+Generate the kernel package's public recipe, config overlay, source manifest,
+and OBS services from its clean pinned upstream checkouts:
+
+```sh
+make sources
+PYTHONPATH=Sources:. python3 Tools/prepare-kernel.py
+PYTHONPATH=Sources:. python3 Tools/prepare-kernel.py --check
+```
+
+Review the generated files in [`.obs/kernel/`](../.obs/kernel). The adapter keeps
+Fedora's native build machinery, applies the selected secureblue patch and config,
+and records explicit [ParticleVE deviations](../.obs/kernel/policy.json).
+The source manifest binds Fedora's packaging files, Git executable modes,
+lookaside archive checksums and the adaptation inputs. The RPM preparation step
+checks those inputs before unpacking the kernel. An independently authenticated
+Fedora source RPM's extracted files can also be checked with
+`--verify-srpm-sources /absolute/path/to/extracted-sources`.
+
+The retained public certificate bundle preserves the two Fedora built-in
+authorities from the approved stock baseline. Changes to that bundle require
+the separate trust-review and acceptance procedure. Private signing keys remain
+external build inputs. Use the ordinary signed-image release gates before
+publishing a kernel or changing the installed image's package selection.
+
+Kernel source pins include an advertised branch for bounded source transport.
+The fetcher verifies that the locked commit belongs to that history and checks
+out the exact commit. A branch tip never substitutes for an unavailable pin.
 
 ## Incremental work and isolated outputs
 
