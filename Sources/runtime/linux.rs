@@ -926,6 +926,9 @@ impl Linux {
         Ok(())
     }
     pub fn health(&self) -> Result<()> {
+        self.health_with_kcore(Path::new("/proc/kcore"))
+    }
+    pub(crate) fn health_with_kcore(&self, kcore: &Path) -> Result<()> {
         self.check_storage(false)?;
         crate::consoles::baseline(&self.config, Path::new("/proc"), Path::new("/sys"))?;
         crate::accounts::check()?;
@@ -935,7 +938,7 @@ impl Linux {
             "Secure Boot is not enabled",
         )?;
         crate::inventory::measured_boot(true)?;
-        crate::security::live_baseline(Path::new("/"), false)?;
+        crate::security::live_baseline(Path::new("/"), false, kcore)?;
         crate::security::ssh_baseline()?;
         crate::security::selinux_baseline()?;
         crate::security::selinux_access()?;

@@ -166,7 +166,7 @@ fn inspect_security(backend: &Linux) -> Result<Value> {
         }
     }
     Ok(
-        json!({"image_version":backend.current_version()?,"radio_policy":crate::radio::baseline(&backend.config["physical"]["radios"],Path::new("/sys"),Path::new("/proc"),Path::new("/dev/rfkill"),Path::new("/etc/particleve/radio-policy.json"))?,"console_policy":crate::consoles::baseline(&backend.config,Path::new("/proc"),Path::new("/sys"))?,"kernel":crate::security::live_baseline(Path::new("/"),true)?,"administration":crate::security::ssh_baseline()?,"selinux_booleans":crate::security::selinux_baseline()?,"selinux_interfaces":crate::security::selinux_access()?,"listeners":{"ip":run(&["ss","-H","-lntup"])?.stdout,"unix":run(&["ss","-H","-lxnp"])?.stdout,"vsock":run(&["ss","-H","-l","-A","vsock","-p"])?.stdout,"socket_units":run(&["systemctl","list-sockets","--all","--no-pager"])?.stdout},"privileged_files":crate::security::check_privileges(Path::new("/"),None)?,"vm_processes":processes}),
+        json!({"image_version":backend.current_version()?,"radio_policy":crate::radio::baseline(&backend.config["physical"]["radios"],Path::new("/sys"),Path::new("/proc"),Path::new("/dev/rfkill"),Path::new("/etc/particleve/radio-policy.json"))?,"console_policy":crate::consoles::baseline(&backend.config,Path::new("/proc"),Path::new("/sys"))?,"kernel":crate::security::live_baseline(Path::new("/"),true,Path::new("/proc/kcore"))?,"administration":crate::security::ssh_baseline()?,"selinux_booleans":crate::security::selinux_baseline()?,"selinux_interfaces":crate::security::selinux_access()?,"listeners":{"ip":run(&["ss","-H","-lntup"])?.stdout,"unix":run(&["ss","-H","-lxnp"])?.stdout,"vsock":run(&["ss","-H","-l","-A","vsock","-p"])?.stdout,"socket_units":run(&["systemctl","list-sockets","--all","--no-pager"])?.stdout},"privileged_files":crate::security::check_privileges(Path::new("/"),None)?,"vm_processes":processes}),
     )
 }
 pub fn execute(args: Arguments) -> Result<(i32, Value)> {
@@ -369,7 +369,9 @@ pub fn execute(args: Arguments) -> Result<(i32, Value)> {
                 Commands::CheckUsers => crate::accounts::check()?,
                 Commands::SecurityStatus => inspect_security(&backend)?,
                 Commands::StartupInventory => crate::startup::inventory(Path::new("/"))?,
-                Commands::HealthReport => crate::reporting::snapshot(&backend, 172800, None)?,
+                Commands::HealthReport => {
+                    crate::reporting::snapshot(&backend, 172800, None, Path::new("/proc/kcore"))?
+                }
                 Commands::SendHealthReport => crate::reporting::send(&backend)?,
                 Commands::FailBoot => {
                     let _ownership = lock(&state_dir)?;

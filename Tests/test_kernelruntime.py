@@ -36,6 +36,8 @@ class KernelRuntimeTests(RustDriverTests):
                 else:
                     self.assertTrue(kernelruntime.kernel_support(SUPPORT)["strict_devmem"])
         self.assertFalse(kernelruntime.kernel_support(SUPPORT | {"DEVMEM": "n"})["strict_devmem"])
+        self.assertFalse(kernelruntime.kernel_support(SUPPORT)["proc_kcore"])
+        self.assertTrue(kernelruntime.kernel_support(SUPPORT | {"PROC_KCORE": "y"})["proc_kcore"])
 
     def test_runtime_drift_is_detected_without_rewriting_fixture_state(self):
         policy = json.loads(Path("Sources/particleve/runtime-policy.json").read_text())["sysctls"]

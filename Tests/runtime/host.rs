@@ -35,6 +35,7 @@ pub fn evaluate(request: &Value) -> Option<Result<Value>> {
         "kernel-runtime-baseline" => particleve::kernelruntime::baseline(
             Path::new(text(field(request, "proc")?)?),
             Path::new(text(field(request, "dev")?)?),
+            &Path::new(text(field(request, "proc")?)?).join("kcore"),
         ),
         "security-selinux-baseline" => particleve::security::selinux_baseline(),
         "security-usr-backing-disks" => Ok(json!(particleve::security::usr_backing_disks(

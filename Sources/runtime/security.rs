@@ -696,10 +696,14 @@ pub fn firmware_evidence() -> Result<Value> {
     )?;
     Ok(json!({"available":true,"attributes":attributes}))
 }
-pub fn live_baseline(root: &Path, evidence: bool) -> Result<Value> {
+pub fn live_baseline(root: &Path, evidence: bool, kcore: &Path) -> Result<Value> {
     let mut baseline = kernel_baseline(root)?;
     baseline["kernel_runtime"] =
-        crate::kernelruntime::baseline(Path::new("/proc"), Path::new("/dev"))?;
+        crate::kernelruntime::baseline(Path::new("/proc"), Path::new("/dev"), kcore)?;
+    require(
+        baseline["runtime_support"]["proc_kcore"] == baseline["kernel_runtime"]["root_only_kcore"],
+        "kernel core metadata availability differs from the verified kernel configuration",
+    )?;
     baseline["memory_privacy"] =
         crate::memoryprivacy::baseline(Path::new("/proc"), Path::new("/sys"))?;
     baseline["resource_controllers"] = json!(crate::resourceusage::controllers(Path::new(

@@ -267,6 +267,7 @@ pub fn snapshot(
     backend: &Linux,
     maximum_update_check_age_seconds: u64,
     now: Option<chrono::DateTime<chrono::Utc>>,
+    kcore: &Path,
 ) -> Result<Value> {
     let now = now.unwrap_or_else(chrono::Utc::now);
     let mut checks = Vec::new();
@@ -280,7 +281,7 @@ pub fn snapshot(
         "vm_confinement",
     ] {
         let observed = match name {
-            "host_security" => backend.health().map(|()| Value::Null),
+            "host_security" => backend.health_with_kcore(kcore).map(|()| Value::Null),
             "authenticated_time" => backend.check_time(None),
             "storage" => backend.check_storage(true),
             "resources" => backend.check_resources(false),
@@ -452,7 +453,7 @@ pub fn send(backend: &Linux) -> Result<Value> {
         "report delivery requires a private dynamic UID",
     )?;
     let payload = canonical(
-        &json!({"schema":1,"uid":uid,"endpoint":config["endpoint"],"report":snapshot(backend,uint(&config["maximum_update_check_age_seconds"])?,None)?}),
+        &json!({"schema":1,"uid":uid,"endpoint":config["endpoint"],"report":snapshot(backend,uint(&config["maximum_update_check_age_seconds"])?,None,Path::new(crate::kernelruntime::REPORT_KCORE))?}),
     )?;
     require(
         payload.len() <= MAX_HANDOFF,

@@ -22,4 +22,5 @@ def kernel_support(values):
         "mmap_rnd_compat_bits_max": int(values["ARCH_MMAP_RND_COMPAT_BITS_MAX"]),
         "strict_devmem": values.get("DEVMEM") == "y",
         "legacy_kmem": False,
+        "proc_kcore": values.get("PROC_KCORE") == "y",
     }

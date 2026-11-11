@@ -209,6 +209,13 @@ rejected. See the [credential handoff](Operations.md#external-health-reporting)
 for the access contract.
 There is no privileged parent parsing receiver responses.
 
+The report sandbox keeps kernel-tunable protection and its `/proc/kcore` mask.
+PID 1 supplies a separate read-only bind of the original interface for metadata
+inspection, removed with the service runtime directory. Its availability must
+match the verified kernel configuration; a missing bind cannot hide an enabled
+interface. The inspector requires `0400 root:root` and never opens kernel memory.
+Neither inspection nor delivery receives `CAP_SYS_RAWIO`.
+
 The sender closes inherited descriptors and requires Landlock ABI 5 or later.
 Its profile denies filesystem data writes, creation/removal, link/rename,
 truncation, and device ioctls; it does not claim to mediate every metadata-only

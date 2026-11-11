@@ -30,6 +30,13 @@ PrivateTmp=yes
 ProtectProc=invisible
 ReadOnlyPaths=/proc
 ProtectKernelTunables=yes
+# Preserve the real interface metadata beneath the sandbox's /proc/kcore mask.
+# The inspector never opens it and has no CAP_SYS_RAWIO; PID 1 removes the alias.
+RuntimeDirectory=particleve-report
+# The capability-bounded root inspector must traverse this DynamicUser-owned
+# directory without CAP_DAC_OVERRIDE. The bound file remains 0400 root:root.
+RuntimeDirectoryMode=0755
+BindReadOnlyPaths=-/proc/1/root/proc/kcore:/run/particleve-report/kcore
 # libselinux uses this one transaction file for read-only effective-policy
 # queries. It cannot load policy, change booleans or change enforcing state.
 ReadWritePaths=/sys/fs/selinux/access

@@ -4,6 +4,9 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::path::Path;
+// PID 1 binds the original interface here before applying the report sandbox's
+// /proc/kcore mask. Only metadata is inspected; CAP_SYS_RAWIO is never granted.
+pub const REPORT_KCORE: &str = "/run/particleve-report/kcore";
 pub fn kernel_support(values: &BTreeMap<String, String>) -> Result<Value> {
     require(
         values.get("SECURITY_YAMA").map(String::as_str) == Some("y"),
@@ -38,10 +41,10 @@ pub fn kernel_support(values: &BTreeMap<String, String>) -> Result<Value> {
         "legacy kernel memory device is enabled",
     )?;
     Ok(
-        json!({"yama":true,"mmap_rnd_bits_max":entropy[0],"mmap_rnd_compat_bits_max":entropy[1],"strict_devmem":devmem,"legacy_kmem":false}),
+        json!({"yama":true,"mmap_rnd_bits_max":entropy[0],"mmap_rnd_compat_bits_max":entropy[1],"strict_devmem":devmem,"legacy_kmem":false,"proc_kcore":values.get("PROC_KCORE").is_some_and(|s|s=="y")}),
     )
 }
-pub fn baseline(proc: &Path, dev: &Path) -> Result<Value> {
+pub fn baseline(proc: &Path, dev: &Path, kcore: &Path) -> Result<Value> {
     let policy = crate::security::runtime_policy()?;
     for (name, expected) in &policy.sysctls {
         require(
@@ -81,7 +84,7 @@ pub fn baseline(proc: &Path, dev: &Path) -> Result<Value> {
         )?;
         interfaces.insert(name, true);
     }
-    let kcore = match std::fs::symlink_metadata(proc.join("kcore")) {
+    let kcore = match std::fs::symlink_metadata(kcore) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
         Err(e) => return Err(e.into()),
         Ok(info) => {
@@ -104,6 +107,17 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::symlink;
     #[test]
+    fn kernel_support_records_whether_kcore_metadata_must_be_present() {
+        let mut values = BTreeMap::from([
+            ("SECURITY_YAMA".into(), "y".into()),
+            ("ARCH_MMAP_RND_BITS_MAX".into(), "32".into()),
+            ("ARCH_MMAP_RND_COMPAT_BITS_MAX".into(), "16".into()),
+        ]);
+        assert_eq!(kernel_support(&values).unwrap()["proc_kcore"], false);
+        values.insert("PROC_KCORE".into(), "y".into());
+        assert_eq!(kernel_support(&values).unwrap()["proc_kcore"], true);
+    }
+    #[test]
     fn effective_sysctls_and_raw_device_shapes_fail_closed() {
         let root = tempfile::tempdir().unwrap();
         let proc = root.path().join("proc");
@@ -115,19 +129,30 @@ mod tests {
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(path, format!("{value}\n")).unwrap();
         }
-        let baseline = baseline(&proc, &dev).unwrap();
+        let kcore = proc.join("kcore");
+        let baseline = baseline(&proc, &dev, &kcore).unwrap();
+        assert_eq!(baseline["root_only_kcore"], false);
         assert_eq!(
             baseline["root_only_devices"],
             json!({"mem":false,"userfaultfd":false})
         );
         let target = proc.join("sys/vm/memfd_noexec");
         fs::write(&target, "2").unwrap();
-        assert!(super::baseline(&proc, &dev).is_err());
+        assert!(super::baseline(&proc, &dev, &kcore).is_err());
         fs::write(&target, "1").unwrap();
         symlink("/dev/null", dev.join("mem")).unwrap();
-        assert!(super::baseline(&proc, &dev).is_err());
+        assert!(super::baseline(&proc, &dev, &kcore).is_err());
         fs::remove_file(dev.join("mem")).unwrap();
         symlink("/missing", dev.join("kmem")).unwrap();
-        assert!(super::baseline(&proc, &dev).is_err());
+        assert!(super::baseline(&proc, &dev, &kcore).is_err());
+        fs::remove_file(dev.join("kmem")).unwrap();
+        // A sandbox mask is not evidence of the original interface's mode.
+        fs::write(&kcore, "").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&kcore, fs::Permissions::from_mode(0o000)).unwrap();
+        assert!(super::baseline(&proc, &dev, &kcore).is_err());
+        fs::remove_file(&kcore).unwrap();
+        symlink("/missing", &kcore).unwrap();
+        assert!(super::baseline(&proc, &dev, &kcore).is_err());
     }
 }
