@@ -498,7 +498,8 @@ Use the [supervised transition sequence](Operations.md#trust-rotation-and-image-
 and [trust-transition acceptance matrix](ReleaseDiagnostics.md#trust-transition-acceptance)
 to bind introduction, overlap, retirement and recovery to the actual verifiers.
 
-Optional independent boot attestation is separate from ordinary monitoring.
+Generic deployments use authenticated external health reporting. Independent
+boot attestation is an installation-specific extension, separate from that reporting.
 Its deployment contract requires fresh challenges, expected measurements and
 image identities, verification outside the host trust domain, and rejection
 of replayed, stale, or missing evidence. State which writable configuration is
@@ -520,6 +521,17 @@ and maintenance. Measurements cover resident memory, map counts, startup,
 representative disk/network behavior, and pressure. `vm.max_map_count` changes
 need measured justification. A completed evaluation can conclude with deferral;
 no host-wide preload or allocator variant is assumed here.
+
+The generic allocator selection is glibc, with no global preload. The disposable
+signed-image evaluation on 2026-11-11 (`45.0.2.3-0.1`, Fedora kernel
+`7.3.3-300.fc45`) loaded both hardened_malloc variants in vmspawn and its
+supervisor, while QEMU and swtpm retained their original allocators. QEMU's
+`AT_SECURE=1` execution remained intact. The scoped fwupd evaluation also
+observed higher mapping counts and resident memory. These results support
+deferral of allocator adoption; they do not establish representative guest
+performance. Adoption requires integration that reaches the intended workers
+with their existing confinement and passes the compatibility and measurement
+requirements above.
 
 Additional kernel hardening is optional and stays last in the priority order.
 Audit Fedora's effective configuration and protections before proposing changes
