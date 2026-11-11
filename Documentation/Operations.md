@@ -898,7 +898,7 @@ through an owner-controlled channel.
 | Release index | `/usr/lib/particleve/trust/releases.gpg` authenticates `SHA256SUMS`; a reviewed bridge image can carry the old and new public keys. Removing the old key rejects its signatures in that image, including cached metadata. |
 | PE and verity artifacts | The selected image's `secure-boot.crt` verifies the UKI, loader and fwupd helper; its verity trust also belongs to that image. Firmware separately authorizes EFI execution through its actual `db`/`dbx` policy. A release-key overlap does not change these verifiers. |
 | Signed PCR11 policy | `pcr-public-key.pem` authorizes the signed PCR11 policy in each enrolled LUKS token. The OBS build requires its public key to match the project PE certificate. A project-certificate change therefore includes an explicit PCR-authority transition. |
-| Kernel modules | The booted kernel's accepted keyrings and revocation policy authorize modules. The Fedora kernel/module packages retain their own authority; changing the OBS certificate or firmware database is not proof of module-key retirement. |
+| Kernel modules | The booted kernel's accepted keyrings and revocation policy authorize modules. Firmware-derived certificates can also authorize modules on the selected Fedora kernel. An unchanged kernel package does not establish unchanged module authority: test each affected signer, including firmware-enrolled keys, after `db`/`dbx` changes. |
 
 Use the following sequence for the selected platform, testing it first in a
 disposable installation:

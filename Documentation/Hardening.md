@@ -482,6 +482,12 @@ Introduction and retirement use a narrow owner-reviewed transition, including
 both independent boot paths, TPM unlock, and recovery. Verify the effective
 anchors and which artifacts each can authorize after every step.
 
+Separate trust decisions can share an authority. A kernel that accepts
+firmware-derived module keys also changes module admission when its firmware
+trust changes. Include that effect in the reviewed transition and test valid
+module signatures from the affected signers; keyring names or unchanged kernel
+packages alone do not establish the accepted set.
+
 Retiring a vulnerable signed image must preserve a usable reviewed recovery
 path. OS-slot cleanup alone does not revoke a key, and selecting an older image
 does not reverse firmware `db`/`dbx` changes. Security-sensitive trust changes
