@@ -911,7 +911,16 @@ disposable installation:
 2. Authenticate the bridge and replacement releases with their explicitly
    selected release keyrings and PE certificates. The runtime uses one selected
    PE certificate; concatenating certificates does not establish an acceptance
-   policy. If the running image cannot verify the replacement, use the reviewed
+   policy. Refresh retained releases while the overlap keyring still authenticates
+   their cached metadata, so the complete cache carries an index signed by the
+   replacement release key before the old key is retired. A successful fetch
+   publishes the verified artifacts, index and signature together. Inventory the
+   entire release cache before booting an image that removes the old key. Once
+   both disks hold the verified replacement and retained release, archive obsolete
+   release caches outside `/var/lib/particleve/releases`; preserve their identities
+   in the transition record. The new image rejects metadata signed only by the
+   retired key, including during cache cleanup. If the running
+   image cannot verify the replacement, use the reviewed
    independent recovery path. Do not disable signature checks or replace trust
    files in verified `/usr` to force an ordinary update through.
 3. Introduce the new firmware authority using the platform's owner-controlled

@@ -8,8 +8,10 @@ use regex::Regex;
 use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet},
+    ffi::CString,
     fs,
     io::{Read, Write},
+    os::unix::ffi::OsStrExt,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -576,7 +578,8 @@ pub fn fetch(
         "feed returned a different release",
     )?;
     let target = cache.join(chosen);
-    if target.exists() {
+    let replacing = target.exists();
+    if replacing {
         let old = verify_directory(&target, keyring, certificate, false)?;
         require(
             digest(&old)? == digest(&manifest)?,
@@ -604,15 +607,54 @@ pub fn fetch(
         }
     }
     verify_directory(directory, keyring, certificate, true)?;
-    if target.exists() {
-        for item in object(field(&manifest, "artifacts")?)?.values() {
-            let name = text(field(item, "file")?)?;
-            fs::rename(directory.join(name), target.join(name))?;
-        }
-    } else {
-        fs::rename(directory, &target)?;
-    }
+    commit_cache(directory, &target, replacing)?;
     Ok((target, manifest))
+}
+fn commit_cache(staged: &Path, target: &Path, replacing: bool) -> Result<()> {
+    // Publish the index, its signature and the verified artifacts together.
+    // A refresh may change the index signer without changing the release, so
+    // retaining the previous index would break a subsequent key retirement.
+    for entry in fs::read_dir(staged)? {
+        let entry = entry?;
+        require(
+            entry.file_type()?.is_file(),
+            "unexpected staged cache entry",
+        )?;
+        fs::File::open(entry.path())?.sync_all()?;
+    }
+    fs::File::open(staged)?.sync_all()?;
+    let source = CString::new(staged.as_os_str().as_bytes())
+        .map_err(|_| Error::new("invalid staged cache path"))?;
+    let destination = CString::new(target.as_os_str().as_bytes())
+        .map_err(|_| Error::new("invalid release cache path"))?;
+    let flags = if replacing {
+        libc::RENAME_EXCHANGE
+    } else {
+        libc::RENAME_NOREPLACE
+    };
+    // SAFETY: both C strings own NUL-terminated paths for the duration of this
+    // synchronous Linux call. Exchange leaves the complete old cache at the
+    // private TempDir path; its owner removes it only after this durable commit.
+    // NOREPLACE preserves a cache concurrently published by another fetch.
+    if unsafe {
+        libc::renameat2(
+            libc::AT_FDCWD,
+            source.as_ptr(),
+            libc::AT_FDCWD,
+            destination.as_ptr(),
+            flags,
+        )
+    } != 0
+    {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    fs::File::open(
+        target
+            .parent()
+            .ok_or_else(|| Error::new("release cache lacks parent"))?,
+    )?
+    .sync_all()?;
+    Ok(())
 }
 pub fn transfers(
     manifest: &Value,
@@ -640,6 +682,62 @@ pub fn transfers(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn cache_generation(directory: &Path, generation: &str) {
+        fs::create_dir(directory).expect("create cache generation");
+        for name in ["SHA256SUMS", "SHA256SUMS.asc", "artifact.raw"] {
+            fs::write(directory.join(name), format!("{generation}:{name}"))
+                .expect("write cache generation");
+        }
+    }
+    fn assert_generation(directory: &Path, generation: &str) {
+        for name in ["SHA256SUMS", "SHA256SUMS.asc", "artifact.raw"] {
+            assert_eq!(
+                fs::read_to_string(directory.join(name)).expect("read cache generation"),
+                format!("{generation}:{name}")
+            );
+        }
+    }
+    #[test]
+    fn cache_refresh_commits_index_signature_and_artifacts_together() {
+        let root = tempfile::tempdir().expect("cache fixture");
+        let staged = root.path().join(".staged");
+        let target = root.path().join("release");
+        cache_generation(&staged, "new");
+        cache_generation(&target, "old");
+        let mut prior_index = fs::File::open(target.join("SHA256SUMS")).expect("open old index");
+        commit_cache(&staged, &target, true).expect("refresh cache");
+        assert_generation(&target, "new");
+        assert_generation(&staged, "old");
+        let mut retained = String::new();
+        prior_index
+            .read_to_string(&mut retained)
+            .expect("read open old index");
+        assert_eq!(retained, "old:SHA256SUMS");
+    }
+    #[test]
+    fn failed_cache_commit_keeps_the_previous_generation_complete() {
+        let root = tempfile::tempdir().expect("cache fixture");
+        let staged = root.path().join(".staged");
+        let target = root.path().join("release");
+        cache_generation(&staged, "new");
+        cache_generation(&target, "old");
+        assert!(commit_cache(&staged, &target, false).is_err());
+        assert_generation(&target, "old");
+        assert_generation(&staged, "new");
+        fs::create_dir(staged.join("unexpected")).expect("unexpected nested entry");
+        assert!(commit_cache(&staged, &target, true).is_err());
+        assert_generation(&target, "old");
+    }
+    #[test]
+    fn first_cache_commit_requires_an_absent_target() {
+        let root = tempfile::tempdir().expect("cache fixture");
+        let staged = root.path().join(".staged");
+        let target = root.path().join("release");
+        cache_generation(&staged, "new");
+        commit_cache(&staged, &target, false).expect("first cache commit");
+        assert_generation(&target, "new");
+        assert!(!staged.exists());
+    }
     use serde_json::json;
     fn sections() -> (Value, Value) {
         let manifest = json!({"version":"45.0.1.2-1.1","usr_root_hash":"ab".repeat(32)});
