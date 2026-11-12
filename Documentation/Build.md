@@ -247,8 +247,11 @@ permission check when its workflow files differ from the default branch.
 ## Source updates and uploads
 
 The source repository and OBS ref are declared in [`.obs/site.json`](../.obs/site.json).
-The three `.obs/*/_service` definitions follow `build`; the ParticleVE package's
-native SCM bridge also tracks that ref. Checked publication prepares and uploads
+The four `.obs/*/_service` definitions follow `build`; the ParticleVE and kernel
+packages' native SCM bridges also track that ref. The kernel bridge refreshes its
+service definition with each checked source selection, keeping the pinned Fedora
+and secureblue service revisions together with their recipe and source manifest.
+Checked publication prepares and uploads
 the exact locked vendor archive before advancing the ref; OBS downloads it and
 creates the ParticleVE source tarball in the worker. The mkosi/fwupd services
 extract their reviewed build inputs and download upstream sources at the locked immutable
@@ -262,9 +265,10 @@ Automerge is disabled. Updates must retain matching locks, recipes, license
 notices and required acceptance coverage; source checks alone do not qualify a
 new signed image.
 
-`Tools/obs-upload.py particleve` configures the Git-managed package from the
-declared ref. For mkosi, fwupd-efi and kernel, the tool uploads a reviewed source
-directory atomically. Its credential file is two lines (OBS username/password),
+`Tools/obs-upload.py particleve` and `Tools/obs-upload.py kernel` configure the
+Git-managed packages from the declared ref. For mkosi and fwupd-efi, the tool uploads
+a reviewed source directory atomically; their service reads the current recipe
+from that same checked ref before downloading upstream inputs. Its credential file is two lines (OBS username/password),
 mode 0600; credentials are sent only to `api.opensuse.org`, redirects are refused,
 and no credential is
 written to sources. Keep this credential file and all private keys outside Git,

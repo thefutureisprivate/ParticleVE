@@ -7,8 +7,10 @@ Renovate change must not execute either recipe with repository write authority.
 import argparse
 import hashlib
 import json
+import os
 import re
 import stat
+import tempfile
 from pathlib import Path
 
 FILENAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+-]{0,127}")
@@ -148,6 +150,13 @@ def adapt_spec(spec, manifest):
     spec = replace_once(spec, "# define buildid .local", "%define buildid .particleve")
     spec = replace_once(spec, "%global signkernel 1\n", "%global signkernel 0\n")
     spec = replace_once(spec, "%global signmodules 1\n", "%global signmodules 0\n")
+    # Fedora's log and patch-declaration checks assume the input spec is under
+    # _specdir. OBS invokes a sources-directory spec; use the independently
+    # authenticated original recipe, without its native counter/VCS rewrites.
+    lookup = "%{_specdir}/${RPM_PACKAGE_NAME}.spec"
+    if spec.count(lookup) != 2:
+        raise ValueError("Fedora recipe lookup boundary changed")
+    spec = spec.replace(lookup, "%{SOURCE5003}")
     # baseonly removes extra kernel variants/tools, not DWARF/BTF generation.
     spec = "%global _with_baseonly 1\n" + spec
     for number, name in (
@@ -171,10 +180,11 @@ def write_json(path, value):
     Path(path).write_text(json.dumps(value, sort_keys=True, indent=2) + "\n")
 
 
-def verify_build_sources(directory, identity):
+def _verify_build_sources(directory, identity, *, obs_delivery=False):
     directory = Path(directory)
     if identity.get("schema") != 1:
         raise ValueError("invalid kernel source identity")
+    normalized = []
     for name, value in identity["source_files"].items():
         if not FILENAME.fullmatch(name) or set(value) != {"algorithm", "digest", "mode"}:
             raise ValueError("invalid kernel source filename or digest record")
@@ -187,16 +197,75 @@ def verify_build_sources(directory, identity):
         metadata = path.lstat()
         if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > 512 * 1024**2:
             raise ValueError("nonregular or oversized kernel build input")
-        if value["mode"] not in (0o644, 0o755) or stat.S_IMODE(metadata.st_mode) != value["mode"]:
+        mode = stat.S_IMODE(metadata.st_mode)
+        if value["mode"] not in (0o644, 0o755) or (
+            mode != value["mode"] and not (obs_delivery and mode == 0o644 and value["mode"] == 0o755)
+        ):
             raise ValueError(f"kernel build input mode differs: {name}")
         with path.open("rb") as stream:
             if hashlib.file_digest(stream, algorithm).hexdigest() != value["digest"]:
                 raise ValueError(f"kernel build input digest differs: {name}")
+        if mode != value["mode"]:
+            normalized.append(path)
+    return normalized
+
+
+def verify_build_sources(directory, identity):
+    """Inspect authenticated inputs without modifying their recorded Git modes."""
+    _verify_build_sources(directory, identity)
+
+
+def prepare_build_sources(directory, identity):
+    """Restore OBS's normalized executable delivery modes after all inputs pass."""
+    normalized = _verify_build_sources(directory, identity, obs_delivery=True)
+    for path in normalized:
+        value = identity["source_files"][path.name]
+        # Use a private inode: an OBS source-cache hard link must not acquire
+        # executable permission through this package's preparation operation.
+        with tempfile.NamedTemporaryFile(dir=directory, prefix=".particleve-source-", delete=False) as copy:
+            temporary = Path(copy.name)
+            try:
+                descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+                with os.fdopen(descriptor, "rb") as source:
+                    metadata = os.fstat(source.fileno())
+                    if (
+                        not stat.S_ISREG(metadata.st_mode)
+                        or stat.S_IMODE(metadata.st_mode) != 0o644
+                        or not 0 <= metadata.st_size <= 512 * 1024**2
+                    ):
+                        raise ValueError("kernel input changed before mode restoration")
+                    remaining = metadata.st_size
+                    digest = hashlib.new(value["algorithm"])
+                    while remaining:
+                        data = source.read(min(remaining, 1024**2))
+                        if not data:
+                            raise ValueError("truncated kernel input during mode restoration")
+                        copy.write(data)
+                        digest.update(data)
+                        remaining -= len(data)
+                    if source.read(1) or digest.hexdigest() != value["digest"]:
+                        raise ValueError("kernel input changed during mode restoration")
+                current = path.lstat()
+                if (current.st_dev, current.st_ino) != (metadata.st_dev, metadata.st_ino):
+                    raise ValueError("kernel input replaced during mode restoration")
+                copy.flush()
+                os.fchmod(copy.fileno(), value["mode"])
+                os.replace(temporary, path)
+            finally:
+                temporary.unlink(missing_ok=True)
+    verify_build_sources(directory, identity)
+    return len(normalized)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--verify-sources", type=Path, required=True)
+    operation = parser.add_mutually_exclusive_group(required=True)
+    operation.add_argument("--verify-sources", type=Path)
+    operation.add_argument("--prepare-sources", type=Path)
     parser.add_argument("--manifest", type=Path, required=True)
     args = parser.parse_args()
-    verify_build_sources(args.verify_sources, json.loads(regular(args.manifest).decode()))
+    identity = json.loads(regular(args.manifest).decode())
+    if args.prepare_sources:
+        print(json.dumps({"restored_source_modes": prepare_build_sources(args.prepare_sources, identity)}))
+    else:
+        verify_build_sources(args.verify_sources, identity)

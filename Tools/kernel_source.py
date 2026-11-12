@@ -159,7 +159,7 @@ def generate(repo, lock, fedora, secureblue):
         spec = adapt_spec((tree / "kernel.spec").read_text(), manifest)
     spec = spec.replace(
         "%prep\n",
-        "%prep\npython3 %{SOURCE5000} --verify-sources %{_sourcedir} --manifest %{SOURCE5001}\n"
+        "%prep\npython3 %{SOURCE5000} --prepare-sources %{_sourcedir} --manifest %{SOURCE5001}\n"
         "test -s %{_sourcedir}/_projectcert.crt\n"
         "openssl x509 -in %{_sourcedir}/_projectcert.crt -noout\n",
         1,

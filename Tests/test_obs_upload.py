@@ -68,11 +68,23 @@ class OBSUploadTests(unittest.TestCase):
         with self.assertRaisesRegex(urllib.error.URLError, "Refusing to redirect"):
             handler.redirect_request(None, None, 302, "redirect", {}, "https://other.example/")
 
+    def test_kernel_tracks_service_pin_changes_in_the_same_checked_git_directory(self):
+        result, _ = self.upload("kernel")
+        self.assertEqual(len(self.requests), 1)
+        request = self.requests[0]
+        self.assertTrue(request.full_url.endswith("/kernel/_meta"))
+        metadata = ET.fromstring(request.data)
+        expected = self.site["source_repository"] + "?subdir=.obs%2Fkernel#build"
+        self.assertEqual(metadata.findtext("scmsync"), expected)
+        self.assertEqual(result["scmsync"], expected)
+        self.assertEqual(metadata.find("build/enable").get("repository"), "Fedora_45")
+        self.assertEqual(metadata.find("build/disable").get("repository"), "Fedora_45_images")
+
     def test_upstream_services_still_use_atomic_source_commits(self):
         sources = self.root / "sources"
         sources.mkdir()
         (sources / "_service").write_bytes(b"<services/>\n")
-        for package in ("mkosi", "fwupd-efi", "kernel"):
+        for package in ("mkosi", "fwupd-efi"):
             with self.subTest(package=package):
                 self.requests.clear()
                 result, _ = self.upload(package, str(sources))
@@ -85,7 +97,7 @@ class OBSUploadTests(unittest.TestCase):
                 self.assertIn("cmd=commitfilelist", self.requests[-1].full_url)
 
     def test_obsolete_particleve_upload_and_missing_upstream_sources_fail_before_network(self):
-        for arguments in (("particleve", str(self.root)), ("mkosi",)):
+        for arguments in (("particleve", str(self.root)), ("kernel", str(self.root)), ("mkosi",)):
             with self.subTest(arguments=arguments), self.assertRaisesRegex(Error, "Git-managed"):
                 self.upload(*arguments)
         self.assertEqual(self.requests, [])

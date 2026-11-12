@@ -2040,12 +2040,12 @@ Prebuilt default kernel image with auto DTB selection for ARM64 UEFI devices.
 # finds the line number in the spec file, prints the message, then re-enables echoing.
 %define log_msg() \
 	{ set +x; } 2>/dev/null \
-	_log_msglineno=$(grep -n %{*} %{_specdir}/${RPM_PACKAGE_NAME}.spec | grep log_msg | cut -d":" -f1) \
+	_log_msglineno=$(grep -n %{*} %{SOURCE5003} | grep log_msg | cut -d":" -f1) \
 	echo "kernel.spec:${_log_msglineno}: %{*}" \
 	set -x
 
 %prep
-python3 %{SOURCE5000} --verify-sources %{_sourcedir} --manifest %{SOURCE5001}
+python3 %{SOURCE5000} --prepare-sources %{_sourcedir} --manifest %{SOURCE5001}
 test -s %{_sourcedir}/_projectcert.crt
 openssl x509 -in %{_sourcedir}/_projectcert.crt -noout
 %{log_msg "Start of prep stage"}
@@ -2085,7 +2085,7 @@ ApplyPatch()
   if [ ! -f $RPM_SOURCE_DIR/$patch ]; then
     exit 1
   fi
-  if ! grep -E "^Patch[0-9]+: $patch\$" %{_specdir}/${RPM_PACKAGE_NAME}.spec ; then
+  if ! grep -E "^Patch[0-9]+: $patch\$" %{SOURCE5003} ; then
     if [ "${patch:0:8}" != "patch-%{kversion}." ] ; then
 	%{log_msg "ERROR: Patch  $patch  not listed as a source patch in specfile"}
       exit 1

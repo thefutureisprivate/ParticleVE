@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Configure Git-managed ParticleVE sources or upload reviewed upstream-package services."""
+"""Configure Git-managed packages or upload reviewed upstream-package services."""
 
 import argparse
 import base64
@@ -20,9 +20,10 @@ parser.add_argument("package", choices=("particleve", "mkosi", "fwupd-efi", "ker
 parser.add_argument("directory", nargs="?", type=Path, help="reviewed upstream-package source directory")
 parser.add_argument("--credentials", type=Path, required=True)
 args = parser.parse_args()
+git_managed = args.package in {"particleve", "kernel"}
 require(
-    (args.directory is None) == (args.package == "particleve"),
-    "ParticleVE sources are Git-managed; supply a source directory for an upstream package",
+    (args.directory is None) == git_managed,
+    "ParticleVE and kernel sources are Git-managed; supply a source directory for mkosi or fwupd-efi",
 )
 site = read_json(".obs/site.json")
 require(args.credentials.stat().st_mode & 0o077 == 0, "OBS credentials must be private")
@@ -67,21 +68,21 @@ build = ET.SubElement(meta, "build")
 for repository in ("Fedora_45", "Fedora_45_images"):
     enabled = args.package == "particleve" or repository == "Fedora_45"
     ET.SubElement(build, "enable" if enabled else "disable", repository=repository)
-if args.package == "particleve":
+if git_managed:
     url = urllib.parse.urlsplit(https_url(site["source_repository"]))
-    # Native OBS version tracking must see the committed spec, not just service
-    # outputs. Its check-in counter then starts at 1 for each new PVE version.
+    # Native OBS version tracking sees the committed spec. The kernel also needs
+    # the service definition refreshed atomically with its upstream source pins.
     ET.SubElement(meta, "scmsync").text = urllib.parse.urlunsplit(
         (
             url.scheme,
             url.netloc,
             url.path,
-            urllib.parse.urlencode({"subdir": ".obs/particleve"}),
+            urllib.parse.urlencode({"subdir": ".obs/" + args.package}),
             urllib.parse.quote(site["source_branch"], safe="/"),
         )
     )
 request(base + "/_meta", ET.tostring(meta), "PUT", "text/xml")
-if args.package == "particleve":
+if git_managed:
     print(
         json.dumps(
             {"project": site["obs_project"], "package": args.package, "scmsync": meta.findtext("scmsync")}

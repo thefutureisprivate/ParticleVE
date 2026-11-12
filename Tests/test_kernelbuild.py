@@ -1,12 +1,15 @@
 import hashlib
+import os
 import tempfile
 import unittest
 from pathlib import Path
 
 from particleve.kernelbuild import (
+    adapt_spec,
     config_text,
     configuration,
     lookaside,
+    prepare_build_sources,
     source_manifest,
     verify_build_sources,
     verify_sources,
@@ -14,6 +17,34 @@ from particleve.kernelbuild import (
 
 
 class KernelSourceTests(unittest.TestCase):
+    def test_fedora_patch_checks_use_the_authenticated_recipe_across_worker_layouts(self):
+        version = "7.3.3"
+        names = [
+            "linux-" + version + ".tar.xz",
+            "kernel-abi-stablelists-" + version + ".tar.xz",
+            "kernel-kabi-dw-" + version + ".tar.xz",
+        ]
+        fields = {
+            "specrpmversion": version,
+            "specversion": version,
+            "pkgrelease": "300",
+            "tarfile_release": version,
+            "kabiversion": version,
+        }
+        spec = "".join(f"%define {key} {value}\n" for key, value in fields.items())
+        spec += "# define buildid .local\n%global signkernel 1\n%global signmodules 1\n"
+        spec += "".join(
+            f"Source{number}: {name}\n" for number, name in zip((0, 300, 301), names, strict=True)
+        )
+        spec += "log %{_specdir}/${RPM_PACKAGE_NAME}.spec\n"
+        spec += "patch %{_specdir}/${RPM_PACKAGE_NAME}.spec\n"
+        identity = {"lookaside_sha512": dict.fromkeys(names, "a" * 128)}
+        adapted = adapt_spec(spec, identity)
+        self.assertEqual(adapted.count("%{SOURCE5003}"), 2)
+        self.assertNotIn("%{_specdir}", adapted)
+        with self.assertRaisesRegex(ValueError, "lookup boundary changed"):
+            adapt_spec(spec.replace("patch %{_specdir}/${RPM_PACKAGE_NAME}.spec\n", ""), identity)
+
     def policy(self):
         return {
             "schema": 1,
@@ -107,3 +138,80 @@ class KernelSourceTests(unittest.TestCase):
             script.chmod(0o644)
             with self.assertRaisesRegex(ValueError, "mode differs"):
                 verify_build_sources(root, identity)
+
+    def test_obs_delivery_restores_only_authenticated_git_executable_modes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            script = root / "prepare.sh"
+            script.write_bytes(b"#!/bin/sh\nexit 0\n")
+            script.chmod(0o644)
+            shared = root / "cache-link"
+            os.link(script, shared)
+            identity = {
+                "schema": 1,
+                "source_files": {
+                    "prepare.sh": {
+                        "algorithm": "sha256",
+                        "digest": hashlib.sha256(script.read_bytes()).hexdigest(),
+                        "mode": 0o755,
+                    }
+                },
+            }
+            self.assertEqual(prepare_build_sources(root, identity), 1)
+            verify_build_sources(root, identity)
+            self.assertEqual(script.read_bytes(), shared.read_bytes())
+            self.assertEqual(script.stat().st_mode & 0o7777, 0o755)
+            self.assertEqual(shared.stat().st_mode & 0o7777, 0o644)
+            self.assertNotEqual(script.stat().st_ino, shared.stat().st_ino)
+            inode = script.stat().st_ino
+            self.assertEqual(prepare_build_sources(root, identity), 0)
+            self.assertEqual(script.stat().st_ino, inode)
+
+    def test_obs_delivery_authenticates_every_input_before_changing_any_mode(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            identity = {"schema": 1, "source_files": {}}
+            for name in ("first.sh", "last.sh"):
+                path = root / name
+                path.write_bytes(b"reviewed source\n")
+                path.chmod(0o644)
+                identity["source_files"][name] = {
+                    "algorithm": "sha256",
+                    "digest": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "mode": 0o755,
+                }
+            (root / "last.sh").write_bytes(b"changed source\n")
+            with self.assertRaisesRegex(ValueError, "digest differs"):
+                prepare_build_sources(root, identity)
+            self.assertEqual((root / "first.sh").stat().st_mode & 0o7777, 0o644)
+            self.assertEqual((root / "last.sh").stat().st_mode & 0o7777, 0o644)
+
+    def test_obs_delivery_refuses_unsafe_modes_and_links_without_mutation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "input.sh"
+            path.write_bytes(b"reviewed source\n")
+            identity = {
+                "schema": 1,
+                "source_files": {
+                    "input.sh": {
+                        "algorithm": "sha256",
+                        "digest": hashlib.sha256(path.read_bytes()).hexdigest(),
+                        "mode": 0o755,
+                    }
+                },
+            }
+            for mode in (0o600, 0o750, 0o777, 0o4644):
+                with self.subTest(mode=mode):
+                    path.chmod(mode)
+                    with self.assertRaisesRegex(ValueError, "mode differs"):
+                        prepare_build_sources(root, identity)
+                    self.assertEqual(path.stat().st_mode & 0o7777, mode)
+            path.unlink()
+            outside = root / "outside"
+            outside.write_bytes(b"reviewed source\n")
+            outside.chmod(0o644)
+            path.symlink_to("outside")
+            with self.assertRaisesRegex(ValueError, "nonregular"):
+                prepare_build_sources(root, identity)
+            self.assertEqual(outside.stat().st_mode & 0o7777, 0o644)

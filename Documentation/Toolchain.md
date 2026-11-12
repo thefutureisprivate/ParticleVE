@@ -110,6 +110,15 @@ initrd verification reject other XZ checks while separately checking each module
 ELF body and signature. Userspace decompression alone does not establish that the
 kernel can load a compressed module; the signed-image module tests cover that path.
 
+OBS delivers extracted source files with normalized non-executable modes. Kernel
+preparation authenticates every input before restoring only the executable Git
+modes recorded by the reviewed source manifest. Restored inputs use private
+inodes so a source-cache hard link retains its original permissions. Unexpected
+modes, links and modified bytes fail preparation; strict byte and mode checks
+run again before Fedora's recipe executes any source script.
+Fedora's log and patch-declaration lookups use that authenticated original recipe,
+independently of the worker's spec directory and OBS's counter/VCS rewrites.
+
 The mkosi continuation patch preserves native OBS signing while regenerating
 split partitions after verity signing, avoiding duplicate artifact copies, and
 handling absent optional signature classes. Recheck the patch against each
