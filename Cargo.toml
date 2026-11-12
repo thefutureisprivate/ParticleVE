@@ -26,7 +26,7 @@ chrono = { version = "=0.4.45" }
 chrono-tz = { version = "=0.10.4" }
 clap = { version = "=4.6.7", features = ["derive"] }
 signal-hook = { version = "=0.4.6" }
-ureq = { version = "=3.5.1", default-features = false, features = ["rustls-no-provider"] }
+ureq = { version = "=3.5.2", default-features = false, features = ["rustls-no-provider"] }
 rustls = { version = "=0.23.46", default-features = false, features = ["std", "ring", "tls12"] }
 
 [profile.release]
