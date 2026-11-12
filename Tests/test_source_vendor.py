@@ -1,5 +1,7 @@
+import contextlib
 import hashlib
 import io
+import json
 import tarfile
 import tempfile
 import unittest
@@ -33,8 +35,8 @@ class SourceVendorTests(unittest.TestCase):
                     entry.size = 0
                 output.addfile(entry, io.BytesIO(self.lock) if not link else None)
 
-    def asset(self, digest, state="uploaded"):
-        return {"assets": [{"name": "vendor.tar.zst", "state": state, "digest": digest}]}
+    def asset(self, digest, state="uploaded", *, draft=False):
+        return {"draft": draft, "assets": [{"name": "vendor.tar.zst", "state": state, "digest": digest}]}
 
     def test_digest_binds_exact_lock_bytes_and_archive(self):
         self.write_archive()
@@ -80,26 +82,56 @@ class SourceVendorTests(unittest.TestCase):
         with (
             patch(
                 "Tools.source_releases.github",
-                side_effect=[{"assets": []}, self.asset("sha256:checked")],
+                side_effect=[
+                    {"draft": True, "assets": []},
+                    self.asset("sha256:checked", draft=True),
+                    self.asset("sha256:checked"),
+                ],
             ),
             patch("Tools.source_releases.run") as command,
         ):
             publish_vendor("owner/repository", self.release, self.archive, "sha256:checked")
-        arguments = command.call_args.args[0]
+        arguments = command.call_args_list[0].args[0]
         self.assertEqual(arguments[:4], ["gh", "release", "upload", self.release["tag"]])
         self.assertNotIn("--clobber", arguments)
         self.assertEqual(arguments[-1], "github.com/owner/repository")
         self.assertEqual(command.call_args.kwargs["env"]["SSL_CERT_FILE"], system_trust_paths()["cafile"])
+        self.assertEqual(command.call_count, 2)
+        self.assertIn("--draft=false", command.call_args.args[0])
+        self.assertIn("--latest", command.call_args.args[0])
 
     def test_failed_or_mismatched_upload_does_not_succeed(self):
-        for response in ({"assets": []}, self.asset("sha256:other")):
+        for response in ({"draft": True, "assets": []}, self.asset("sha256:other")):
             with (
                 self.subTest(response=response),
-                patch("Tools.source_releases.github", side_effect=[{"assets": []}, response]),
-                patch("Tools.source_releases.run"),
+                patch("Tools.source_releases.github", side_effect=[{"draft": True, "assets": []}, response]),
+                patch("Tools.source_releases.run") as command,
                 self.assertRaises(Error),
             ):
                 publish_vendor("owner/repository", self.release, self.archive, "sha256:checked")
+            self.assertEqual(command.call_count, 1)
+            self.assertEqual(command.call_args.args[0][2], "upload")
+
+    def test_published_release_without_asset_cannot_be_mutated(self):
+        with (
+            patch("Tools.source_releases.github", return_value={"draft": False, "assets": []}),
+            patch("Tools.source_releases.run") as command,
+            self.assertRaisesRegex(Error, "before publishing an immutable release"),
+        ):
+            publish_vendor("owner/repository", self.release, self.archive, "sha256:checked")
+        command.assert_not_called()
+
+    def test_completed_draft_upload_is_resumed_without_reupload(self):
+        with (
+            patch(
+                "Tools.source_releases.github",
+                side_effect=[self.asset("sha256:checked", draft=True), self.asset("sha256:checked")],
+            ),
+            patch("Tools.source_releases.run") as command,
+        ):
+            publish_vendor("owner/repository", self.release, self.archive, "sha256:checked")
+        self.assertEqual(command.call_count, 1)
+        self.assertEqual(command.call_args.args[0][2], "edit")
 
     def test_wrong_lock_aborts_before_any_release_publication(self):
         self.write_archive()
@@ -122,3 +154,81 @@ class SourceVendorTests(unittest.TestCase):
         ):
             publish_releases()
         api.assert_not_called()
+
+    def test_publication_requires_dependency_archive_before_any_remote_call(self):
+        with (
+            patch("Tools.source_releases.run") as command,
+            patch("sys.argv", ["source_releases", "--repository", "owner/repository", "--publish"]),
+            self.assertRaisesRegex(Error, "requires --vendor-archive"),
+        ):
+            publish_releases()
+        command.assert_not_called()
+
+    def publication(self, *, existing=False, fail=False):
+        self.write_archive()
+        release = {**self.release, "version": "45.0.2.6", "commit": "a" * 40, "notes": "Changes\n"}
+        events = []
+        output = self.archive.parent / "release-output"
+        stdout = io.StringIO()
+
+        def command(arguments, **options):
+            if arguments[:2] == ["gh", "api"]:
+                self.assertIn("--paginate", arguments)
+                self.assertEqual(arguments[-1], ".[] | .tag_name")
+                return SimpleNamespace(stdout=release["tag"] + "\n" if existing else "")
+            self.assertEqual(arguments[:3], ["gh", "release", "create"])
+            self.assertIn("--draft", arguments)
+            self.assertIn("--latest=false", arguments)
+            events.append("create-draft")
+            return SimpleNamespace(stdout="draft created")
+
+        def git(_root, *arguments, **options):
+            if arguments[0] == "show":
+                self.assertFalse(options["text"])
+                return SimpleNamespace(stdout=self.lock)
+            return SimpleNamespace(stdout="", returncode=1)
+
+        def finish(*_arguments):
+            events.append("verify-assets-and-publish")
+            if fail:
+                raise Error("publication incomplete")
+
+        with (
+            contextlib.redirect_stdout(stdout),
+            patch("Tools.source_releases.release_plan", return_value=[release]),
+            patch("Tools.source_releases.git", side_effect=git),
+            patch("Tools.source_releases.ensure_tag"),
+            patch("Tools.source_releases.run", side_effect=command),
+            patch("Tools.source_releases.publish_vendor", side_effect=finish),
+            patch(
+                "sys.argv",
+                [
+                    "source_releases",
+                    "--repository",
+                    "owner/repository",
+                    "--publish",
+                    "--vendor-archive",
+                    str(self.archive),
+                    "--output",
+                    str(output),
+                ],
+            ),
+        ):
+            if fail:
+                with self.assertRaisesRegex(Error, "publication incomplete"):
+                    publish_releases()
+            else:
+                publish_releases()
+        self.assertEqual((output / "releases.json").exists(), not fail)
+        if not fail:
+            self.assertTrue(json.loads(stdout.getvalue())["published"])
+        return events
+
+    def test_new_release_is_created_as_draft_before_assets_are_published(self):
+        self.assertEqual(self.publication(), ["create-draft", "verify-assets-and-publish"])
+
+    def test_existing_draft_is_resumed_without_duplicate_release_creation(self):
+        self.assertEqual(self.publication(existing=True), ["verify-assets-and-publish"])
+
+    def test_failed_draft_publication_has_no_completed_release_record(self):
+        self.assertEqual(self.publication(fail=True), ["create-draft", "verify-assets-and-publish"])

@@ -81,7 +81,8 @@ def publish_vendor(repository, release, archive, digest):
     endpoint = "releases/tags/" + release["tag"]
 
     def existing():
-        assets = github(repository, endpoint)["assets"]
+        info = github(repository, endpoint)
+        assets = info["assets"]
         matches = [asset for asset in assets if asset["name"] == "vendor.tar.zst"]
         require(len(matches) <= 1, "ambiguous release vendor archive")
         if matches:
@@ -89,15 +90,35 @@ def publish_vendor(repository, release, archive, digest):
                 matches[0]["state"] == "uploaded" and matches[0]["digest"] == digest,
                 "release vendor archive does not match the checked archive",
             )
-        return bool(matches)
+        return info, bool(matches)
 
-    if not existing():
+    info, present = existing()
+    if not present:
+        require(info["draft"], "vendor assets must be attached before publishing an immutable release")
         run(
             ["gh", "release", "upload", release["tag"], archive, "--repo", "github.com/" + repository],
             timeout=300,
             env=system_tls_environment() | {"GH_HOST": "github.com"},
         )
-        require(existing(), "release vendor archive upload is incomplete")
+        info, present = existing()
+        require(present, "release vendor archive upload is incomplete")
+    if info["draft"]:
+        run(
+            [
+                "gh",
+                "release",
+                "edit",
+                release["tag"],
+                "--repo",
+                "github.com/" + repository,
+                "--draft=false",
+                "--latest",
+            ],
+            timeout=120,
+            env=system_tls_environment() | {"GH_HOST": "github.com"},
+        )
+        info, present = existing()
+        require(present and not info["draft"], "source release publication is incomplete")
 
 
 def release_plan(root, repository):
@@ -139,6 +160,9 @@ def main():
     parser.add_argument("--publish", action="store_true")
     parser.add_argument("--vendor-archive", type=Path, help="locked archive for the latest source release")
     args = parser.parse_args()
+    require(
+        not args.publish or args.vendor_archive is not None, "source publication requires --vendor-archive"
+    )
     root = Path.cwd()
     plan = release_plan(root, args.repository)
     digest = None
@@ -149,22 +173,22 @@ def main():
     args.output.mkdir(parents=True, exist_ok=True)
     existing = set()
     if args.publish:
-        existing = set(
-            run(
-                [
-                    "gh",
-                    "api",
-                    "--hostname",
-                    "github.com",
-                    "--paginate",
-                    f"repos/{args.repository}/releases",
-                    "--jq",
-                    ".[] | select(.draft == false) | .tag_name",
-                ],
-                timeout=300,
-                env=system_tls_environment() | {"GH_HOST": "github.com"},
-            ).stdout.splitlines()
-        )
+        response = run(
+            [
+                "gh",
+                "api",
+                "--hostname",
+                "github.com",
+                "--paginate",
+                f"repos/{args.repository}/releases",
+                "--jq",
+                ".[] | .tag_name",
+            ],
+            timeout=300,
+            env=system_tls_environment() | {"GH_HOST": "github.com"},
+        ).stdout
+        require(len(response) <= 2 * 1024**2, "oversized source release inventory")
+        existing = set(response.splitlines())
     for index, release in enumerate(plan):
         notes = args.output / (release["tag"] + ".md")
         atomic_write(notes, release["notes"].encode(), 0o644)
@@ -182,21 +206,25 @@ def main():
         # permission check even though an existing tag already selects the
         # release's contents. Keep release publication scoped to that ref.
         ensure_tag(args.repository, release)
+        draft = bool(args.vendor_archive and index == len(plan) - 1)
+        arguments = [
+            "gh",
+            "release",
+            "create",
+            release["tag"],
+            "--repo",
+            "github.com/" + args.repository,
+            "--verify-tag",
+            "--title",
+            "ParticleVE " + release["version"],
+            "--notes-file",
+            notes,
+            "--latest=" + ("true" if index == len(plan) - 1 and not draft else "false"),
+        ]
+        if draft:
+            arguments.append("--draft")
         run(
-            [
-                "gh",
-                "release",
-                "create",
-                release["tag"],
-                "--repo",
-                "github.com/" + args.repository,
-                "--verify-tag",
-                "--title",
-                "ParticleVE " + release["version"],
-                "--notes-file",
-                notes,
-                "--latest=" + ("true" if index == len(plan) - 1 else "false"),
-            ],
+            arguments,
             timeout=120,
             env=system_tls_environment() | {"GH_HOST": "github.com"},
         )

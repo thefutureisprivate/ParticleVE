@@ -162,6 +162,7 @@ class SourceReleaseTests(unittest.TestCase):
         (self.root / "sources.lock.json").write_text(
             json.dumps({"sources": {"particleos": {"revision": base}}})
         )
+        (self.root / "Cargo.lock").write_text("version = 4\n")
 
     def git(self, *arguments):
         return subprocess.run(
@@ -267,9 +268,20 @@ class SourceReleaseTests(unittest.TestCase):
             ),
             patch("Tools.source_releases.Path.cwd", return_value=self.root),
             patch("Tools.source_releases.run", side_effect=command),
+            patch("Tools.source_releases.vendor_digest", return_value="sha256:checked"),
+            patch("Tools.source_releases.publish_vendor"),
             patch(
                 "sys.argv",
-                ["source_releases", "--repository", "owner/repository", "--output", str(output), "--publish"],
+                [
+                    "source_releases",
+                    "--repository",
+                    "owner/repository",
+                    "--output",
+                    str(output),
+                    "--publish",
+                    "--vendor-archive",
+                    "vendor.tar.zst",
+                ],
             ),
             contextlib.redirect_stdout(io.StringIO()),
         ):
@@ -298,9 +310,19 @@ class SourceReleaseTests(unittest.TestCase):
             patch("Tools.source_releases.Path.cwd", return_value=self.root),
             patch("Tools.source_releases.run", side_effect=command),
             patch("Tools.source_releases.ensure_tag"),
+            patch("Tools.source_releases.vendor_digest", return_value="sha256:checked"),
             patch(
                 "sys.argv",
-                ["source_releases", "--repository", "owner/repository", "--output", str(output), "--publish"],
+                [
+                    "source_releases",
+                    "--repository",
+                    "owner/repository",
+                    "--output",
+                    str(output),
+                    "--publish",
+                    "--vendor-archive",
+                    "vendor.tar.zst",
+                ],
             ),
             self.assertRaisesRegex(Error, "GitHub unavailable"),
         ):

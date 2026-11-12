@@ -37,7 +37,9 @@ Runtime dependencies are vendored by the pinned native Cargo during checked
 source publication from the reviewed `Cargo.lock`, with dependency updates
 disabled. The source release carries the locked vendor archive. Publication
 verifies its lockfile and GitHub's asset digest before advancing the OBS build
-ref; an existing asset must match and is never overwritten. OBS downloads that
+ref. Assets are attached and verified in a draft before publication locks the
+release; retries resume that draft, and an existing asset must match and is
+never overwritten. OBS downloads that
 archive through its native `download_files` service. RPM builds and
 checks run offline using the pinned Rust toolchain. Native ELF identities are
 recorded after Fedora's ordinary stripping and debug-information processing;
@@ -190,7 +192,8 @@ create a source release or request an OBS source rebuild by themselves.
 The workflow publishes one GitHub Release for each full source version, tagged
 `vFEDORA_MAJOR.PVE_MAJOR.PVE_MINOR.PVE_PATCH`, with commit notes since the previous
 source release. [`Tools/source_releases.py`](../Tools/source_releases.py) prepares
-the notes without publishing unless `--publish` is supplied. OBS image counters
+the notes without publishing unless `--publish` is supplied together with the
+latest source release's `--vendor-archive`. OBS image counters
 do not create separate GitHub Releases.
 
 Publication creates a missing source-version Git tag and verifies its exact
