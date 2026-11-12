@@ -33,10 +33,11 @@ jobs:
     steps:
       - name: Install native source verification tools
         run: dnf install --assumeyes git python3 gh rpm rpm-build fedora-gpg-keys util-linux-core ca-certificates
-      # Only trusted base code executes. Candidate code is never checked out.
+      # pull_request_target's github.sha identifies the trusted default branch.
+      # Candidate code is read only as data by that commit's generator.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Authorize the runner-owned trusted base checkout
