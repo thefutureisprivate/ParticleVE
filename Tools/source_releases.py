@@ -189,11 +189,27 @@ def release_plan(root, repository):
     return plan
 
 
+def release_lock(root, plan):
+    require(bool(plan), "dependency verification needs a source release")
+    release = plan[-1]
+    lock = git(root, "show", f"{release['commit']}:Cargo.lock", text=False).stdout
+    require(
+        git(root, "show", "HEAD:Cargo.lock", text=False).stdout == lock,
+        f"Cargo.lock changed after source {release['version']}; "
+        "advance the source patch with Tools/version.py patch",
+    )
+    return lock
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", required=True)
     parser.add_argument("--output", type=Path, default=Path("build/source-releases"))
-    parser.add_argument("--publish", action="store_true")
+    operation = parser.add_mutually_exclusive_group()
+    operation.add_argument("--publish", action="store_true")
+    operation.add_argument(
+        "--check", action="store_true", help="verify release inputs without writing or publishing"
+    )
     parser.add_argument("--vendor-archive", type=Path, help="locked archive for the latest source release")
     args = parser.parse_args()
     require(
@@ -201,10 +217,13 @@ def main():
     )
     root = Path.cwd()
     plan = release_plan(root, args.repository)
+    require(not args.check or args.vendor_archive is None, "--check does not accept a vendor archive")
+    lock = release_lock(root, plan) if args.check or args.vendor_archive else None
+    if args.check:
+        print(json.dumps({"source_version": plan[-1]["version"], "release_inputs": "verified"}))
+        return
     digest = None
     if args.vendor_archive:
-        require(bool(plan), "vendor publication needs a source release")
-        lock = git(root, "show", f"{plan[-1]['commit']}:Cargo.lock", text=False).stdout
         digest = vendor_digest(args.vendor_archive, lock)
     args.output.mkdir(parents=True, exist_ok=True)
     existing = release_inventory(args.repository) if args.publish else {}

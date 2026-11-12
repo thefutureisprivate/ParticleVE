@@ -15,7 +15,7 @@ from particleve.config import version_key
 from particleve.versioning import bump, mkosi_args, source_key, verify_obs_sources
 from Tests.fixtures import devices, host, release
 from Tests.runtime import RustDriverTests
-from Tools.source_releases import ensure_tag, release_plan
+from Tools.source_releases import ensure_tag, release_lock, release_plan
 from Tools.source_releases import main as publish_releases
 from Tools.trust import system_trust_paths
 
@@ -191,6 +191,73 @@ class SourceReleaseTests(unittest.TestCase):
     def version(self, value, subject):
         (self.root / "particleve.version").write_text(value + "\n")
         self.commit(subject)
+
+    def test_dependency_updates_need_a_new_version_before_reusing_release_inputs(self):
+        self.version("45.0.1.1", "Initial PVE version")
+        self.assertEqual(
+            release_lock(self.root, release_plan(self.root, "owner/repository")), b"version = 4\n"
+        )
+        (self.root / "Cargo.lock").write_text("version = 4\n# updated dependency\n")
+        self.commit("Update a runtime dependency")
+        with self.assertRaisesRegex(Error, "advance the source patch"):
+            release_lock(self.root, release_plan(self.root, "owner/repository"))
+        self.version("45.0.1.2", "Release the dependency update")
+        (self.root / "README").write_text("new instructions\n")
+        self.commit("Improve instructions")
+        self.assertEqual(
+            release_lock(self.root, release_plan(self.root, "owner/repository")),
+            b"version = 4\n# updated dependency\n",
+        )
+
+    def test_release_check_is_read_only_and_needs_no_github_credentials(self):
+        self.version("45.0.1.1", "Initial PVE version")
+        output = self.root / "release-output"
+        with (
+            patch("Tools.source_releases.Path.cwd", return_value=self.root),
+            patch("Tools.source_releases.github") as github,
+            patch("Tools.source_releases.release_inventory") as inventory,
+            patch(
+                "sys.argv",
+                ["source_releases", "--repository", "owner/repository", "--check", "--output", str(output)],
+            ),
+            contextlib.redirect_stdout(io.StringIO()) as stdout,
+        ):
+            publish_releases()
+        self.assertEqual(
+            json.loads(stdout.getvalue()), {"source_version": "45.0.1.1", "release_inputs": "verified"}
+        )
+        github.assert_not_called()
+        inventory.assert_not_called()
+        self.assertFalse(output.exists())
+
+    def test_publication_refuses_changed_lock_before_archive_or_network_access(self):
+        self.version("45.0.1.1", "Initial PVE version")
+        (self.root / "Cargo.lock").write_text("version = 4\n# updated dependency\n")
+        self.commit("Update a runtime dependency without changing the source version")
+        output = self.root / "release-output"
+        with (
+            patch("Tools.source_releases.Path.cwd", return_value=self.root),
+            patch("Tools.source_releases.vendor_digest") as digest,
+            patch("Tools.source_releases.release_inventory") as inventory,
+            patch(
+                "sys.argv",
+                [
+                    "source_releases",
+                    "--repository",
+                    "owner/repository",
+                    "--publish",
+                    "--vendor-archive",
+                    "vendor.tar.zst",
+                    "--output",
+                    str(output),
+                ],
+            ),
+            self.assertRaisesRegex(Error, "advance the source patch"),
+        ):
+            publish_releases()
+        digest.assert_not_called()
+        inventory.assert_not_called()
+        self.assertFalse(output.exists())
 
     def test_each_version_gets_its_own_commit_range(self):
         self.version("45.0.1.1", "Initial PVE version")

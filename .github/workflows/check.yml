@@ -44,6 +44,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.source_commit || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Install the pinned Rust toolchain
         run: |
@@ -58,6 +59,10 @@ jobs:
           echo '/tmp/particleve-ci-python/bin' >> "$GITHUB_PATH"
       - name: Lint and unit tests
         run: make check
+      - name: Verify source-release dependency identity
+        env:
+          PYTHONPATH: Sources:.
+        run: python3 Tools/source_releases.py --repository "$GITHUB_REPOSITORY" --check
       - name: Verify upstream pins and downstream patches
         run: make check-upstream
       - name: Resolve and verify image configuration
@@ -132,6 +137,7 @@ jobs:
         env:
           PYTHONPATH: Sources:.
         run: |
+          python3 Tools/source_releases.py --repository "$GITHUB_REPOSITORY" --check
           rust_version=$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("rust-toolchain.toml").read_text())["toolchain"]["channel"])')
           dnf install --assumeyes "rust-${rust_version}" "cargo-${rust_version}"
           python3 Tools/prepare-obs.py --tree "$GITHUB_SHA"
@@ -150,3 +156,9 @@ jobs:
         run: |
           gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/heads/build" \
             -f sha="$GITHUB_SHA" -F force=false
+      - name: Request checked OBS source refresh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OBS_SERVICE_TOKENS: ${{ secrets.OBS_SERVICE_TOKENS }}
+          PYTHONPATH: Sources:.
+        run: python3 Tools/obs_refresh.py --repository "$GITHUB_REPOSITORY" --candidate "$GITHUB_SHA"

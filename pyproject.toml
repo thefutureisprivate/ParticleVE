@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "particleve"
-version = "45.0.3.1"
+version = "45.0.3.2"
 description = "ParticleVE image build and verification tools"
 requires-python = ">=3.14"
 license = "LGPL-2.1-or-later"

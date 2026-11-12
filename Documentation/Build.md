@@ -222,6 +222,11 @@ metadata, Cargo manifest and lock. Cargo uses the three PVE components because
 its package version has three fields. `make check` verifies these declarations
 and the pinned Rust toolchain requirements together.
 
+A Cargo dependency update, including a Renovate PR, requires a new source patch
+before merging. Each immutable source release owns one exact `Cargo.lock` and
+vendor archive. CI checks that identity before accepting the candidate and again
+before preparing publication; it never replaces an earlier release's archive.
+
 Reviewed development enters `main`. The
 [source workflow](../.github/workflows/check.yml) runs `make check`, verifies
 upstream pins and patches, and resolves the image configuration. For a passing
@@ -257,6 +262,13 @@ creates the ParticleVE source tarball in the worker. The mkosi/fwupd services
 extract their reviewed build inputs and download upstream sources at the locked immutable
 commits. Package-scoped source-service credentials avoid a GitHub personal
 access token. Dependency rebuilds use OBS's native repository graph.
+
+The checked publication job requests source refreshes only for the commit
+selected by `build`. It compares delivered source markers and component inputs,
+so retries preserve completed deliveries and host-only changes preserve an
+unchanged kernel or source-tool build. An active source service defers another
+request until it completes. Direct push notifications are not used: the OBS
+package-service endpoint does not filter the push branch.
 
 [Renovate configuration](../.github/renovate.json) opens reviewed updates for the
 mkosi/fwupd source pins and recipes, both kernel source pins, Cargo dependencies

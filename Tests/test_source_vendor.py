@@ -189,7 +189,10 @@ class SourceVendorTests(unittest.TestCase):
     def test_wrong_lock_aborts_before_any_release_publication(self):
         self.write_archive()
         with (
-            patch("Tools.source_releases.release_plan", return_value=[{"commit": "a" * 40}]),
+            patch(
+                "Tools.source_releases.release_plan",
+                return_value=[{"commit": "a" * 40, "version": "45.0.1.1"}],
+            ),
             patch("Tools.source_releases.git", return_value=SimpleNamespace(stdout=b"other lock\n")),
             patch("Tools.source_releases.github") as api,
             patch(
