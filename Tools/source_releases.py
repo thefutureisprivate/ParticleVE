@@ -17,8 +17,10 @@ def git(root, *arguments, check=True, text=True):
     return run(["git", "-C", root, *arguments], check=check, text=text)
 
 
-def github(repository, endpoint, body=None):
+def github(repository, endpoint, body=None, *, method=None):
     arguments = ["gh", "api", "--hostname", "github.com", f"repos/{repository}/{endpoint}"]
+    if method is not None:
+        arguments.extend(["--method", method])
     if body is not None:
         arguments.extend(["--input", "-"])
     response = run(
@@ -77,9 +79,9 @@ def vendor_digest(archive, lock):
         return "sha256:" + hashlib.file_digest(source, "sha256").hexdigest()
 
 
-def release_id(repository, tag):
-    # The tag endpoint exposes published releases. List with the publication
-    # credential to locate drafts too, then address the exact release by ID.
+def release_inventory(repository):
+    # Retain existing IDs for interrupted drafts. Newly created releases use
+    # the creation response, without depending on immediate list visibility.
     response = run(
         [
             "gh",
@@ -89,24 +91,33 @@ def release_id(repository, tag):
             "--paginate",
             f"repos/{repository}/releases",
             "--jq",
-            f".[] | select(.tag_name == {json.dumps(tag)}) | .id",
+            ".[] | [.tag_name, (.id | tostring)] | @tsv",
         ],
         timeout=300,
         env=system_tls_environment() | {"GH_HOST": "github.com"},
     ).stdout
-    values = response.splitlines()
-    require(
-        len(values) == 1 and values[0].isdecimal() and int(values[0]) > 0,
-        "source release ID is missing or ambiguous",
-    )
-    return values[0]
+    require(len(response) <= 2 * 1024**2, "oversized source release inventory")
+    releases = {}
+    for line in response.splitlines():
+        values = line.split("\t")
+        require(
+            len(values) == 2
+            and re.fullmatch(r"v[0-9]+(?:\.[0-9]+){3}", values[0])
+            and re.fullmatch(r"[1-9][0-9]{0,19}", values[1])
+            and values[0] not in releases,
+            "source release inventory is invalid or ambiguous",
+        )
+        releases[values[0]] = values[1]
+    return releases
 
 
-def publish_vendor(repository, release, archive, digest):
-    endpoint = "releases/" + release_id(repository, release["tag"])
+def publish_vendor(repository, release, archive, digest, identifier):
+    require(re.fullmatch(r"[1-9][0-9]{0,19}", identifier), "invalid source release ID")
+    endpoint = "releases/" + identifier
 
     def existing():
         info = github(repository, endpoint)
+        require(info["tag_name"] == release["tag"], "source release ID identifies another tag")
         assets = info["assets"]
         matches = [asset for asset in assets if asset["name"] == "vendor.tar.zst"]
         require(len(matches) <= 1, "ambiguous release vendor archive")
@@ -121,27 +132,27 @@ def publish_vendor(repository, release, archive, digest):
     if not present:
         require(info["draft"], "vendor assets must be attached before publishing an immutable release")
         run(
-            ["gh", "release", "upload", release["tag"], archive, "--repo", "github.com/" + repository],
+            [
+                "gh",
+                "api",
+                "--hostname",
+                "github.com",
+                "--method",
+                "POST",
+                f"https://uploads.github.com/repos/{repository}/{endpoint}/assets?name=vendor.tar.zst",
+                "--header",
+                "Content-Type: application/zstd",
+                "--input",
+                archive,
+                "--silent",
+            ],
             timeout=300,
             env=system_tls_environment() | {"GH_HOST": "github.com"},
         )
         info, present = existing()
         require(present, "release vendor archive upload is incomplete")
     if info["draft"]:
-        run(
-            [
-                "gh",
-                "release",
-                "edit",
-                release["tag"],
-                "--repo",
-                "github.com/" + repository,
-                "--draft=false",
-                "--latest",
-            ],
-            timeout=120,
-            env=system_tls_environment() | {"GH_HOST": "github.com"},
-        )
+        github(repository, endpoint, {"draft": False, "make_latest": "true"}, method="PATCH")
         info, present = existing()
         require(present and not info["draft"], "source release publication is incomplete")
 
@@ -196,24 +207,7 @@ def main():
         lock = git(root, "show", f"{plan[-1]['commit']}:Cargo.lock", text=False).stdout
         digest = vendor_digest(args.vendor_archive, lock)
     args.output.mkdir(parents=True, exist_ok=True)
-    existing = set()
-    if args.publish:
-        response = run(
-            [
-                "gh",
-                "api",
-                "--hostname",
-                "github.com",
-                "--paginate",
-                f"repos/{args.repository}/releases",
-                "--jq",
-                ".[] | .tag_name",
-            ],
-            timeout=300,
-            env=system_tls_environment() | {"GH_HOST": "github.com"},
-        ).stdout
-        require(len(response) <= 2 * 1024**2, "oversized source release inventory")
-        existing = set(response.splitlines())
+    existing = release_inventory(args.repository) if args.publish else {}
     for index, release in enumerate(plan):
         notes = args.output / (release["tag"] + ".md")
         atomic_write(notes, release["notes"].encode(), 0o644)
@@ -232,30 +226,28 @@ def main():
         # release's contents. Keep release publication scoped to that ref.
         ensure_tag(args.repository, release)
         draft = bool(args.vendor_archive and index == len(plan) - 1)
-        arguments = [
-            "gh",
-            "release",
-            "create",
-            release["tag"],
-            "--repo",
-            "github.com/" + args.repository,
-            "--verify-tag",
-            "--title",
-            "ParticleVE " + release["version"],
-            "--notes-file",
-            notes,
-            "--latest=" + ("true" if index == len(plan) - 1 and not draft else "false"),
-        ]
-        if draft:
-            arguments.append("--draft")
-        run(
-            arguments,
-            timeout=120,
-            env=system_tls_environment() | {"GH_HOST": "github.com"},
+        created = github(
+            args.repository,
+            "releases",
+            {
+                "tag_name": release["tag"],
+                "name": "ParticleVE " + release["version"],
+                "body": release["notes"],
+                "draft": draft,
+                "make_latest": "false",
+            },
         )
+        require(
+            type(created.get("id")) is int
+            and 0 < created["id"] < 10**20
+            and created.get("tag_name") == release["tag"]
+            and created.get("draft") is draft,
+            "source release creation returned an invalid identity",
+        )
+        existing[release["tag"]] = str(created["id"])
     if args.publish and args.vendor_archive:
         ensure_tag(args.repository, plan[-1])
-        publish_vendor(args.repository, plan[-1], args.vendor_archive, digest)
+        publish_vendor(args.repository, plan[-1], args.vendor_archive, digest, existing[plan[-1]["tag"]])
     atomic_write(args.output / "releases.json", (json.dumps(plan, indent=2) + "\n").encode(), 0o644)
     print(json.dumps({"source_versions": [item["version"] for item in plan], "published": args.publish}))
 

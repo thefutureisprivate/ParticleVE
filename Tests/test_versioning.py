@@ -242,19 +242,21 @@ class SourceReleaseTests(unittest.TestCase):
             if arguments[:2] == ["gh", "api"]:
                 self.assertEqual(arguments[arguments.index("--hostname") + 1], "github.com")
                 if "--paginate" in arguments:
-                    return SimpleNamespace(stdout="v45.0.1.1\n")
+                    return SimpleNamespace(stdout="v45.0.1.1\t41\n")
                 if "git/matching-refs/tags/" in arguments[4]:
                     return SimpleNamespace(stdout="[]")
+                if arguments[4] == "repos/owner/repository/releases":
+                    body = json.loads(kwargs["input"])
+                    created.append(body)
+                    return SimpleNamespace(
+                        stdout=json.dumps({"id": 42, "tag_name": body["tag_name"], "draft": True})
+                    )
                 self.assertEqual(
                     json.loads(kwargs["input"]), {"ref": "refs/tags/v45.0.1.2", "sha": expected["commit"]}
                 )
                 return SimpleNamespace(
                     stdout=json.dumps({"object": {"type": "commit", "sha": expected["commit"]}})
                 )
-            if arguments[:3] == ["gh", "release", "create"]:
-                self.assertEqual(arguments[arguments.index("--repo") + 1], "github.com/owner/repository")
-                created.append(arguments)
-                return SimpleNamespace(stdout="created")
             return real_run(arguments, **kwargs)
 
         with (
@@ -287,9 +289,9 @@ class SourceReleaseTests(unittest.TestCase):
         ):
             publish_releases()
         self.assertEqual(len(created), 1)
-        self.assertEqual(created[0][3], "v45.0.1.2")
-        self.assertIn("--verify-tag", created[0])
-        self.assertNotIn("--target", created[0])
+        self.assertEqual(created[0]["tag_name"], "v45.0.1.2")
+        self.assertNotIn("target_commitish", created[0])
+        self.assertTrue(created[0]["draft"])
         self.assertIn("Fix the loader", (output / "v45.0.1.2.md").read_text())
 
     def test_publication_failure_is_not_recorded_as_a_completed_release(self):
@@ -301,8 +303,8 @@ class SourceReleaseTests(unittest.TestCase):
 
         def command(arguments, **kwargs):
             if arguments[:2] == ["gh", "api"]:
-                return SimpleNamespace(stdout="")
-            if arguments[:3] == ["gh", "release", "create"]:
+                if "--paginate" in arguments:
+                    return SimpleNamespace(stdout="")
                 raise Error("GitHub unavailable")
             return real_run(arguments, **kwargs)
 

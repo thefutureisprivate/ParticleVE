@@ -39,7 +39,9 @@ disabled. The source release carries the locked vendor archive. Publication
 verifies its lockfile and GitHub's asset digest before advancing the OBS build
 ref. Assets are attached and verified in a draft before publication locks the
 release; retries resume that draft, and an existing asset must match and is
-never overwritten. OBS downloads that
+never overwritten. Publication retains the ID returned when a draft is created
+and addresses uploads and publication by that ID; it does not require a newly
+created draft to be visible in the release list. OBS downloads that
 archive through its native `download_files` service. RPM builds and
 checks run offline using the pinned Rust toolchain. Native ELF identities are
 recorded after Fedora's ordinary stripping and debug-information processing;
