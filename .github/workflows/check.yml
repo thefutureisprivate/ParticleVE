@@ -70,6 +70,8 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Authorize the runner-owned checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Compare system inputs with the last selected build
         id: build-inputs
         env:
