@@ -1,14 +1,14 @@
 # Native OBS rpm flavor; the default build consumes these RPMs for the image.
 %global _buildshell /bin/bash
 Name:           particleve
-Version:        45.0.2.5
+Version:        45.0.2.6
 Release:        1%{?dist}
 Summary:        ParticleVE host installation and maintenance coordinator
 # Project sources are LGPL; statically linked crates select MIT where dual
 # licensed. LICENSE.dependencies records the native resolved dependency graph.
 License:        LGPL-2.1-or-later AND MIT AND Apache-2.0 AND ISC AND BSD-3-Clause AND Unicode-3.0
 Source0:        particleve-%{version}.tar.xz
-Source1:        vendor.tar.zst
+Source1:        https://github.com/thefutureisprivate/ParticleVE/releases/download/v%{version}/vendor.tar.zst
 ExclusiveArch:  x86_64
 BuildRequires:  cargo-rpm-macros
 BuildRequires:  cargo = 1.99.1
@@ -104,7 +104,7 @@ cp Cargo.lock Cargo.lock.source
 tar -xf %{SOURCE1}
 cmp Cargo.lock.source Cargo.lock
 rm Cargo.lock.source
-# The current OBS vendor service emits .cargo/config. Consume its contents
+# The locked vendor archive supplies .cargo/config. Consume its contents
 # through the filename required by the pinned Cargo, before any Cargo command.
 test ! -e .cargo/config.toml
 mv .cargo/config .cargo/config.toml

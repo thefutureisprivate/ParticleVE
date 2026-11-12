@@ -22,7 +22,7 @@ and RPM declarations consistent. Native Fedora RPM builds retain the distro
 compiler flags, removing only its warning-cap flag before enforcing project
 diagnostics as errors.
 
-The OBS vendor archive supplies `.cargo/config`. The RPM preparation step moves
+The locked vendor archive supplies `.cargo/config`. The RPM preparation step moves
 that generated configuration to `.cargo/config.toml` before invoking the pinned
 Cargo, retaining its contents and lock verification without deprecated-name
 diagnostics. Local OBS reproduction emits the same vendor archive layout.
@@ -57,10 +57,11 @@ artifact hashes so its inputs remain identifiable.
 ## Runtime and system interface contracts
 
 `make check` runs Rust formatting, Clippy, runtime tests, the compiled contract
-driver, Ruff, shell syntax checks and Python unittest with `-W error`. OBS uses
-the native Cargo vendor source service with updates disabled and the lock
-required; compilation and checks run offline. The `particleve-initrd` RPM carries
-the same storage admission executable used by the host, without the host
+driver, Ruff, shell syntax checks and Python unittest with `-W error`. Source
+publication uses the pinned native Cargo with the lock required and updates
+disabled; OBS downloads the matching release archive, and compilation and checks
+run offline. The `particleve-initrd` RPM carries the same storage admission
+executable used by the host, without the host
 administration dependency set or a first-party Python runtime.
 
 The image uses native systemd-vmspawn service templates, machined/machinectl,

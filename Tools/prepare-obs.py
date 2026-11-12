@@ -19,7 +19,11 @@ p.add_argument("--output", type=Path, default=Path("build/obs-packages"))
 p.add_argument("--cargo", default="cargo", help="Cargo from the pinned Rust toolchain")
 args = p.parse_args()
 tree = run(["git", "rev-parse", f"{args.tree}^{{tree}}"]).stdout.strip()
-archive = subprocess.run(["git", "archive", "--format=tar", tree], capture_output=True, check=True).stdout
+archive = subprocess.run(
+    ["git", "archive", "--format=tar", "--mtime=1970-01-01T00:00:00Z", tree],
+    capture_output=True,
+    check=True,
+).stdout
 package = args.output / "particleve"
 require(not package.exists(), f"output must be fresh: {package}")
 package.mkdir(parents=True)
@@ -38,6 +42,8 @@ with tarfile.open(fileobj=io.BytesIO(archive)) as source:
         for member in source.getmembers():
             content = source.extractfile(member) if member.isfile() else None
             member.name = f"particleve-{version}/" + member.name
+            if member.isdir() or member.isfile():
+                member.mode = 0o755 if member.isdir() or member.mode & 0o111 else 0o644
             output.addfile(member, content)
 with tempfile.TemporaryDirectory() as temporary:
     directory = Path(temporary)
@@ -87,6 +93,7 @@ with tempfile.TemporaryDirectory() as temporary:
             member = output.gettarinfo(path, arcname=path.relative_to(root).as_posix())
             member.uid = member.gid = member.mtime = 0
             member.uname = member.gname = ""
+            member.mode = 0o755 if member.isdir() or member.mode & 0o111 else 0o644
             if member.isfile():
                 with path.open("rb") as content:
                     output.addfile(member, content)
@@ -94,7 +101,7 @@ with tempfile.TemporaryDirectory() as temporary:
                 output.addfile(member)
 atomic_write(
     package / "particleve.obsinfo",
-    f"name: particleve\nversion: {version}\ntree: {tree}\n".encode(),
+    f"name: particleve\nversion: {version}\nmtime: 0\ntree: {tree}\n".encode(),
     0o644,
 )
 print(f"Prepared exact Git tree {tree}; automatic obs_scm follows the checked build ref.")

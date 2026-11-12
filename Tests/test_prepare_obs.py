@@ -113,6 +113,13 @@ class PrepareObsTests(unittest.TestCase):
                         (output / "particleve/particleve.obsinfo").read_text().splitlines()[-1],
                         "tree: " + tree,
                     )
+                    self.assertIn(
+                        "mtime: 0",
+                        (output / "particleve/particleve.obsinfo").read_text().splitlines(),
+                    )
+                    with tarfile.open(output / f"particleve/{prefix}.tar.xz") as source:
+                        self.assertTrue(all(member.mtime == 0 for member in source.getmembers()))
+                        self.assertEqual(source.getmember(prefix + "/particleve.version").mode, 0o644)
                     with tarfile.open(output / "particleve/vendor.tar.zst", "r:zst") as vendor:
                         self.assertEqual(vendor.extractfile("Cargo.lock").read(), b"version = 4\n")
                         self.assertEqual(

@@ -52,6 +52,11 @@ jobs:
     needs: source-checks
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    container:
+      image: registry.fedoraproject.org/fedora:45@sha256:fa773d10382c082ff2cccaf7982a5c162f11f296f91274b994357f2d3d473770
+    defaults:
+      run:
+        shell: bash
     timeout-minutes: 10
     permissions:
       contents: write
@@ -59,13 +64,12 @@ jobs:
       group: build-source
       cancel-in-progress: false
     steps:
+      - name: Install native publication tools
+        run: dnf install --assumeyes git python3 gh cpio tar xz zstd ca-certificates
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: '3.15'
       - name: Compare system inputs with the last selected build
         id: build-inputs
         env:
@@ -74,12 +78,22 @@ jobs:
         run: |
           base=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/build" --jq .object.sha)
           python3 Tools/build_source.py --base "$base" --candidate "$GITHUB_SHA" --github-output "$GITHUB_OUTPUT"
+      - name: Prepare locked dependency sources
+        if: steps.build-inputs.outputs.changed == 'true'
+        env:
+          PYTHONPATH: Sources:.
+        run: |
+          rust_version=$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("rust-toolchain.toml").read_text())["toolchain"]["channel"])')
+          dnf install --assumeyes "rust-${rust_version}" "cargo-${rust_version}"
+          python3 Tools/prepare-obs.py --tree "$GITHUB_SHA"
       - name: Publish source-version releases
         if: steps.build-inputs.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PYTHONPATH: Sources:.
-        run: python3 Tools/source_releases.py --repository "$GITHUB_REPOSITORY" --publish
+        run: >-
+          python3 Tools/source_releases.py --repository "$GITHUB_REPOSITORY" --publish
+          --vendor-archive build/obs-packages/particleve/vendor.tar.zst
       - name: Advance the checked OBS build ref
         if: steps.build-inputs.outputs.changed == 'true'
         env:

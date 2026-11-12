@@ -2,8 +2,10 @@
 """Prepare source-version changelogs; publish them only with --publish."""
 
 import argparse
+import hashlib
 import json
 import re
+import tarfile
 from pathlib import Path
 
 from particleve.common import atomic_write, require, run
@@ -11,8 +13,8 @@ from particleve.versioning import source_key
 from Tools.trust import system_tls_environment
 
 
-def git(root, *arguments, check=True):
-    return run(["git", "-C", root, *arguments], check=check)
+def git(root, *arguments, check=True, text=True):
+    return run(["git", "-C", root, *arguments], check=check, text=text)
 
 
 def github(repository, endpoint, body=None):
@@ -47,6 +49,55 @@ def ensure_tag(repository, release):
         require(value["type"] == "tag", "source-version tag does not identify a commit")
         value = github(repository, "git/tags/" + value["sha"])["object"]
     require(False, "too many nested source-version tag objects")
+
+
+def vendor_digest(archive, lock):
+    require(archive.name == "vendor.tar.zst", "unexpected release vendor archive filename")
+    require(archive.is_file() and not archive.is_symlink(), "vendor archive must be a regular file")
+    require(0 < archive.stat().st_size <= 64 * 1024**2, "vendor archive exceeds its size limit")
+    found = False
+    total = 0
+    with tarfile.open(archive, "r|zst", stream=True) as contents:
+        for index, entry in enumerate(contents):
+            total += entry.size
+            require(
+                index < 20000 and 0 <= entry.size <= 64 * 1024**2 and total <= 512 * 1024**2,
+                "vendor archive expands beyond its size limit",
+            )
+            if entry.name == "Cargo.lock":
+                require(
+                    not found and entry.isfile() and entry.size <= 1024**2,
+                    "vendor archive must contain exactly one bounded lockfile",
+                )
+                with contents.extractfile(entry) as source:
+                    require(source.read() == lock, "vendor archive has another lockfile")
+                found = True
+    require(found, "vendor archive must contain exactly one bounded lockfile")
+    with archive.open("rb") as source:
+        return "sha256:" + hashlib.file_digest(source, "sha256").hexdigest()
+
+
+def publish_vendor(repository, release, archive, digest):
+    endpoint = "releases/tags/" + release["tag"]
+
+    def existing():
+        assets = github(repository, endpoint)["assets"]
+        matches = [asset for asset in assets if asset["name"] == "vendor.tar.zst"]
+        require(len(matches) <= 1, "ambiguous release vendor archive")
+        if matches:
+            require(
+                matches[0]["state"] == "uploaded" and matches[0]["digest"] == digest,
+                "release vendor archive does not match the checked archive",
+            )
+        return bool(matches)
+
+    if not existing():
+        run(
+            ["gh", "release", "upload", release["tag"], archive, "--repo", "github.com/" + repository],
+            timeout=300,
+            env=system_tls_environment() | {"GH_HOST": "github.com"},
+        )
+        require(existing(), "release vendor archive upload is incomplete")
 
 
 def release_plan(root, repository):
@@ -86,9 +137,15 @@ def main():
     parser.add_argument("--repository", required=True)
     parser.add_argument("--output", type=Path, default=Path("build/source-releases"))
     parser.add_argument("--publish", action="store_true")
+    parser.add_argument("--vendor-archive", type=Path, help="locked archive for the latest source release")
     args = parser.parse_args()
     root = Path.cwd()
     plan = release_plan(root, args.repository)
+    digest = None
+    if args.vendor_archive:
+        require(bool(plan), "vendor publication needs a source release")
+        lock = git(root, "show", f"{plan[-1]['commit']}:Cargo.lock", text=False).stdout
+        digest = vendor_digest(args.vendor_archive, lock)
     args.output.mkdir(parents=True, exist_ok=True)
     existing = set()
     if args.publish:
@@ -143,6 +200,9 @@ def main():
             timeout=120,
             env=system_tls_environment() | {"GH_HOST": "github.com"},
         )
+    if args.publish and args.vendor_archive:
+        ensure_tag(args.repository, plan[-1])
+        publish_vendor(args.repository, plan[-1], args.vendor_archive, digest)
     atomic_write(args.output / "releases.json", (json.dumps(plan, indent=2) + "\n").encode(), 0o644)
     print(json.dumps({"source_versions": [item["version"] for item in plan], "published": args.publish}))
 

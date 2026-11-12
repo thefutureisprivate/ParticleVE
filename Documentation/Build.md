@@ -33,11 +33,18 @@ The host package requires its matching initrd subpackage. The initrd installs
 only the early-boot component and its native dependencies. Python build tools
 and test harnesses are not installed as host or initrd runtime helpers.
 
-Runtime dependencies are vendored by the native OBS Cargo source service from
-the reviewed `Cargo.lock`, with dependency updates disabled. RPM builds and
+Runtime dependencies are vendored by the pinned native Cargo during checked
+source publication from the reviewed `Cargo.lock`, with dependency updates
+disabled. The source release carries the locked vendor archive. Publication
+verifies its lockfile and GitHub's asset digest before advancing the OBS build
+ref; an existing asset must match and is never overwritten. OBS downloads that
+archive through its native `download_files` service. RPM builds and
 checks run offline using the pinned Rust toolchain. Native ELF identities are
 recorded after Fedora's ordinary stripping and debug-information processing;
 upstream dependency license and notice texts accompany the runtime packages.
+The worker reconstructs and compresses the source archive from the SCM snapshot
+using buildtime `tar` and `recompress` services. The worker needs no network
+access, and source preparation uses only services installed on the OBS server.
 The independently built mkosi and fwupd-efi RPMs also carry their own upstream
 pin, recipe and patch identities, plus installed-payload hashes. Their build
 records are produced after Fedora's BRP transformations. The source service keeps
@@ -196,9 +203,10 @@ permission check when its workflow files differ from the default branch.
 
 The source repository and OBS ref are declared in [`.obs/site.json`](../.obs/site.json).
 The three `.obs/*/_service` definitions follow `build`; the ParticleVE package's
-native SCM bridge also tracks that ref. OBS creates the ParticleVE source tarball
-before vendoring the exact Cargo lock. The mkosi/fwupd services extract their
-reviewed build inputs and download upstream sources at the locked immutable
+native SCM bridge also tracks that ref. Checked publication prepares and uploads
+the exact locked vendor archive before advancing the ref; OBS downloads it and
+creates the ParticleVE source tarball in the worker. The mkosi/fwupd services
+extract their reviewed build inputs and download upstream sources at the locked immutable
 commits. Package-scoped source-service credentials avoid a GitHub personal
 access token. Dependency rebuilds use OBS's native repository graph.
 
