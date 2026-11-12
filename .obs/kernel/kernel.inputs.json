@@ -537,7 +537,7 @@
     },
     "kernel.recipe": {
       "algorithm": "sha256",
-      "digest": "007420ea841764bff913fecf35fcb56ea98e070d5d55f54ca03e5d204a2b898c",
+      "digest": "ac837042f3ff85b71893e54766489fd01b2b29e90be7052fe44fc6077455da9b",
       "mode": 420
     },
     "kernel.sbat.template": {
@@ -548,6 +548,11 @@
     "kernelbuild.py": {
       "algorithm": "sha256",
       "digest": "5ed04a39b340f444ca503d5b8e738005a7c62ba7456b66f574b735ec9784a85c",
+      "mode": 420
+    },
+    "kernelpayload.py": {
+      "algorithm": "sha256",
+      "digest": "e9967ab21249bd895101f2ce896e05746f39a08cd2d078a80386c7e6f5478a60",
       "mode": 420
     },
     "kmap.py": {
@@ -700,9 +705,9 @@
       "digest": "d8a3e2db453e9dcf73c016e7125d3fb2cde5a3ef97f831ad42ab676807ba507a",
       "mode": 420
     },
-    "secureblue-copr_script.sh": {
+    "secureblue-srpm_script.sh": {
       "algorithm": "sha256",
-      "digest": "f5acf361ee823ae71f6f56f68efaf75eff27c688b1f5a8d295ca38cfca13b3fb",
+      "digest": "ca45a28786ba8cf8bebfaf8c2727932f76db67d4a4eca95d479328fab32b8c7d",
       "mode": 420
     },
     "secureblue.LICENSE": {
@@ -757,7 +762,7 @@
     },
     "secureblue_kernel": {
       "branch": "live",
-      "revision": "39911dc23b9a1c63e0da545d7540d93172e0c56b",
+      "revision": "c249bb9877643e9d4953f2fb503704f3f6ca9009",
       "url": "https://github.com/secureblue/kernel.git"
     }
   }

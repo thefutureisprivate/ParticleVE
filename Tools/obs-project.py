@@ -43,7 +43,11 @@ atomic_write(
     b"Release: <CI_CNT>.<B_CNT>\n"
     b"Prefer: systemd-udev systemd-boot\n"
     b"Prefer: -systemd-standalone-repart -systemd-boot-unsigned\n"
-    b'%if "%_repository" == "Fedora_45_images"\nType: mkosi\n'
+    b'%if "%_repository" == "Fedora_45"\n'
+    b"BuildFlags: onlybuild:mkosi onlybuild:fwupd-efi onlybuild:kernel onlybuild:particleve:rpm\n"
+    b"%endif\n"
+    b'%if "%_repository" == "Fedora_45_images"\n'
+    b"BuildFlags: onlybuild:particleve excludebuild:particleve:rpm\nType: mkosi\n"
     b"Repotype: checksumsfile:rawsig staticlinks\nPatterntype: none\n"
     b"%endif\n",
     0o644,

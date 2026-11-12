@@ -5,8 +5,10 @@
   "hardware_validation": "unvalidated",
   "schema": 1,
   "sources": {
+    "fedora_kernel": "5ec3867fa7eb3f5d4a521ffa8898689f5731a71f",
     "fwupd_efi": "ffeaa10aed8e91f5b8feaefc51faf71b3d034fd3",
     "mkosi": "a6753e508681aa162cef4e5183f1a728c11c4d78",
-    "particleos": "b605add797ba65853eb79f8170c4a5743a6f4b1f"
+    "particleos": "b605add797ba65853eb79f8170c4a5743a6f4b1f",
+    "secureblue_kernel": "c249bb9877643e9d4953f2fb503704f3f6ca9009"
   }
 }

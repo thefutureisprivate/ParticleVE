@@ -112,10 +112,58 @@ def verify_directory(directory, keyring, certificate, *, artifacts=True):
     return manifest
 
 
+def verify_uki_kernel(sections, manifest):
+    binding = manifest.get("kernel_verification", {})
+    require(isinstance(binding, dict), "UKI kernel source binding is missing or invalid")
+    # Retained releases before the custom-kernel adoption carry driver-only
+    # metadata. Every new source release requires the source/payload binding.
+    if version_key(manifest["version"])[:4] < (45, 0, 3, 0) and "kernel_pe_sha256" not in binding:
+        return
+    require(
+        isinstance(binding, dict)
+        and all(
+            isinstance(binding.get(key), str) and re.fullmatch(r"[0-9a-f]{64}", binding[key])
+            for key in ("kernel_pe_sha256", "source_sha256")
+        ),
+        "UKI kernel source binding is missing or invalid",
+    )
+    require(
+        isinstance(sections.get(".linux"), dict)
+        and sections[".linux"].get("sha256") == binding["kernel_pe_sha256"],
+        "UKI kernel differs from the verified kernel package",
+    )
+    require(
+        isinstance(binding.get("kernel"), str)
+        and re.fullmatch(r"[A-Za-z0-9_+.-]+\.x86_64", binding["kernel"])
+        and isinstance(sections.get(".uname"), dict)
+        and isinstance(sections[".uname"].get("text"), str)
+        and sections[".uname"]["text"].strip("\x00 \n") == binding["kernel"],
+        "UKI kernel release differs from the verified module tree",
+    )
+
+
 def inspect_uki(path, manifest):
     response = run(["/usr/lib/systemd/ukify", "--json=short", "inspect", path])
     require(not response.stderr.strip(), "UKI inspection produced diagnostics")
     sections = json.loads(response.stdout)
+    verify_uki_kernel(sections, manifest)
+    binding = manifest.get("kernel_verification", {})
+    if version_key(manifest["version"])[:4] >= (45, 0, 3, 0) or "initrd" in binding:
+        initrd = binding.get("initrd")
+        require(
+            isinstance(initrd, dict)
+            and set(initrd) == {"kernel", "sha256", "module_files", "security_files"}
+            and isinstance(initrd["sha256"], str)
+            and re.fullmatch(r"[0-9a-f]{64}", initrd["sha256"])
+            and initrd["kernel"] == binding.get("kernel")
+            and type(initrd["module_files"]) is int
+            and 0 < initrd["module_files"] <= 16384
+            and type(initrd["security_files"]) is int
+            and 0 < initrd["security_files"] <= 128
+            and isinstance(sections.get(".initrd"), dict)
+            and sections[".initrd"].get("sha256") == initrd["sha256"],
+            "UKI initrd differs from the verified early-boot payload",
+        )
 
     def text(section):
         require(

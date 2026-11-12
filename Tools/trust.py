@@ -7,7 +7,10 @@ import ssl
 
 def system_trust_paths():
     """Return distribution CA paths, independent of process trust overrides."""
-    if platform.freedesktop_os_release().get("ID") == "fedora":
+    release = platform.freedesktop_os_release()
+    # OBS's native Fedora build root uses ID=generic and ID_LIKE=fedora.
+    # Its CA package still owns Fedora's canonical extracted trust paths.
+    if "fedora" in {release.get("ID"), *release.get("ID_LIKE", "").split()}:
         return {
             "cafile": "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
             "capath": "/etc/pki/tls/certs",

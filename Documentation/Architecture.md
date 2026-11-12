@@ -19,9 +19,12 @@ the compiled implementation. The helpers preserve the native systemd interfaces
 and the persisted contracts described below.
 
 The Fedora 45 userspace and upstream stable systemd package family are combined
-with Fedora's supported kernel packages, configuration, and patches. Kernel
-updates follow the Fedora package repositories and the normal OBS image rebuild
-path. Exact package identities and effective mitigations belong to each release's
+with a Fedora-derived kernel built from pinned Fedora packaging and the reviewed
+secureblue baseline. Kernel updates follow the selected Fedora branch through
+reviewed source-pin updates and the normal OBS dependency rebuild path.
+Source, resolved configuration, transformed module bodies and final signatures
+are checked together before publication. Exact package identities and effective
+mitigations belong to each release's
 provenance; see the [toolchain baseline](Toolchain.md) and
 [build procedures](Build.md).
 

@@ -218,3 +218,48 @@ class RustOrchestrationTests(RustDriverTests):
                     return release.inspect_uki("test-only.efi", release_fixture())
 
             self.compare("verify-uki-sections", expected, sections=selected, manifest=release_fixture())
+
+    def test_signed_uki_kernel_binding_matches_the_build_verifier(self):
+        source = test_consoles.ConsoleTests().sections()
+        source[".osrel"]["text"] = "IMAGE_ID=ParticleVE\nIMAGE_VERSION=45.0.3.0-1.1"
+        source[".linux"] = {"sha256": "a" * 64}
+        source[".uname"] = {"text": "7.3.3-1.2.x86_64"}
+        source[".initrd"] = {"sha256": "d" * 64}
+        manifest = release_fixture()
+        manifest["version"] = "45.0.3.0-1.1"
+        manifest["kernel_verification"] = {
+            "kernel": "7.3.3-1.2.x86_64",
+            "kernel_pe_sha256": "a" * 64,
+            "source_sha256": "b" * 64,
+            "initrd": {
+                "kernel": "7.3.3-1.2.x86_64",
+                "sha256": "d" * 64,
+                "module_files": 600,
+                "security_files": 28,
+            },
+        }
+        for mutation in ("valid", "missing", "null", "source", "linux", "uname", "initrd", "missing-initrd"):
+            sections, selected = copy.deepcopy(source), copy.deepcopy(manifest)
+            if mutation == "missing":
+                selected.pop("kernel_verification")
+            elif mutation == "null":
+                selected["kernel_verification"] = None
+            elif mutation == "source":
+                selected["kernel_verification"]["source_sha256"] = "invalid"
+            elif mutation == "linux":
+                sections[".linux"]["sha256"] = "c" * 64
+            elif mutation == "uname":
+                sections[".uname"]["text"] = "7.3.3-300.fc45.x86_64"
+            elif mutation == "initrd":
+                sections[".initrd"]["sha256"] = "e" * 64
+            elif mutation == "missing-initrd":
+                selected["kernel_verification"].pop("initrd")
+
+            def expected(sections=sections, selected=selected):
+                with patch(
+                    "particleve.release.run",
+                    return_value=SimpleNamespace(stdout=json.dumps(sections), stderr=""),
+                ):
+                    return release.inspect_uki("test-only.efi", selected)
+
+            self.compare("verify-uki-sections", expected, sections=sections, manifest=selected)

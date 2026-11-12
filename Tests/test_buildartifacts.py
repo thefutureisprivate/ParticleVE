@@ -8,6 +8,7 @@ from particleve.buildartifacts import (
     carry_signing_hook,
     pad_signature_partition,
     postoutput,
+    remove_intermediate_checksums,
     verify_mount_constraints,
 )
 from particleve.common import Error
@@ -16,6 +17,26 @@ from particleve.layout import TYPES
 
 
 class BuildSigningTests(unittest.TestCase):
+    def test_final_checksum_cleanup_removes_native_pre_signing_indices_only(self):
+        version = "45.0.3.0-0.5"
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            stale = ("kernel.sha256", f"ParticleVE_{version}_x86-64.SHA256SUMS")
+            retained = (
+                "SHA256SUMS",
+                "SHA256SUMS.asc",
+                f"ParticleVE_{version}_x86-64.release.json",
+                f"ParticleVE_{version}_x86-64.efi",
+                "ParticleVE_45.0.2.8-1.1_x86-64.SHA256SUMS",
+            )
+            for name in (*stale, *retained):
+                (output / name).write_text(name)
+            remove_intermediate_checksums(output, version)
+            remove_intermediate_checksums(output, version)
+            self.assertEqual({path.name for path in output.iterdir()}, set(retained))
+            for name in retained:
+                self.assertEqual((output / name).read_text(), name)
+
     def test_protected_constraints_match_the_installed_geometry_without_extra_choices(self):
         expected = {
             "user.validatefs.mount_point": b"/usr\0",

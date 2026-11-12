@@ -1,0 +1,56 @@
+name: Prepare kernel source update
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-source-update-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >-
+      github.actor == 'renovate[bot]' &&
+      github.event.pull_request.user.login == 'renovate[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.ref == 'renovate/kernel-source-pins'
+    runs-on: ubuntu-latest
+    container:
+      image: registry.fedoraproject.org/fedora:45@sha256:fa773d10382c082ff2cccaf7982a5c162f11f296f91274b994357f2d3d473770
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: read
+      actions: write
+    steps:
+      - name: Install native source verification tools
+        run: dnf install --assumeyes git python3 gh rpm rpm-build fedora-gpg-keys util-linux-core ca-certificates
+      # Only trusted base code executes. Candidate code is never checked out.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Authorize the runner-owned trusted base checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Regenerate public recipes from approved source pins
+        env:
+          PYTHONPATH: Sources:.
+        run: >-
+          python3 Tools/kernel-source-pr.py --event "$GITHUB_EVENT_PATH"
+          --repository "$GITHUB_REPOSITORY"
+      - name: Append generated files to the same reviewed PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONPATH: Sources:.
+        run: >-
+          python3 Tools/kernel-source-pr.py --event "$GITHUB_EVENT_PATH"
+          --repository "$GITHUB_REPOSITORY" --publish

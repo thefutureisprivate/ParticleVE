@@ -17,6 +17,7 @@ from particleve.kernelbuild import (
     configuration,
     fedora_version,
     regular,
+    replace_once,
     sha256,
     source_manifest,
 )
@@ -84,6 +85,7 @@ def service_definition(lock, fedora_names, repository):
             ".obs/kernel/kernel-local",
             ".obs/kernel/kernel.inputs.json",
             "Sources/particleve/kernelbuild.py",
+            "Sources/particleve/kernelpayload.py",
         ),
         {
             ".obs/kernel/kernel.spec": "kernel.recipe",
@@ -107,7 +109,7 @@ def service_definition(lock, fedora_names, repository):
         lock["secureblue_kernel"]["revision"],
         "secureblue-kernel-inputs",
         ("correct-spectre-flag-behavior.patch",),
-        {"LICENSE": "secureblue.LICENSE", "copr_script.sh": "secureblue-copr_script.sh"},
+        {"LICENSE": "secureblue.LICENSE", "srpm_script.sh": "secureblue-srpm_script.sh"},
     )
     ET.SubElement(services, "service", name="download_files")
     ET.indent(services, space="  ")
@@ -136,7 +138,7 @@ def generate(repo, lock, fedora, secureblue):
         and builtin.count(b"-----BEGIN CERTIFICATE-----") == len(retained["certificate_sha256"]),
         "retained Fedora built-in certificate bundle differs from its approved policy",
     )
-    script = regular(secureblue / "copr_script.sh").decode()
+    script = regular(secureblue / "srpm_script.sh").decode()
     selected = configuration(script, policy)
     patches = sorted(path.relative_to(secureblue).as_posix() for path in (secureblue / "patches").iterdir())
     require(
@@ -156,7 +158,11 @@ def generate(repo, lock, fedora, secureblue):
             git(tree, "apply", patch.resolve())
         spec = adapt_spec((tree / "kernel.spec").read_text(), manifest)
     spec = spec.replace(
-        "%prep\n", "%prep\npython3 %{SOURCE5000} --verify-sources %{_sourcedir} --manifest %{SOURCE5001}\n", 1
+        "%prep\n",
+        "%prep\npython3 %{SOURCE5000} --verify-sources %{_sourcedir} --manifest %{SOURCE5001}\n"
+        "test -s %{_sourcedir}/_projectcert.crt\n"
+        "openssl x509 -in %{_sourcedir}/_projectcert.crt -noout\n",
+        1,
     )
     require(spec.count("%prep\n") == 1, "Fedora prep section changed")
     boundary = "    %{make} %{?_smp_mflags} mrproper\n    cp configs/$Config .config\n"
@@ -174,12 +180,43 @@ Source5003: kernel.recipe
 Source5004: fedora-kernel.recipe
 Source5005: fedora-kernel-local
 Source5006: secureblue.LICENSE
-Source5007: secureblue-copr_script.sh
+Source5007: secureblue-srpm_script.sh
 Source5008: fedora-sources
 Source5009: fedora-builtin.pem
+Source5010: kernelpayload.py
 """
     require(spec.count("Source4002: gating.yaml\n") == 1, "Fedora source declarations changed")
     spec = spec.replace("Source4002: gating.yaml\n", "Source4002: gating.yaml\n\n" + declaration)
+    spec = (
+        "# needssslcertforbuild\nBuildRequires: pesign-obs-integration >= 10\nBuildRequires: pesign\n" + spec
+    )
+    # Native Fedora debug/strip steps still run. Its first RPM contains .ko
+    # files; the standard OBS continuation signs those bodies, then compresses
+    # them and updates the RPM file lists. Compressing before that step would
+    # silently leave modules outside the signer's supported input set.
+    spec = replace_once(spec, "%global zipmodules 1\n", "%global zipmodules 0\n")
+    spec = replace_once(
+        spec,
+        "  %{__modsign_install_post}\n",
+        "  %{__modsign_install_post}\\\n"
+        "  python3 %{SOURCE5010} --modules %{buildroot}/lib/modules "
+        "--source-manifest %{SOURCE5001} --certificate %{_sourcedir}/_projectcert.crt\\\n"
+        "  export BRP_PESIGN_COMPRESS_MODULE=xz\\\n"
+        "  /usr/lib/rpm/brp-suse.d/brp-99-pesign "
+        "--files '/lib/modules/*/vmlinuz /lib/modules/*/*.ko'\\\n"
+        "  test -s %{_topdir}/OTHER/kernel.cpio.rsasign\\\n"
+        "  test -s %{_topdir}/OTHER/pesign-repackage.spec\\\n"
+        "  python3 %{SOURCE5010} --prepare-signing-continuation "
+        "%{_topdir}/OTHER/pesign-repackage.spec\n",
+    )
+    # This identity belongs to kernel-core, so it survives module subpackage
+    # selection and follows the same exact uname-r as its kernel image.
+    spec = replace_once(
+        spec,
+        "/lib/modules/%{KVERREL}%{?3:+%{3}}/vmlinuz\\\n",
+        "/lib/modules/%{KVERREL}%{?3:+%{3}}/vmlinuz\\\n"
+        "/lib/modules/%{KVERREL}%{?3:+%{3}}/particleve-kernel.json\\\n",
+    )
     local = config_text(selected)
     rename = {
         "kernel.spec": "fedora-kernel.recipe",
@@ -201,9 +238,10 @@ Source5009: fedora-builtin.pem
         "kernel-local": local.encode(),
         "kernel-policy.json": policy_data,
         "kernelbuild.py": regular(repo / "Sources/particleve/kernelbuild.py"),
+        "kernelpayload.py": regular(repo / "Sources/particleve/kernelpayload.py"),
         "fedora-builtin.pem": builtin,
         "secureblue.LICENSE": regular(secureblue / "LICENSE"),
-        "secureblue-copr_script.sh": script.encode(),
+        "secureblue-srpm_script.sh": script.encode(),
         "correct-spectre-flag-behavior.patch": regular(secureblue / "correct-spectre-flag-behavior.patch"),
     }.items():
         require(name not in files, "kernel source input collision")

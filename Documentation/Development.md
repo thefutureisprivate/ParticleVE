@@ -13,8 +13,8 @@ GnuPG, OpenSSL, cpio, and the OpenSSH client tools. The source tests use
 `ssh-keygen` to check actual public-key parsing. Image builds also need the native
 tools and project packages described in [build and publication](Build.md) and
 the [mkosi RPM recipe](../.obs/mkosi/mkosi.spec). The runtime, initrd, and image
-tools use Fedora 45, Fedora's kernel packages, and the selected stable systemd
-package family.
+tools use Fedora 45, the pinned Fedora-derived kernel packages, and the selected
+stable systemd package family.
 
 Check the source and prepare the pinned build inputs:
 
@@ -35,7 +35,7 @@ and image inputs. Review those tracked changes. `make summary` resolves and
 checks the configuration of all three trees before image generation.
 
 For a local signed image, first make the matching ParticleVE host, initrd,
-build-tools, pinned mkosi, and fwupd-efi RPMs available to the selected build
+build-tools, kernel, pinned mkosi, and fwupd-efi RPMs available to the selected build
 environment and repositories. Their recorded source and payload identities must
 match the checkout. Changing runtime code, trust, recipes, or patches requires
 rebuilding the affected packages; published packages from another implementation
@@ -110,6 +110,14 @@ checks those inputs before unpacking the kernel. An independently authenticated
 Fedora source RPM's extracted files can also be checked with
 `--verify-srpm-sources /absolute/path/to/extracted-sources`.
 
+The trusted-base [kernel PR workflow](../.github/workflows/kernel-source-update.yml)
+performs that independent check automatically. Fedora RPM versions come from the
+release and stable-updates source repositories; Koji supplies the corresponding
+immutable Git identity. The workflow uses a separate RPM database containing only
+the selected release's native public key, then decodes bounded regular source
+members without executing the SRPM recipe. Source Git, package signatures and
+lookaside checksums must agree before generated files are appended to the PR.
+
 The retained public certificate bundle preserves the two Fedora built-in
 authorities from the approved stock baseline. Changes to that bundle require
 the separate trust-review and acceptance procedure. Private signing keys remain
@@ -119,6 +127,39 @@ publishing a kernel or changing the installed image's package selection.
 Kernel source pins include an advertised branch for bounded source transport.
 The fetcher verifies that the locked commit belongs to that history and checks
 out the exact commit. A branch tip never substitutes for an unavailable pin.
+
+The native recipe keeps Fedora's debug and strip processing, then records the
+resolved configuration, build environment, kernel Authenticode digest and each
+module's ELF body in `particleve-kernel.json` inside the kernel module tree.
+OBS's standard signing continuation attaches the kernel/module signatures and
+compresses modules with XZ. The public project certificate is required before
+kernel preparation; the private key stays outside the worker. The
+[payload verifier](../Sources/particleve/kernelpayload.py) compares module bodies
+independently of compression and verifies their PKCS#7 signatures against the
+selected certificate. A matching signature alone does not establish source
+identity.
+
+The image verifier accepts the installed subset of that signed module build,
+checks the four runtime kernel RPM versions, and binds the UKI kernel bytes and
+release name to the selected module tree. The build-tools package carries the
+reviewed source manifest. A pin update therefore also requires matching
+verification tools and refreshed image source metadata.
+
+Final initrd verification uses the generated source policy, the matching native
+initrd RPM record, and the selected userspace module tree. It checks the actual
+UKI section after signing, including helper and unit identity, masks, dependency
+indexes and module signatures. The
+[archive verifier](../Sources/particleve/kernelinitrd.py) never materializes
+archive symlinks and rejects ambiguous replacements before publication.
+
+[`kernel-signing.py`](../Tests/acceptance/kernel-signing.py) exercises native RPM
+stripping, the OBS signing continuation, XZ compression and rejection of changed
+or untrusted payloads. Run it only in a disposable Fedora build environment with
+`--workspace`, `--certificate`, `--key`, `--kernel` and `--helper` inputs. Configure
+that environment's RPM `_topdir` as `WORKSPACE/rpmbuild`, including for child RPM
+processes. Use a disposable external signing key and read-only PE input; the
+probe neither loads a module nor executes the kernel. Full signed-image boot and
+recovery acceptance remain separate release gates.
 
 ## Incremental work and isolated outputs
 
@@ -489,9 +530,10 @@ revision, package identities, configuration, and diagnostics when reproducing it
 | [Host, initrd and build-tools RPMs](../.obs/particleve/rpm.spec) | Offline locked Rust build, strict formatting/Clippy, Rust and Python tests, SELinux policy compilation, and final ELF payload identity after normal RPM transformations. |
 | [Pinned mkosi RPM](../.obs/mkosi/mkosi.spec) | Exact upstream, recipe, and patch identity; installed-payload records; shell syntax checks for the OBS signing continuation. |
 | [fwupd EFI helper RPM](../.obs/fwupd-efi/fwupd-efi.spec) | Compiler diagnostics, retained SBAT/SBOM sections, payload identity, and separate PE signing. |
+| [Kernel RPM](../.obs/kernel/kernel.spec) | Pinned Fedora/secureblue sources, selected configuration, normal Fedora transformations, module-body identity, and native OBS PE/module signing. |
 | [Image build](../.obs/fedora/x86-64/mkosi.conf) | Runtime/initrd/tools dependencies, package origins, installed identities, security inventory, and required kernel, storage, and KVM support. |
 | [Signing and publication](Build.md#signing-and-release-publication) | Final UKI, bootloader, verity, and firmware-helper signatures; complete release manifest and authenticated index. |
-| [Publication observer](../Tools/check-publication.py) | Read-only observation of source/build/feed consistency and freshness; see [publication monitoring](Build.md#publication-monitoring-and-trust-boundary). |
+| [Publication observer](../Tools/check-publication.py) | Read-only observation of source/build/feed consistency, Fedora and secureblue upstream freshness, and stalled updates; see [publication monitoring](Build.md#publication-monitoring-and-trust-boundary). |
 
 The [`.obs/`](../.obs/) source services follow the configured branch; Fedora and
 stable systemd package changes trigger builds through OBS's dependency graph.

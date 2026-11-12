@@ -1,5 +1,5 @@
 //! Test-only host boundaries with explicit fixtures; never installed.
-use particleve::common::{Result, field, text};
+use particleve::common::{Result, boolean, field, text};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -36,6 +36,7 @@ pub fn evaluate(request: &Value) -> Option<Result<Value>> {
             Path::new(text(field(request, "proc")?)?),
             Path::new(text(field(request, "dev")?)?),
             &Path::new(text(field(request, "proc")?)?).join("kcore"),
+            boolean(field(request, "kexec_core")?)?,
         ),
         "security-selinux-baseline" => particleve::security::selinux_baseline(),
         "security-usr-backing-disks" => Ok(json!(particleve::security::usr_backing_disks(

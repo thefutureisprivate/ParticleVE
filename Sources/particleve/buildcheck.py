@@ -10,6 +10,7 @@ from .common import hash_file, read_json, require, run, write_json
 from .config import version_key
 from .consoles import uki_profiles
 from .contracts import PERSISTENT_STATE
+from .kernels import verify_kernel, verify_kernel_packages
 from .provenance import implementation_digest, upstream_inputs, verify_package, verify_upstream_package
 from .security import TPM_PROFILE, check_privileges, kernel_baseline
 from .systemtrust import check_layout
@@ -127,6 +128,16 @@ def source_revision(directory):
     return "particleve", result.stdout.strip()
 
 
+def check_build_sources(build, lock):
+    require(
+        build.get("schema") == 1
+        and build.get("fedora") == lock["fedora"] == "45"
+        and isinstance(build.get("sources"), dict)
+        and all(build["sources"].get(name) == pin["revision"] for name, pin in lock["sources"].items()),
+        "image source metadata differs from the reviewed source lock",
+    )
+
+
 FORBIDDEN = {
     "cockpit",
     "cockpit-machines",
@@ -228,6 +239,7 @@ def root_check(root, *, tree="usr", output=None, source_dir=None):
     implementation = None
     upstream = {}
     security = None
+    kernel_verification = None
     if tree in ("usr", "tools", "initrd"):
         require(source_dir is not None, "package identity needs the expected image source checkout")
         implementation = implementation_digest(source_dir)
@@ -291,8 +303,17 @@ def root_check(root, *, tree="usr", output=None, source_dir=None):
                 "kernel interface policy differs from the reviewed source",
             )
     if tree == "usr":
+        check_build_sources(
+            read_json(root / "usr/lib/particleve/build.json"),
+            read_json(Path(source_dir) / "sources.lock.json"),
+        )
+        kernel_verification = verify_kernel(
+            root,
+            read_json(Path(source_dir) / ".obs/kernel/kernel.inputs.json"),
+            root / "usr/lib/particleve/trust/secure-boot.crt",
+        )
+        kernel_verification["packages"] = verify_kernel_packages(rows, kernel_verification["kernel"])
         security = {"kernel": kernel_baseline(root), "privileged_files": check_privileges(root)}
-        require(read_json(root / "usr/lib/particleve/build.json")["fedora"] == "45", "wrong base release")
         for path in (
             "usr/bin/particleve",
             "usr/bin/chronyc",
@@ -495,6 +516,7 @@ def root_check(root, *, tree="usr", output=None, source_dir=None):
         "upstream_inputs": upstream,
         "persistent_state": PERSISTENT_STATE.copy(),
         "security_baseline": security,
+        "kernel_verification": kernel_verification,
         "packages": [
             {"name": n, "evr": v, "vendor": vendor, "origin": origin} for n, v, vendor, origin in rows
         ],

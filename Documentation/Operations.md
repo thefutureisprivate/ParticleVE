@@ -638,8 +638,10 @@ validation. `userfaultfd` user-mode-only requests remain possible under the
 selected kernel-fault restriction, and own-process userspace perf remains
 available under Fedora's asserted value `2`.
 
-`kernel.kexec_load_disabled=1` is irreversible during a boot. Updates and owner
-recovery use the existing UEFI paths; do not substitute a kexec reboot or kdump
+Kexec is either compiled out or disabled irreversibly during a boot with
+`kernel.kexec_load_disabled=1`. Assessment checks the interface against the
+verified kernel configuration; a compiled-out sysctl is reported as absent.
+Updates and owner recovery use the existing UEFI paths; do not substitute a kexec reboot or kdump
 workflow. A temporary diagnostic release that changes this policy must be
 reviewed, booted through UEFI, and retired through the same owner-controlled
 procedure as other diagnostic changes. Privileged tracing still requires

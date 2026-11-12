@@ -1,3 +1,6 @@
+# needssslcertforbuild
+BuildRequires: pesign-obs-integration >= 10
+BuildRequires: pesign
 %global _with_baseonly 1
 # All Global changes to build and install go here.
 # Per the below section about __spec_install_pre, any rpm
@@ -133,7 +136,7 @@ Summary: The Linux kernel
 %ifarch noarch
 %global zipmodules 0
 %else
-%global zipmodules 1
+%global zipmodules 0
 %endif
 
 # Default compression algorithm
@@ -1181,9 +1184,10 @@ Source5003: kernel.recipe
 Source5004: fedora-kernel.recipe
 Source5005: fedora-kernel-local
 Source5006: secureblue.LICENSE
-Source5007: secureblue-copr_script.sh
+Source5007: secureblue-srpm_script.sh
 Source5008: fedora-sources
 Source5009: fedora-builtin.pem
+Source5010: kernelpayload.py
 
 ## Patches needed for building this package
 
@@ -2042,6 +2046,8 @@ Prebuilt default kernel image with auto DTB selection for ARM64 UEFI devices.
 
 %prep
 python3 %{SOURCE5000} --verify-sources %{_sourcedir} --manifest %{SOURCE5001}
+test -s %{_sourcedir}/_projectcert.crt
+openssl x509 -in %{_sourcedir}/_projectcert.crt -noout
 %{log_msg "Start of prep stage"}
 
 %{log_msg "Sanity checks"}
@@ -3654,7 +3660,13 @@ find Documentation -type d | xargs chmod u+w
   %{__os_install_post}\
   %{__remove_unwanted_dbginfo_install_post}\
   %{__restore_unstripped_root_post}\
-  %{__modsign_install_post}
+  %{__modsign_install_post}\
+  python3 %{SOURCE5010} --modules %{buildroot}/lib/modules --source-manifest %{SOURCE5001} --certificate %{_sourcedir}/_projectcert.crt\
+  export BRP_PESIGN_COMPRESS_MODULE=xz\
+  /usr/lib/rpm/brp-suse.d/brp-99-pesign --files '/lib/modules/*/vmlinuz /lib/modules/*/*.ko'\
+  test -s %{_topdir}/OTHER/kernel.cpio.rsasign\
+  test -s %{_topdir}/OTHER/pesign-repackage.spec\
+  python3 %{SOURCE5010} --prepare-signing-continuation %{_topdir}/OTHER/pesign-repackage.spec
 
 ###
 ### install
@@ -4700,6 +4712,7 @@ fi\
 %{!?_licensedir:%global license %%doc}\
 %%license linux-%{KVERREL}/COPYING-%{version}-%{release}\
 /lib/modules/%{KVERREL}%{?3:+%{3}}/vmlinuz\
+/lib/modules/%{KVERREL}%{?3:+%{3}}/particleve-kernel.json\
 %ghost /%{image_install_path}/vmlinuz-%{KVERREL}%{?3:+%{3}}\
 /lib/modules/%{KVERREL}%{?3:+%{3}}/.vmlinuz.hmac \
 %ghost /%{image_install_path}/.vmlinuz-%{KVERREL}%{?3:+%{3}}.hmac \

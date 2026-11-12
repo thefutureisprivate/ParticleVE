@@ -44,7 +44,12 @@ repo_dir = profile / "repositories"
 repo_dir.mkdir(parents=True, exist_ok=True)
 for name, url, include, key in (
     ("systemd", pins["systemd_repository"], "systemd* libudev*", "systemd"),
-    ("packages", packages, "particleve-* fwupd-efi*", "packages"),
+    (
+        "packages",
+        packages,
+        "particleve-* fwupd-efi* kernel-core kernel-modules-core kernel-modules kernel-modules-extra",
+        "packages",
+    ),
 ):
     atomic_write(
         repo_dir / f"{name}.repo",

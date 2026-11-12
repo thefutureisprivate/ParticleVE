@@ -4,5 +4,5 @@ baseurl=https://download.opensuse.org/repositories/home:/thefutureisprivate:/par
 gpgcheck=1
 enabled=1
 priority=1
-includepkgs=particleve-* fwupd-efi*
+includepkgs=particleve-* fwupd-efi* kernel-core kernel-modules-core kernel-modules kernel-modules-extra
 gpgkey=file:///usr/share/pki/rpm-gpg/particleve-packages.asc

@@ -118,8 +118,8 @@ behavior; ParticleVE's operating procedures are documented separately.
   DNS-over-TLS use the system CA trust store.
 - Report storage health, security drift, update failures, resource pressure,
   and bounded health events to an installation-selected external receiver.
-- Follow Fedora's supported kernel packages, configuration, and patches, with
-  dependency-triggered OBS image rebuilds and release-specific hardening checks.
+- Follow Fedora's kernel sources, configuration, and patches with the reviewed
+  secureblue baseline, signed OBS packages, and dependency-triggered image rebuilds.
 
 ## Security and Hardening
 
@@ -172,7 +172,7 @@ For boot, storage, administration, or maintenance problems, see
 | Fedora 45 | Base userspace and package ecosystem | [Image configuration](mkosi.conf) and [ParticleVE profile](mkosi.profiles/particleve/mkosi.conf). |
 | systemd stable | Boot, updates, networking, accounts, and VM lifecycle | [Repository selection](sources.lock.json), image profile, and signed release package manifest. |
 | QEMU/KVM, guest firmware, and swtpm | Virtual machines and persistent guest firmware/TPM state | Image profile and signed release package manifest. |
-| Fedora kernel and modules | Fedora's supported kernel packages, configuration, and patches | [ParticleVE profile](mkosi.profiles/particleve/mkosi.conf), [toolchain baseline](Documentation/Toolchain.md), and signed release package manifest. |
+| Fedora-derived kernel and modules | Pinned Fedora sources with the reviewed secureblue baseline, built and signed by OBS | [Kernel recipe](.obs/kernel/kernel.spec), [policy](.obs/kernel/policy.json), [toolchain baseline](Documentation/Toolchain.md), and signed release package manifest. |
 | Btrfs, cryptsetup, and mdadm | Encrypted mirrored state and block swap | Image profile and [storage contracts](Documentation/Architecture.md). |
 | chrony, resolved, and nftables | Authenticated time, name resolution, and networking | Image profile and [operations](Documentation/Operations.md). |
 | fwupd and fwupd-efi | Supervised firmware maintenance | [Source lock](sources.lock.json), [EFI helper recipe](.obs/fwupd-efi/fwupd-efi.spec), and release manifest. |

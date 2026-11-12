@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from particleve.buildartifacts import postoutput
 from particleve.buildcheck import root_check
-from particleve.common import Error
+from particleve.common import Error, read_json, write_json
 from particleve.provenance import implementation_digest, inputs, payload, record_package, verify_package
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -21,7 +21,10 @@ class PackageProvenanceTests(unittest.TestCase):
         for name in inputs(ROOT):
             target = self.source / name
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(ROOT / name, target)
+            if (ROOT / name).is_symlink():
+                target.symlink_to((ROOT / name).readlink())
+            else:
+                shutil.copyfile(ROOT / name, target)
         for component in ("integration", "initrd", "build-tools"):
             for target, origin in payload(self.source, component).items():
                 destination = self.installed / target
@@ -50,6 +53,33 @@ class PackageProvenanceTests(unittest.TestCase):
         (self.installed / "usr/libexec/particleve-vm-stop").write_text("old helper")
         with self.assertRaisesRegex(Error, "payload does not match"):
             verify_package(self.installed, "integration", self.identity, source=self.source)
+
+    def test_kernel_pin_change_requires_matching_image_verification_tools(self):
+        manifest = self.source / ".obs/kernel/kernel.inputs.json"
+        selected = read_json(manifest)
+        selected["upstream"]["fedora_kernel"]["revision"] = "0" * 40
+        write_json(manifest, selected)
+        expected = implementation_digest(self.source)
+        self.assertNotEqual(expected, self.identity)
+        for component in ("integration", "initrd", "build-tools"):
+            with self.subTest(component=component), self.assertRaisesRegex(Error, "does not match the image"):
+                verify_package(self.installed, component, expected, source=self.source)
+
+    def test_initrd_mask_changes_require_fresh_packages_and_a_matching_expected_policy(self):
+        mask = self.source / "mkosi.initrd.conf/mkosi.extra/usr/lib/udev/rules.d/64-btrfs.rules"
+        self.assertTrue(mask.is_symlink())
+        mask.unlink()
+        mask.symlink_to("/dev/zero")
+        expected = implementation_digest(self.source)
+        self.assertNotEqual(expected, self.identity)
+        with self.assertRaisesRegex(Error, "does not match the image"):
+            verify_package(self.installed, "build-tools", expected, source=self.source)
+
+    def test_modified_expected_initrd_policy_cannot_reuse_its_package_record(self):
+        policy = self.installed / "usr/lib/particleve-build/initrd.inputs.json"
+        policy.write_text('{"schema":1,"files":{}}\n')
+        with self.assertRaisesRegex(Error, "payload does not match"):
+            verify_package(self.installed, "build-tools", self.identity, source=self.source)
 
     def test_initrd_payload_and_identity_are_verified_independently(self):
         helper = self.installed / "usr/libexec/particleve-initrd-storage"

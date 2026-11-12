@@ -12,7 +12,8 @@ from pathlib import Path
 
 from .common import Error, atomic_write, hash_file, read_json, require, run, write_json
 from .config import VERITY_SIGNATURE_SIZE, VERSION
-from .kernels import verify_modules
+from .kernelinitrd import verify_uki_initrd
+from .kernels import verify_kernel
 from .layout import TYPES, os_label
 from .provenance import verify_package, verify_upstream_package
 from .release import inspect_uki, validate
@@ -158,6 +159,14 @@ def carry_signing_hook(output):
             stream.write("\n[Content]\n" + hook + "\n\n[Output]\nCompressOutput=no\n")
 
 
+def remove_intermediate_checksums(output, version):
+    # These describe pre-signing bytes and files consumed by the continuation.
+    # OBS creates the authoritative signed SHA256SUMS after finalization.
+    for pattern in ("*.sha256", f"ParticleVE_{version}_x86-64.SHA256SUMS"):
+        for file in output.glob(pattern):
+            file.unlink()
+
+
 def postoutput():
     output = Path(os.environ.get("OUTPUTDIR", "/work/src/usr/src/packages/OTHER"))
     if (output / "hashes.cpio.rsasign").exists():
@@ -194,7 +203,19 @@ def postoutput():
             == {"kernel": kernel_baseline(view), "privileged_files": check_privileges(view, image=usr[0])},
             "final image security metadata differs from the verified build",
         )
-        kernel_verification = verify_modules(root / "lib/modules")
+        kernel_verification = verify_kernel(
+            view,
+            read_json(Path("/usr/lib/particleve-build/kernel.inputs.json")),
+            view / "usr/lib/particleve/trust/secure-boot.crt",
+        )
+        # RPM metadata was inspected before cleanup; recheck every actual final
+        # kernel and module byte, then retain that original package inventory.
+        recorded = verification["kernel_verification"]
+        require(
+            kernel_verification == {key: value for key, value in recorded.items() if key != "packages"},
+            "final kernel differs from the reviewed image package selection",
+        )
+        kernel_verification["packages"] = recorded["packages"]
         build = read_json(root / "lib/particleve/build.json")
         certificate = root / "lib/particleve/trust/secure-boot.crt"
         actual_cert = Path("/usr/src/packages/SOURCES/_projectcert.crt")
@@ -238,16 +259,22 @@ def postoutput():
         manifest = assemble(
             output, version, root_hash, bootloader, helper, verification, build["sources"], output
         )
-        manifest["kernel_verification"] = kernel_verification
         for kind in ("uki", "bootloader", "fwupd_efi"):
             run(["sbverify", "--cert", certificate, output / manifest["artifacts"][kind]["file"]])
+        kernel_verification["initrd"] = verify_uki_initrd(
+            ukis[0],
+            view,
+            read_json(Path("/usr/lib/particleve-build/kernel.inputs.json")),
+            certificate,
+            read_json(Path("/usr/lib/particleve-build/initrd.inputs.json")),
+            work,
+        )
+        manifest["kernel_verification"] = kernel_verification
         inspect_uki(ukis[0], manifest)
         run(
             ["veritysetup", "verify", usr[0], output / manifest["artifacts"]["verity"]["file"], root_hash],
             timeout=600,
         )
         write_json(output / f"ParticleVE_{version}_x86-64.release.json", manifest)
-        # Intermediate mkosi checksums precede final signatures. OBS publishes its own signed index.
-        for file in output.glob("*.sha256"):
-            file.unlink()
+        remove_intermediate_checksums(output, version)
         atomic_write(output / "particleve-build-verified", (version + "\n").encode(), 0o644)

@@ -55,12 +55,13 @@ systemd-boot, the fwupd EFI helper and PCR authorization serve different purpose
 checking one does not establish the others. Failed signing or final inspection
 must not publish an eligible release manifest or replace the last usable feed.
 
-Fedora kernel package updates follow the same dependency and publication
-workflow. Record the exact kernel and module versions, Fedora package origins,
-effective configuration, and signature trust. Repeat the relevant boot, storage,
-virtualization, firmware, and recovery checks after kernel changes, including
-retained-image compatibility. Optional custom-kernel experiments have a separate
-adoption decision and do not change the normal Fedora kernel update path.
+Fedora-derived kernel source updates follow the same dependency and publication
+workflow. Record both upstream revisions, the generated recipe and source
+manifest, exact kernel/module package versions and origins, effective
+configuration, transformed payload identity, and signature trust. Repeat the
+relevant boot, storage, virtualization, firmware, and recovery checks after
+kernel changes, including retained-image compatibility. Additional hardening
+beyond the reviewed secureblue baseline requires its own measured adoption decision.
 
 Verify the published release using the ordinary authenticated release client,
 including full artifact hashes and PE/verity checks. The read-only publication
@@ -124,7 +125,7 @@ firmware or use production private signing keys in a fixture.
 | Release-index retirement | New signatures pass the final keyring; old and unrelated signatures fail it. Modified indices, duplicate entries and unsafe paths remain rejected. Record the compiled runtime and publication verifier results. |
 | Firmware introduction and retirement | Read back the effective `db`/`dbx`, boot the intended old/new EFI artifacts at each step, then demonstrate retired-artifact rejection. Check the actual firmware decision; `sbverify` alone does not inspect firmware revocation. |
 | Verity authority | Record the accepted certificate and root-hash signature for each normal/recovery image. Establish the actual verified `/usr` mount, and reject a tampered root hash or a signature from an unauthorized authority. PE acceptance alone does not establish this boundary. |
-| Module authority | Record the booted kernel's effective accepted/revoked keys, including firmware-derived authority. Probe each affected signer with a validly signed inert module; retain a Fedora-signed positive control and reject unsigned/untrusted or retired signatures as applicable. An unchanged kernel package or empty machine keyring does not prove unchanged module authority. |
+| Module authority | Record the booted kernel's effective accepted/revoked keys, including firmware-derived authority. Load an actual packaged compressed module through the booted kernel's decompressor. Probe each affected signer with a validly signed inert module; retain a Fedora-signed positive control and reject unsigned/untrusted or retired signatures as applicable. Userspace decompression, an unchanged kernel package or an empty machine keyring does not prove the in-kernel path or module authority. |
 | PCR authority and recovery | Record public-key fingerprints, PCR7 state, signed-PCR11 policy and exact LUKS token/keyslot identities on both state members and swap. Verify intended unattended unlock and wrong/retired-policy rejection, and independently exercise the preserved owner recovery method. |
 | Independent boot and data | Test each selected disk, retained working loaders and the final recovery medium after introduction and retirement. Follow stale-member isolation/rebuild rules; compare guest disk, EFI and virtual-TPM identity markers across the transition. |
 | Vulnerable-image retirement | Reject a revoked UKI/loader from both ESPs and external media while the replacement/recovery paths still work. Feed removal and deletion of local copies alone do not prove revocation. |
@@ -164,7 +165,7 @@ what was actually executed rather than only the intended configuration:
 | Source and build identity | ParticleVE commit and full source/image versions, Rust toolchain and Cargo lock, upstream pins, recipes, patches, build environment, OBS project/build identifiers and package versions/origins. |
 | Native ParticleVE payloads | Host/initrd/build-tools identities, final RPM-transformed ELF hashes, architecture and compiler flags, PIE/RELRO/NOW/non-executable-stack checks, dependency license records and any staged test-helper hashes. |
 | Artifact identity and trust | Signed index, manifest, complete artifact hashes, applicable certificate/key identities and verification results for each trust chain. |
-| Kernel baseline | Exact Fedora kernel/module package versions and origins, source-package identity, effective configuration, compiler protections, module-signature trust, loaded microcode and measured platform mitigations. |
+| Kernel baseline | Exact Fedora-derived kernel/module package versions and origins, source/configuration and transformed-payload identities, verified UKI kernel/initrd hashes, early-boot helper/policy and module coverage, compiler protections, module-signature trust, loaded microcode and measured platform mitigations. |
 | Host and fixture | CPU/firmware/TPM capabilities, actual storage/NIC topology, memory, selected disk identities, test-only substitutions and excluded hardware coverage. |
 | Runtime security | Effective SELinux policy, launcher/QEMU authority, namespace/device/socket restrictions, writable-startup checks, authenticated time/DNS and positive/negative access results. |
 | Lifecycle and persistent state | Booted ESP and `/usr` backing, loader hashes, guest process identities, disk/EFI/TPM markers, witness state and independent rebuilt-member readback. |

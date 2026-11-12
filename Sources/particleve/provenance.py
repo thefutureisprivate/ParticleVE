@@ -3,6 +3,8 @@
 from pathlib import Path
 
 from .common import atomic_write, canonical, digest, hash_file, read_json, require
+from .initrdpolicy import inputs as initrd_inputs
+from .initrdpolicy import policy as initrd_policy
 from .package_sources import COMPONENTS, source_identity
 from .package_sources import verify_package as verify_source_package
 from .versioning import OBS_RECIPE
@@ -13,6 +15,9 @@ TOOLS_MODULES = (
     "config",
     "release",
     "kernels",
+    "kernelpayload",
+    "initrdpolicy",
+    "kernelinitrd",
     "buildartifacts",
     "layout",
     "contracts",
@@ -55,6 +60,7 @@ def inputs(source):
         *source.glob("Sources/runtime/**/*.rs"),
         *source.glob("Sources/particleve/*.py"),
         source / "Sources/particleve/runtime-policy.json",
+        source / ".obs/kernel/kernel.inputs.json",
         source / "Tools/obs-postoutput",
         source / "Tools/package-identity.py",
         source / OBS_RECIPE,
@@ -64,6 +70,7 @@ def inputs(source):
         source / ".obs/particleve/selinux/particleve_witness.te",
         source / ".obs/particleve/selinux/particleve_witness.fc",
         *source.glob("mkosi.extra/usr/lib/particleve/trust/*"),
+        *initrd_inputs(source),
     ]
     # Compiled policy is a payload, not a source input.
     return sorted({p.relative_to(source).as_posix() for p in files if p.suffix != ".pp"})
@@ -71,11 +78,19 @@ def inputs(source):
 
 def implementation_digest(source):
     source = Path(source)
+    initrd = {path.relative_to(source).as_posix() for path in initrd_inputs(source)}
     hashes = {}
     for name in inputs(source):
         path = source / name
-        require(path.is_file() and not path.is_symlink(), f"missing implementation input: {name}")
-        hashes[name] = hash_file(path)
+        if path.is_symlink() and name.startswith("mkosi.initrd.conf/mkosi.extra/"):
+            hashes[name] = {"symlink": str(path.readlink())}
+        else:
+            require(path.is_file() and not path.is_symlink(), f"missing implementation input: {name}")
+            hashes[name] = (
+                {"sha256": hash_file(path), "mode": 0o755 if path.stat().st_mode & 0o111 else 0o644}
+                if name in initrd
+                else hash_file(path)
+            )
     return digest(hashes)
 
 
@@ -103,6 +118,8 @@ def payload(source, component):
         },
         "usr/libexec/particleve-obs-postoutput": "Tools/obs-postoutput",
         "usr/lib/particleve-build/particleve/runtime-policy.json": "Sources/particleve/runtime-policy.json",
+        "usr/lib/particleve-build/kernel.inputs.json": ".obs/kernel/kernel.inputs.json",
+        "usr/lib/particleve-build/initrd.inputs.json": None,
     }
 
 
@@ -116,6 +133,10 @@ def identity_path(component):
 
 def record_package(root, source, component):
     root, source = Path(root), Path(source)
+    if component == "build-tools":
+        atomic_write(
+            root / "usr/lib/particleve-build/initrd.inputs.json", canonical(initrd_policy(source)), 0o644
+        )
     files = {}
     for target, origin in payload(source, component).items():
         path = root / target

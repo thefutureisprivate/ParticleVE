@@ -38,6 +38,8 @@ class KernelRuntimeTests(RustDriverTests):
         self.assertFalse(kernelruntime.kernel_support(SUPPORT | {"DEVMEM": "n"})["strict_devmem"])
         self.assertFalse(kernelruntime.kernel_support(SUPPORT)["proc_kcore"])
         self.assertTrue(kernelruntime.kernel_support(SUPPORT | {"PROC_KCORE": "y"})["proc_kcore"])
+        self.assertFalse(kernelruntime.kernel_support(SUPPORT)["kexec_core"])
+        self.assertTrue(kernelruntime.kernel_support(SUPPORT | {"KEXEC_CORE": "y"})["kexec_core"])
 
     def test_runtime_drift_is_detected_without_rewriting_fixture_state(self):
         policy = json.loads(Path("Sources/particleve/runtime-policy.json").read_text())["sysctls"]
@@ -48,7 +50,9 @@ class KernelRuntimeTests(RustDriverTests):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(expected + "\n")
             self.assertEqual(
-                self.evaluate("kernel-runtime-baseline", proc=str(root), dev=str(root / "absent"))["sysctls"],
+                self.evaluate(
+                    "kernel-runtime-baseline", proc=str(root), dev=str(root / "absent"), kexec_core=True
+                )["sysctls"],
                 policy,
             )
             for name in policy:
@@ -59,9 +63,12 @@ class KernelRuntimeTests(RustDriverTests):
                     with self.subTest(name=name, value=value):
                         self.assertIn(
                             "runtime policy drift",
-                            self.request("kernel-runtime-baseline", proc=str(root), dev=str(root / "absent"))[
-                                "error"
-                            ],
+                            self.request(
+                                "kernel-runtime-baseline",
+                                proc=str(root),
+                                dev=str(root / "absent"),
+                                kexec_core=True,
+                            )["error"],
                         )
                         self.assertEqual(path.read_text(), value)
                 path.write_text(original)
@@ -71,10 +78,16 @@ class KernelRuntimeTests(RustDriverTests):
                 path = dev / name
                 path.write_text("untrusted regular file")
                 path.chmod(0o600)
-                self.assertIn("error", self.request("kernel-runtime-baseline", proc=str(root), dev=str(dev)))
+                self.assertIn(
+                    "error",
+                    self.request("kernel-runtime-baseline", proc=str(root), dev=str(dev), kexec_core=True),
+                )
                 path.unlink()
                 path.symlink_to(root / "missing")
-                self.assertIn("error", self.request("kernel-runtime-baseline", proc=str(root), dev=str(dev)))
+                self.assertIn(
+                    "error",
+                    self.request("kernel-runtime-baseline", proc=str(root), dev=str(dev), kexec_core=True),
+                )
                 path.unlink()
 
 

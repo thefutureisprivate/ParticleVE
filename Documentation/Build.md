@@ -120,14 +120,52 @@ The helper's one documented patch changes a successful
 SBOM linker-selection message from warning to informational; compiler warnings
 remain fatal, and SBOM/SBAT sections are checked.
 
-Fedora's kernel packages are normal image dependencies. Updates imported from
-the configured Fedora repositories trigger OBS image rebuilds through the same
-transitive dependency graph. Fedora supplies the kernel configuration, patches,
-and matching modules; ParticleVE records exact package identities and checks
-the resulting UKI, initrd, module tree, and required host capabilities. Kernel
-updates use the ordinary signed-image publication and guarded host activation
-path. A failed build or verification leaves the last usable release intact and
-is reported by publication monitoring.
+The [kernel recipe](../.obs/kernel/kernel.spec) builds the selected Fedora kernel
+sources and packaging with the reviewed secureblue configuration and patch set.
+The [policy](../.obs/kernel/policy.json) records explicit deviations, including
+retained Fedora built-in trust and off-host OBS signing. The image repository
+selects the four matching runtime kernel packages from the owned OBS project;
+the build rejects mixed versions and missing source/payload records.
+
+Renovate reads Fedora's release and stable-updates source RPM repositories and
+the advertised secureblue branch. A Fedora update requests the published RPM
+version through the generated source manifest; a branch tip does not select the
+Fedora release. The trusted-base updater resolves Koji's immutable Fedora commit,
+authenticates the published SRPM with the selected Fedora release's native RPM
+key, and compares every source file and lookaside archive against that commit.
+It never executes an upstream recipe with repository write authority.
+
+Only after those checks does the updater regenerate the source lock, public
+recipe, configuration, source manifest, services and image source metadata, then
+check the exact generated commit. Dependent images rebuild through OBS's normal graph.
+Kernel updates retain Fedora's version cadence and use the ordinary signed-image
+publication and guarded host activation path. Failed checks leave the last usable
+release intact.
+
+Kernel identity is recorded after Fedora's debug and strip transformations.
+Image and final-signing checks compare the reviewed source manifest, resolved
+configuration, kernel PE body, module bodies and signatures. The build-tools RPM
+carries the expected source manifest, so a stale verification package cannot
+approve a different kernel pin. From source version `45.0.3.0`, UKI inspection
+also requires the embedded kernel hash and release name to match the verified
+kernel package and module tree. Retained earlier images keep their existing
+inspection and recovery contract.
+
+Final signing also verifies the actual UKI initrd. The
+[bounded archive reader](../Sources/particleve/kernelinitrd.py) handles the newc
+and Zstandard archives emitted by the pinned mkosi configuration. It checks the
+native admission/shutdown helpers against their RPM payload record and compares
+early-boot units, public PCR authorization key, assembly masks and shared policy
+against the source contract carried by the build-tools RPM. Parent symlinks are
+resolved without unpacking them; duplicate security files, aliases and foreign
+kernel trees are rejected.
+
+Every initrd module must match verified userspace. Native kmod regenerates the
+dependency indexes for that subset, and the verifier checks module signatures,
+body identities and required boot drivers. The verified initrd hash and coverage
+counts enter the release manifest; UKI inspection checks that hash before host
+activation. These producer checks complement the signed-image boot and recovery
+matrix in [release diagnostics](ReleaseDiagnostics.md).
 
 ## Signing and release publication
 
@@ -216,13 +254,14 @@ commits. Package-scoped source-service credentials avoid a GitHub personal
 access token. Dependency rebuilds use OBS's native repository graph.
 
 [Renovate configuration](../.github/renovate.json) opens reviewed updates for the
-mkosi/fwupd source pins and recipes, Cargo dependencies and configured CI tools.
+mkosi/fwupd source pins and recipes, both kernel source pins, Cargo dependencies
+and configured CI tools.
 Automerge is disabled. Updates must retain matching locks, recipes, license
 notices and required acceptance coverage; source checks alone do not qualify a
 new signed image.
 
 `Tools/obs-upload.py particleve` configures the Git-managed package from the
-declared ref. For mkosi and fwupd-efi, the tool uploads a supplied reviewed source
+declared ref. For mkosi, fwupd-efi and kernel, the tool uploads a reviewed source
 directory atomically. Its credential file is two lines (OBS username/password),
 mode 0600; credentials are sent only to `api.opensuse.org`, redirects are refused,
 and no credential is
@@ -242,8 +281,9 @@ PYTHONPATH=Sources:. python3 Tools/check-publication.py --site .obs/site.json \
 ```
 
 The observer directory must be private to that user. The check reads the declared
-GitHub branch, native OBS source revisions, all four required build targets and
-project/package maintainer metadata. It verifies the feed's GPG-signed
+GitHub branch, native OBS source revisions, the ParticleVE RPM, mkosi, fwupd-efi,
+kernel and image build targets, and project/package maintainer metadata.
+It verifies the feed's GPG-signed
 index and indexed manifest, then checks HTTPS availability and declared size for
 all six artifacts. HTTP downgrade redirects are rejected. Availability checks do
 not replace full payload hashing and PE/verity verification by the normal release
@@ -266,6 +306,23 @@ freshness interval. No permanent additional runner or production machine is
 provisioned by this repository.
 Give the observer job a two-minute runtime limit in that existing scheduler;
 an unavailable or wedged HTTP peer must also become a missing observation.
+
+The observer also reads the source lock and generated kernel manifest at the
+exact selected repository commit. It compares Fedora's highest published stable
+source RPM version and its Koji commit with that selection, and independently
+reads secureblue's advertised branch. The Fedora observation checks bounded
+primary metadata, including compressed and expanded hashes and sizes, from both
+the release and stable-updates repositories. These HTTPS observations establish
+availability; the updater's separate SRPM-signature and content verification
+still establishes source authority before a pin changes.
+
+An upstream mismatch uses the same grace period as other publication lag.
+Further upstream updates do not restart its pending timer; matching sources
+clear it. An unavailable upstream fails observation and preserves the previous
+state. A stalled updater therefore remains visible even when OBS successfully
+builds an unchanged pin. Observation never updates a source lock or selects a
+release. The ordinary observer environment requires Python 3.14 or newer and
+native Git using the system CA store.
 
 The producer is the reviewed OBS project. Its source checkout, recipes, worker,
 package repositories and signing continuation are in the trusted build boundary.

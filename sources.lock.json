@@ -25,7 +25,7 @@
     },
     "secureblue_kernel": {
       "url": "https://github.com/secureblue/kernel.git",
-      "revision": "39911dc23b9a1c63e0da545d7540d93172e0c56b",
+      "revision": "c249bb9877643e9d4953f2fb503704f3f6ca9009",
       "branch": "live"
     }
   },

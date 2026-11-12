@@ -40,6 +40,33 @@
       "versioningTemplate": "regex:^v?(?<major>\\d+)(?:\\.(?<minor>\\d+))?(?:\\.(?<patch>\\d+))?(?<prerelease>~[^@]+)?(?:@[a-f0-9]{40})?$",
       "autoReplaceStringTemplate": "# renovate: depName={{{depName}}}\n%global upstream_commit {{{replace '^.*@' '' newValue}}}\nName:           {{{replace '^.*/' '' depName}}}\nVersion:        {{{replace '^v' '' (replace '@[a-f0-9]{40}$' '' newValue)}}}",
       "currentValueTemplate": "{{#if (equals depName \"systemd/mkosi\")}}v{{/if}}{{{version}}}@{{{revision}}}"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.obs/kernel/kernel\\.inputs\\.json$/"
+      ],
+      "matchStrings": [
+        "(?<indentation> *)\"fedora_version\": \\{\\n *\"kabiversion\": \"[^\"\\n]+\",\\n *\"pkgrelease\": \"(?<release>[0-9]+)\",\\n *\"specrpmversion\": \"(?<version>[0-9]+(?:\\.[0-9]+){1,3})\",\\n *\"specversion\": \"[^\"\\n]+\",\\n *\"tarfile_release\": \"[^\"\\n]+\"\\n *\\}"
+      ],
+      "depNameTemplate": "particleve-fedora-kernel",
+      "packageNameTemplate": "kernel",
+      "datasourceTemplate": "rpm",
+      "versioningTemplate": "rpm",
+      "currentValueTemplate": "{{{version}}}-{{{release}}}.fc45",
+      "autoReplaceStringTemplate": "{{{indentation}}}\"fedora_version\": {\n{{{indentation}}}  \"kabiversion\": \"{{{replace '-[0-9]+\\.fc45$' '' (replace '^0:' '' newValue)}}}\",\n{{{indentation}}}  \"pkgrelease\": \"{{{replace '^.*-([0-9]+)\\.fc45$' '$1' newValue}}}\",\n{{{indentation}}}  \"specrpmversion\": \"{{{replace '-[0-9]+\\.fc45$' '' (replace '^0:' '' newValue)}}}\",\n{{{indentation}}}  \"specversion\": \"{{{replace '-[0-9]+\\.fc45$' '' (replace '^0:' '' newValue)}}}\",\n{{{indentation}}}  \"tarfile_release\": \"{{{replace '-[0-9]+\\.fc45$' '' (replace '^0:' '' newValue)}}}\"\n  }"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^sources\\.lock\\.json$/"
+      ],
+      "matchStrings": [
+        "\"secureblue_kernel\": \\{\\n *\"url\": \"https://github\\.com/secureblue/kernel\\.git\",\\n *\"revision\": \"(?<currentDigest>[a-f0-9]{40})\",\\n *\"branch\": \"(?<currentValue>[^\"\\n]+)\""
+      ],
+      "depNameTemplate": "particleve-secureblue-kernel",
+      "packageNameTemplate": "https://github.com/secureblue/kernel.git",
+      "datasourceTemplate": "git-refs"
     }
   ],
   "packageRules": [
@@ -79,6 +106,37 @@
       ],
       "allowedVersions": "/^45$/",
       "description": "Keep the source-check container on the selected Fedora major; review digest refreshes."
+    },
+    {
+      "matchDatasources": [
+        "rpm",
+        "git-refs"
+      ],
+      "matchDepNames": [
+        "particleve-fedora-kernel",
+        "particleve-secureblue-kernel"
+      ],
+      "groupName": "kernel source pins",
+      "groupSlug": "kernel-source-pins",
+      "branchTopic": "kernel-source-pins",
+      "prPriority": 20,
+      "prBodyNotes": [
+        "The trusted-base workflow resolves the published Fedora RPM version to its immutable Git commit, verifies the signed SRPM against those inputs, then regenerates recipes, configuration, source metadata and OBS services. Native kernel builds and signed-image recovery acceptance remain release gates."
+      ]
+    },
+    {
+      "matchDepNames": [
+        "particleve-fedora-kernel"
+      ],
+      "matchDatasources": [
+        "rpm"
+      ],
+      "registryUrls": [
+        "https://dl.fedoraproject.org/pub/fedora/linux/releases/45/Everything/source/tree/repodata/",
+        "https://dl.fedoraproject.org/pub/fedora/linux/updates/45/Everything/source/tree/repodata/"
+      ],
+      "allowedVersions": "/^(?:0:)?[0-9]+(?:\\.[0-9]+){1,3}-[0-9]+\\.fc45$/",
+      "description": "Use only published Fedora45 release/stable source RPM versions, not unbuilt branch tips."
     }
   ],
   "customDatasources": {

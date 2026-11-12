@@ -1,7 +1,7 @@
 # Native OBS rpm flavor; the default build consumes these RPMs for the image.
 %global _buildshell /bin/bash
 Name:           particleve
-Version:        45.0.2.8
+Version:        45.0.3.0
 Release:        1%{?dist}
 Summary:        ParticleVE host installation and maintenance coordinator
 # Project sources are LGPL; statically linked crates select MIT where dual
@@ -87,6 +87,8 @@ Requires:       systemd-ukify
 Requires:       pesign
 Requires:       nss-tools
 Requires:       cpio
+Requires:       binutils
+Requires:       kmod
 Requires:       jq
 Requires:       efitools
 Requires:       tar
@@ -160,7 +162,9 @@ install -m0644 Sources/particleve/__init__.py Sources/particleve/common.py Sourc
     Sources/particleve/kernels.py Sources/particleve/buildartifacts.py Sources/particleve/contracts.py Sources/particleve/provenance.py \
     Sources/particleve/package_sources.py Sources/particleve/security.py Sources/particleve/kernelruntime.py \
     Sources/particleve/consoles.py Sources/particleve/versioning.py Sources/particleve/layout.py Sources/particleve/systemtrust.py \
+    Sources/particleve/kernelpayload.py Sources/particleve/initrdpolicy.py Sources/particleve/kernelinitrd.py \
     %{buildroot}%{_prefix}/lib/particleve-build/particleve/
+install -m0644 .obs/kernel/kernel.inputs.json %{buildroot}%{_prefix}/lib/particleve-build/
 install -D -m0755 Tools/obs-postoutput %{buildroot}%{_libexecdir}/particleve-obs-postoutput
 install -m0644 Sources/particleve/runtime-policy.json %{buildroot}%{_prefix}/lib/particleve-build/particleve/
 

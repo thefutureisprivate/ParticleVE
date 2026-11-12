@@ -5,12 +5,17 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Exact candidate commit for a generated kernel-source PR
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: source-checks-${{ github.ref }}
+  group: source-checks-${{ inputs.source_commit || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -23,12 +28,22 @@ jobs:
         shell: bash
     timeout-minutes: 20
     steps:
+      - name: Validate a dispatched candidate identity
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+        run: |
+          if [[ -n "$SOURCE_COMMIT" && ! "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'source_commit must be an immutable Git commit' >&2
+            exit 1
+          fi
       - name: Install native build and test tools
         run: >-
           dnf install --assumeyes git make gcc libselinux-devel python3 python3-pip
           gnupg2 openssl openssh-clients ca-certificates cpio tar xz zstd
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.source_commit || github.sha }}
           persist-credentials: false
       - name: Install the pinned Rust toolchain
         run: |
@@ -47,6 +62,38 @@ jobs:
         run: make check-upstream
       - name: Resolve and verify image configuration
         run: make summary
+
+  report-candidate:
+    needs: source-checks
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.source_commit != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      checks: write
+    steps:
+      # This job has write authority, so use the trusted workflow's own commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.15'
+      - name: Report the result on the exact candidate commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PYTHONPATH: Sources:.
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          CHECK_RESULT: ${{ needs.source-checks.result }}
+          CHECK_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          import os
+          from Tools.kernel_updates import report_check
+          report_check(os.environ["GITHUB_REPOSITORY"], os.environ["SOURCE_COMMIT"],
+                       os.environ["CHECK_RESULT"], os.environ["CHECK_URL"])
+          PY
 
   build-source:
     needs: source-checks

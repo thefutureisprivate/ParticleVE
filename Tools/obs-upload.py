@@ -16,13 +16,13 @@ from particleve.config import https_url
 from Tools.trust import system_tls_context
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("package", choices=("particleve", "mkosi", "fwupd-efi"))
-parser.add_argument("directory", nargs="?", type=Path, help="source directory for mkosi or fwupd-efi")
+parser.add_argument("package", choices=("particleve", "mkosi", "fwupd-efi", "kernel"))
+parser.add_argument("directory", nargs="?", type=Path, help="reviewed upstream-package source directory")
 parser.add_argument("--credentials", type=Path, required=True)
 args = parser.parse_args()
 require(
     (args.directory is None) == (args.package == "particleve"),
-    "ParticleVE sources are Git-managed; supply a source directory only for mkosi or fwupd-efi",
+    "ParticleVE sources are Git-managed; supply a source directory for an upstream package",
 )
 site = read_json(".obs/site.json")
 require(args.credentials.stat().st_mode & 0o077 == 0, "OBS credentials must be private")

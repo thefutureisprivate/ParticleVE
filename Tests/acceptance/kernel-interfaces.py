@@ -88,6 +88,27 @@ elif kind == "userfaultfd":
         result[name] = {"fd": fd >= 0, "errno": ctypes.get_errno() if fd < 0 else 0}
         if fd >= 0:
             os.close(fd)
+elif kind == "kexec":
+    # These invalid requests cannot supply a replacement kernel. When present,
+    # the one-way disabled bit is asserted before either syscall is attempted.
+    config = set((Path("/usr/lib/modules") / os.uname().release / "config").read_text().splitlines())
+    core = "CONFIG_KEXEC_CORE=y" in config
+    knob = Path("/proc/sys/kernel/kexec_load_disabled")
+    if core:
+        assert knob.read_text().strip() == "1"
+    else:
+        assert not knob.exists() and not knob.is_symlink()
+    result = {"core_compiled_in": core, "syscalls": {}}
+    for name, number, arguments in (
+        ("KEXEC", 246, (0, 0, ctypes.c_void_p(), -1)),
+        ("KEXEC_FILE", 320, (-1, -1, 0, ctypes.c_void_p(), 0)),
+    ):
+        ctypes.set_errno(0)
+        value = libc.syscall(number, *arguments)
+        error = ctypes.get_errno()
+        enabled = "CONFIG_" + name + "=y" in config
+        assert value == -1 and error == (errno.EPERM if enabled else errno.ENOSYS), (name, value, error)
+        result["syscalls"][name] = {"compiled_in": enabled, "errno": error}
 else:
     raise AssertionError(kind)
 print(json.dumps(result))
@@ -131,7 +152,7 @@ original = {name: path(name).read_text() for name in values | {"kernel.perf_even
 assert not Path("/sys/module/n_hdlc").exists()
 try:
     before = {name: worker(name) for name in ("perf", "ptrace", "memfd", "userfaultfd")}
-    print(json.dumps({"before": before}), flush=True)
+    print(json.dumps({"before": before, "kexec": worker("kexec", root=True)}), flush=True)
     # Establish the positive control only in this disposable host. The current
     # policy may already disable autoloading; restore its value in finally.
     path("dev.tty.ldisc_autoload").write_text("1")

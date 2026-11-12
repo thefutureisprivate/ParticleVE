@@ -9,6 +9,7 @@
     <param name="extract">.obs/kernel/kernel-local</param>
     <param name="extract">.obs/kernel/kernel.inputs.json</param>
     <param name="extract">Sources/particleve/kernelbuild.py</param>
+    <param name="extract">Sources/particleve/kernelpayload.py</param>
     <param name="extract-rename">.obs/kernel/kernel.spec:kernel.recipe</param>
     <param name="extract-rename">.obs/kernel/policy.json:kernel-policy.json</param>
     <param name="extract-rename">.obs/kernel/fedora-builtin.pem:fedora-builtin.pem</param>
@@ -126,12 +127,12 @@
   <service name="obs_scm">
     <param name="scm">git</param>
     <param name="url">https://github.com/secureblue/kernel.git</param>
-    <param name="revision">39911dc23b9a1c63e0da545d7540d93172e0c56b</param>
+    <param name="revision">c249bb9877643e9d4953f2fb503704f3f6ca9009</param>
     <param name="filename">secureblue-kernel-inputs</param>
     <param name="without-version">1</param>
     <param name="extract">correct-spectre-flag-behavior.patch</param>
     <param name="extract-rename">LICENSE:secureblue.LICENSE</param>
-    <param name="extract-rename">copr_script.sh:secureblue-copr_script.sh</param>
+    <param name="extract-rename">srpm_script.sh:secureblue-srpm_script.sh</param>
   </service>
   <service name="download_files" />
 </services>

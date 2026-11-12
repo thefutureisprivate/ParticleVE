@@ -1,4 +1,4 @@
-"""Validate the stock-kernel interface support in a built image."""
+"""Validate kernel interface support in a built image."""
 
 from .common import require
 
@@ -23,4 +23,5 @@ def kernel_support(values):
         "strict_devmem": values.get("DEVMEM") == "y",
         "legacy_kmem": False,
         "proc_kcore": values.get("PROC_KCORE") == "y",
+        "kexec_core": values.get("KEXEC_CORE") == "y",
     }

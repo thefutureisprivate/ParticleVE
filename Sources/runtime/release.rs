@@ -292,6 +292,58 @@ pub fn inspect_uki(path: &Path, manifest: &Value) -> Result<()> {
     verify_uki_sections(&sections, manifest)
 }
 pub fn verify_uki_sections(sections: &Value, manifest: &Value) -> Result<()> {
+    let version = version_key(text(field(manifest, "version")?)?)?;
+    let binding = manifest.get("kernel_verification");
+    if let Some(value) = binding {
+        require(
+            value.is_object(),
+            "UKI kernel source binding is missing or invalid",
+        )?;
+    }
+    // Retained pre-adoption images have driver-only kernel metadata. New
+    // source releases must bind the UKI to the verified kernel package.
+    if [version[0], version[1], version[2], version[3]] >= [45, 0, 3, 0]
+        || binding.is_some_and(|v| v.get("kernel_pe_sha256").is_some())
+    {
+        let binding = field(manifest, "kernel_verification")?;
+        for key in ["kernel_pe_sha256", "source_sha256"] {
+            require(
+                binding[key]
+                    .as_str()
+                    .is_some_and(|v| matches(r"^[0-9a-f]{64}$", v)),
+                "UKI kernel source binding is missing or invalid",
+            )?;
+        }
+        require(
+            field(field(sections, ".linux")?, "sha256")? == field(binding, "kernel_pe_sha256")?,
+            "UKI kernel differs from the verified kernel package",
+        )?;
+        let kernel = text(field(binding, "kernel")?)?;
+        require(
+            matches(r"^[A-Za-z0-9_+.-]+\.x86_64$", kernel)
+                && section(field(sections, ".uname")?)? == kernel,
+            "UKI kernel release differs from the verified module tree",
+        )?;
+    }
+    if [version[0], version[1], version[2], version[3]] >= [45, 0, 3, 0]
+        || binding.is_some_and(|v| v.get("initrd").is_some())
+    {
+        let binding = field(manifest, "kernel_verification")?;
+        let initrd = field(binding, "initrd")?;
+        let values = object(initrd)?;
+        require(
+            values.len() == 4
+                && ["kernel", "sha256", "module_files", "security_files"]
+                    .iter()
+                    .all(|name| values.contains_key(*name))
+                && matches(r"^[0-9a-f]{64}$", text(field(initrd, "sha256")?)?)
+                && field(initrd, "kernel")? == field(binding, "kernel")?
+                && (1..=16384).contains(&uint(field(initrd, "module_files")?)?)
+                && (1..=128).contains(&uint(field(initrd, "security_files")?)?)
+                && field(field(sections, ".initrd")?, "sha256")? == field(initrd, "sha256")?,
+            "UKI initrd differs from the verified early-boot payload",
+        )?;
+    }
     let osrel = section(field(sections, ".osrel")?)?;
     let values = osrel
         .lines()

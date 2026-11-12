@@ -3,11 +3,23 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from particleve.buildcheck import check_radio_rules, check_resolver_defaults
+from particleve.buildcheck import check_build_sources, check_radio_rules, check_resolver_defaults
 from particleve.common import Error
 
 
 class DaemonDefaultsTests(unittest.TestCase):
+    def test_image_source_claims_follow_every_pin_and_preserve_the_fork_identity(self):
+        lock = {"fedora": "45", "sources": {"fedora_kernel": {"revision": "a" * 40}}}
+        build = {
+            "schema": 1,
+            "fedora": "45",
+            "sources": {"fedora_kernel": "a" * 40, "particleve_tree": "b" * 40},
+        }
+        check_build_sources(build, lock)
+        for value in ({}, {"fedora_kernel": "c" * 40}, None):
+            with self.subTest(sources=value), self.assertRaisesRegex(Error, "source metadata differs"):
+                check_build_sources({**build, "sources": value}, lock)
+
     def test_resolver_defaults_require_readable_directories_and_file(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

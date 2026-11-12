@@ -1,7 +1,8 @@
 # Toolchain baseline
 
-ParticleVE targets Fedora 45 with Fedora's supported kernel packages and the
-upstream stable systemd package family from OBS. The runtime, initrd, and build
+ParticleVE targets Fedora 45 with a Fedora-derived kernel built from pinned
+Fedora packaging and the reviewed secureblue baseline, alongside the upstream
+stable systemd package family from OBS. The runtime, initrd, and build
 tools use that same distribution and systemd source policy. The current image
 target is x86-64; the recorded CPU baseline is
 x86-64-v2. Hardware virtualization, firmware, TPM, drivers, and recovery support
@@ -36,7 +37,7 @@ for the build inputs; update their related checks and recipes together.
 | Component | Baseline and authoritative input |
 | --- | --- |
 | Fedora runtime, initrd, and tools | Fedora 45; [`sources.lock.json`](../sources.lock.json), the [ParticleVE profile](../mkosi.profiles/particleve/mkosi.conf), and [initrd configuration](../mkosi.initrd.conf/mkosi.conf). |
-| Kernel and modules | Fedora's `kernel-core`, `kernel-modules`, and `kernel-modules-extra`, using Fedora's configuration and patches; the image profile selects packages and each signed release records their exact versions and origins. |
+| Kernel and modules | OBS-built `kernel-core`, `kernel-modules-core`, `kernel-modules`, and `kernel-modules-extra`; [`sources.lock.json`](../sources.lock.json), the [recipe](../.obs/kernel/kernel.spec), [source manifest](../.obs/kernel/kernel.inputs.json), and [policy deviations](../.obs/kernel/policy.json) bind the Fedora and secureblue inputs. |
 | systemd | The complete `system:systemd:stable` family from the configured Fedora 45 OBS repository; exact installed versions and origins are recorded and checked per build. |
 | ParticleOS | This fork retains the upstream revision recorded in `sources.lock.json`; no second upstream tree is composed over it. |
 | mkosi | Exact upstream commit and declared version in `sources.lock.json`, with the reviewed [OBS continuation patch](../.obs/mkosi/mkosi-obs-continuation.patch), [initrd module-index patch](../.obs/mkosi/mkosi-initrd-module-indexes.patch), [build-metadata patch](../.obs/mkosi/mkosi-build-metadata.patch), and [RPM recipe](../.obs/mkosi/mkosi.spec). The configuration's minimum version is not a substitute for this pin. |
@@ -77,6 +78,11 @@ require native verification in addition to source tests.
 
 ## Native build and signing contracts
 
+TLS source checks select Fedora's canonical CA extraction paths using both
+`ID` and `ID_LIKE` from the native release metadata. OBS's Fedora worker uses
+`ID=generic` with `ID_LIKE=fedora`; it retains Fedora's system trust authority
+even when OpenSSL's compatibility bundle alias is absent.
+
 The RPM recipes declare the compiler and build-tool dependencies for native
 components. ParticleVE's host and initrd RPMs are architecture-specific ELF
 packages; the build-tools component retains Python. The native recipe pins
@@ -85,9 +91,24 @@ other compiler flags, and uses full GDB for Rust debug-script inspection during
 normal RPM processing. Resolved dependency licenses and upstream notice texts
 ship with both Rust runtime components.
 
+The build-tools package uses distribution binutils for PE-section extraction and
+kmod for initrd dependency-index verification. Its bounded initrd reader uses
+Python's standard `compression.zstd` module and the selected mkosi newc format;
+decompression, archive counts and module sizes have explicit limits in the
+[verifier](../Sources/particleve/kernelinitrd.py).
+
 The fwupd helper builds with warnings as errors and retains both
 SBAT and SBOM sections. Its narrow patch changes a successful linker-selection
 message to informational severity; it does not suppress compiler diagnostics.
+
+Kernel modules use CRC32 XZ streams. Linux's in-kernel decoder does not accept
+liblzma's default CRC64 check. The kernel recipe prepares the native OBS signing
+continuation with an explicit CRC32, single-threaded encoder environment before
+its repackaging generator runs, clearing inherited XZ options. This is a narrow
+adaptation of the selected signing worker's CRC64 default. Final payload and
+initrd verification reject other XZ checks while separately checking each module's
+ELF body and signature. Userspace decompression alone does not establish that the
+kernel can load a compressed module; the signed-image module tests cover that path.
 
 The mkosi continuation patch preserves native OBS signing while regenerating
 split partitions after verity signing, avoiding duplicate artifact copies, and
@@ -106,19 +127,24 @@ The [build guide](Build.md) describes final-artifact inspection and publication.
 
 ## Kernel and mitigation inputs
 
-The supported kernel comes from Fedora's package repositories. Its updates flow
-through OBS dependency rebuilds and the ordinary signed-image publication path.
+The supported kernel uses the pinned Fedora packaging and reviewed secureblue
+baseline described above. Reviewed source updates flow through OBS package and
+dependency rebuilds and the ordinary signed-image publication path.
+The trusted-base Fedora workflow verifies published SRPMs using
+`RPM-GPG-KEY-fedora-45-primary` from the native `fedora-gpg-keys` package, in an
+isolated RPM database. This package authority is separate from kernel PE/module
+and image signing trust. Native `rpm2cpio` decoding has CPU, output-size and time
+limits; the source reader accepts only bounded flat regular files and zero tail
+padding before comparing the complete payload to Git and lookaside identities.
 Record the exact kernel and module package versions, origins, source-package
 identity, effective configuration, signature trust, and observed mitigations
 with the release evidence. Recheck required drivers, systemd/QEMU interfaces,
 storage, firmware maintenance, and recovery when the kernel changes.
 
-Additional kernel hardening remains an optional final phase. Evaluate Fedora's
-effective protections first. A custom Fedora-derived build would require a
-specific benefit that cannot be delivered through the supported packages,
-measured compatibility and performance, and an explicit maintenance decision
-that preserves timely Fedora updates. It is not part of the shipping baseline.
-The [hardening guide](Hardening.md) describes these evaluation boundaries alongside
+Further kernel hardening requires an audit of the inherited protections,
+measured compatibility and performance, and an explicit adoption decision that
+preserves timely Fedora updates and owner recovery. The
+[hardening guide](Hardening.md) describes these evaluation boundaries alongside
 allocator and execution-policy decisions.
 
 ## Verification records

@@ -1,7 +1,7 @@
 //! Image-bound assertions and read-only effective security evidence.
 use crate::common::{
-    Error, Result, command, field, hash_file, list, object, parse_json, read_bounded, read_json,
-    require, run, text,
+    Error, Result, boolean, command, field, hash_file, list, object, parse_json, read_bounded,
+    read_json, require, run, text,
 };
 use crate::confinement::get_xattr;
 use crate::processes::{Identity, MAX_FDS, MAX_NAMESPACES, Process};
@@ -698,8 +698,12 @@ pub fn firmware_evidence() -> Result<Value> {
 }
 pub fn live_baseline(root: &Path, evidence: bool, kcore: &Path) -> Result<Value> {
     let mut baseline = kernel_baseline(root)?;
-    baseline["kernel_runtime"] =
-        crate::kernelruntime::baseline(Path::new("/proc"), Path::new("/dev"), kcore)?;
+    baseline["kernel_runtime"] = crate::kernelruntime::baseline(
+        Path::new("/proc"),
+        Path::new("/dev"),
+        kcore,
+        boolean(field(field(&baseline, "runtime_support")?, "kexec_core")?)?,
+    )?;
     require(
         baseline["runtime_support"]["proc_kcore"] == baseline["kernel_runtime"]["root_only_kcore"],
         "kernel core metadata availability differs from the verified kernel configuration",

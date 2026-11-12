@@ -72,11 +72,17 @@ class OBSUploadTests(unittest.TestCase):
         sources = self.root / "sources"
         sources.mkdir()
         (sources / "_service").write_bytes(b"<services/>\n")
-        result, _ = self.upload("mkosi", str(sources))
-        self.assertEqual(result["files"], ["_service"])
-        self.assertEqual([request.method for request in self.requests], ["PUT", "PUT", "POST"])
-        self.assertIsNone(ET.fromstring(self.requests[0].data).find("scmsync"))
-        self.assertIn("cmd=commitfilelist", self.requests[-1].full_url)
+        for package in ("mkosi", "fwupd-efi", "kernel"):
+            with self.subTest(package=package):
+                self.requests.clear()
+                result, _ = self.upload(package, str(sources))
+                self.assertEqual(result["files"], ["_service"])
+                self.assertEqual([request.method for request in self.requests], ["PUT", "PUT", "POST"])
+                metadata = ET.fromstring(self.requests[0].data)
+                self.assertIsNone(metadata.find("scmsync"))
+                self.assertEqual(metadata.find("build/enable").get("repository"), "Fedora_45")
+                self.assertEqual(metadata.find("build/disable").get("repository"), "Fedora_45_images")
+                self.assertIn("cmd=commitfilelist", self.requests[-1].full_url)
 
     def test_obsolete_particleve_upload_and_missing_upstream_sources_fail_before_network(self):
         for arguments in (("particleve", str(self.root)), ("mkosi",)):

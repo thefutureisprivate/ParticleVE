@@ -41,18 +41,19 @@ an untested machine or firmware transport has passed those checks.
 
 ## Kernel and platform baseline
 
-ParticleVE uses Fedora's supported kernel packages with Fedora's configuration
-and downstream patches. Kernel updates flow through the configured Fedora
-repositories and OBS dependency rebuilds into matching kernel/modules, UKIs,
+ParticleVE builds pinned Fedora kernel sources, configuration and downstream
+patches with the reviewed secureblue baseline. Kernel source updates flow through
+reviewed pin changes and OBS dependency rebuilds into matching kernel/modules, UKIs,
 initrds, and verified userspace. Exact package identities and effective settings
 are bound to the complete release. Failed checks leave the usable signed release
 available and produce external attention.
 
 The [toolchain baseline](Toolchain.md) and [build procedures](Build.md) describe
 package selection and the maintenance workflow. Record the exact kernel package
-versions and observed protections with each release. Further kernel hardening
-is an optional final phase; a custom Fedora-derived build requires its own
-justified adoption decision and is not the default update path.
+versions and observed protections with each release. The
+[kernel policy](../.obs/kernel/policy.json) records the selected secureblue changes
+and justified ParticleVE deviations. Further hardening beyond this baseline
+requires an explicit, measured adoption decision.
 
 Build checks assert SELinux, seccomp, required privileged BPF, module signatures,
 lockdown, IOMMU support, strict kernel/module memory permissions, Landlock,
@@ -348,8 +349,9 @@ are identified under [verification](#verification).
 
 ## Stock-kernel interface policy
 
-The runtime policy builds on Fedora's stock kernel. The initrd and installed
-OS reuse the authored sysctl/udev assets; build checks bind their bytes and
+The runtime interface policy retains the contracts established on Fedora's stock
+kernel and checks them against the selected Fedora-derived build. The initrd
+and installed OS reuse the authored sysctl/udev assets; build checks bind their bytes and
 runtime assessment checks effective settings. Missing or unsupported required
 settings fail assessment rather than silently selecting weaker values.
 
@@ -383,8 +385,12 @@ user-namespace, or io_uring ban is inferred from the table. The
 non-executable defaults from denying explicit executable requests. Larger numeric
 settings are not accepted as unreviewed compatibility changes.
 
-`kernel.kexec_load_disabled=1` is irreversible for the current boot. Updates and
-recovery use UEFI; neither kexec reboot nor kdump is an ordinary substitute.
+When the verified kernel configuration enables `KEXEC_CORE`, assessment requires
+`kernel.kexec_load_disabled=1`, which is irreversible for the current boot.
+When kexec is compiled out, assessment requires that sysctl to be absent and
+reports it separately from observed sysctl values. Other missing policy knobs
+remain failures. Updates and recovery use UEFI; neither kexec reboot nor kdump
+is an ordinary substitute.
 ParticleVE service-prefix and VM-template restrictions select the native host ABI.
 Native component tests rejected an inert ELF32 host executable under that filter
 while both nested guests could still execute ELF32. These are different ABI
@@ -394,7 +400,8 @@ The [interface probe](../Tests/acceptance/kernel-interfaces.py) requires an
 explicit disposable installation UUID and QEMU hardware. It restores reversible
 settings, uses private PTYs, and unloads only its initially absent signed test
 module. The positive autoload control briefly changes policy in that disposable
-host; the one-way kexec test runs last, followed by an ordinary UEFI reboot.
+host. The kexec probe checks the selected configuration and rejects inert syscall
+requests without changing the one-way policy.
 Do not run this probe against a live production host as a read-only health check.
 
 ## Memory privacy
@@ -543,10 +550,10 @@ requirements above.
 Additional kernel hardening is optional and stays last in the priority order.
 Audit Fedora's effective configuration and protections before proposing changes
 to memory initialization, CFI, stack/slab/usercopy defenses, or compatibility
-interfaces. Prefer supported Fedora settings and upstream improvements. Any
-custom Fedora-derived build needs a specific security or compatibility benefit,
-an explicit adoption decision, and a maintenance path that preserves timely
-Fedora updates. The generic image uses Fedora's supported kernel packages.
+interfaces. Prefer supported Fedora settings and upstream improvements. Changes
+beyond the reviewed Fedora/secureblue baseline need a specific security or
+compatibility benefit, an explicit adoption decision, and a maintenance path
+that preserves timely Fedora updates.
 
 Evaluate proposed changes against generic driver, storage, TPM, firmware,
 systemd, and QEMU requirements. Measure VM/storage latency, CPU cost, and memory

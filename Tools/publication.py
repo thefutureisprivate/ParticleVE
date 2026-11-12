@@ -11,15 +11,17 @@ from pathlib import Path
 from urllib.parse import quote, urlsplit
 from xml.etree import ElementTree
 
-from particleve.common import digest, require
+from particleve.common import Error, digest, require
 from particleve.config import https_url, integer, version_key
 from particleve.release import checksums, verify_directory
+from Tools import kernel_freshness
 from Tools.trust import system_tls_context
 
 PACKAGES = {
     "particleve": ("Fedora_45", "particleve:rpm", "particleve"),
     "mkosi": ("Fedora_45", "mkosi", "particleve-build-inputs"),
     "fwupd-efi": ("Fedora_45", "fwupd-efi", "particleve-build-inputs"),
+    "kernel": ("Fedora_45", "kernel", "particleve-kernel-inputs"),
     "image": ("Fedora_45_images", "particleve", "particleve"),
 }
 # OBS has not yet decided success/failure in the signed `finished` transition.
@@ -56,7 +58,9 @@ def request(url, *, size_limit=1024 * 1024, method="GET"):
         )
     except urllib.error.HTTPError as exc:
         exc.close()
-        raise
+        if exc.code == 400 and exc.reason == "service in progress":
+            raise
+        raise Error(f"publication HTTP {exc.code}: {parsed.netloc}{parsed.path}") from exc
     with opened as response:
         require(response.status == 200, "publication request did not return HTTP 200")
         if method == "HEAD":
@@ -105,7 +109,7 @@ def read_source(url):
         raise
 
 
-def assess(head, sources, statuses, manifest, *, now, grace_seconds, previous=None):
+def assess(head, sources, statuses, manifest, *, now, grace_seconds, previous=None, upstreams=None):
     """A pending build must become stale even when it never reports a terminal failure."""
     integer(grace_seconds, 60, "publication grace seconds")
     require(grace_seconds <= 7 * 86400, "publication grace cannot exceed seven days")
@@ -128,6 +132,30 @@ def assess(head, sources, statuses, manifest, *, now, grace_seconds, previous=No
                 "revision": sources[name],
             }
         )
+    if upstreams is not None:
+        require(
+            isinstance(upstreams, dict) and upstreams.keys() == kernel_freshness.UPSTREAMS,
+            "missing kernel upstream observation",
+        )
+        for name, observation in sorted(upstreams.items()):
+            pattern = r"[0-9a-f]{40}"
+            if name == "fedora-kernel:upstream":
+                pattern = r"[0-9]{1,8}(?:\.[0-9]{1,8}){1,3}-[0-9]{1,8}\.fc45@" + pattern
+            require(
+                isinstance(observation, dict)
+                and set(observation) == {"selected", "available"}
+                and all(
+                    isinstance(value, str) and re.fullmatch(pattern, value) for value in observation.values()
+                ),
+                "invalid kernel upstream observation",
+            )
+            checks.append(
+                {
+                    "name": name,
+                    "result": "pass" if observation["selected"] == observation["available"] else "pending",
+                    **observation,
+                }
+            )
     published = manifest["sources"]["particleve"]
     require(re.fullmatch("[0-9a-f]{40}", published), "invalid signed publication source identity")
     checks.append(
@@ -248,6 +276,7 @@ def collect(site, keyring, certificate, *, grace_seconds=7200, previous=None):
         now=datetime.now(UTC),
         grace_seconds=grace_seconds,
         previous=previous,
+        upstreams=kernel_freshness.collect(repository[1], github["sha"]),
     )
     result["claims"] = (
         "OBS-signed metadata and HTTPS availability; payload bytes require normal release authentication"

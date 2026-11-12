@@ -43,11 +43,80 @@ class PublicationTests(unittest.TestCase):
         with (
             patch("Tools.publication.request", side_effect=fetch) as requests,
             patch("Tools.publication.signed_manifest", return_value=manifest),
+            patch("Tools.publication.kernel_freshness.collect", return_value=self.upstreams()),
         ):
             result = collect(site, "unused", "unused")
         self.assertEqual(result["result"], "pass")
+        self.assertIn("kernel:source", {check["name"] for check in result["checks"]})
+        self.assertTrue(
+            any(
+                "/kernel/_service:obs_scm:particleve-kernel-inputs.obsinfo?" in call.args[0]
+                for call in requests.call_args_list
+            )
+        )
         self.assertFalse(any("/image/" in call.args[0] for call in requests.call_args_list))
         self.assertFalse(any("/particleve:rpm/" in call.args[0] for call in requests.call_args_list))
+
+    def upstreams(self):
+        return {
+            "fedora-kernel:upstream": dict.fromkeys(("selected", "available"), "7.3.3-300.fc45@" + "a" * 40),
+            "secureblue-kernel:upstream": dict.fromkeys(("selected", "available"), "b" * 40),
+        }
+
+    def test_updater_lag_expires_even_when_newer_upstream_updates_keep_arriving(self):
+        now = datetime(2026, 11, 12, tzinfo=UTC)
+        arguments = (
+            "a" * 40,
+            dict.fromkeys(PACKAGES, "a" * 40),
+            dict.fromkeys(PACKAGES, "succeeded"),
+            {"sources": {"particleve": "a" * 40}, "version": "45.0.3.0-1.1"},
+        )
+        for upstream in self.upstreams():
+            with self.subTest(upstream=upstream):
+                observed = self.upstreams()
+                observed[upstream]["available"] = (
+                    "7.3.3-300.fc45@" if upstream == "fedora-kernel:upstream" else ""
+                ) + "c" * 40
+                initial = assess(*arguments, now=now, grace_seconds=7200, upstreams=observed)
+                self.assertEqual(initial["result"], "pending")
+                observed[upstream]["available"] = (
+                    "7.4.0-301.fc45@" if upstream == "fedora-kernel:upstream" else ""
+                ) + "d" * 40
+                expired = assess(
+                    *arguments,
+                    now=now + timedelta(seconds=7201),
+                    grace_seconds=7200,
+                    upstreams=observed,
+                    previous=json.loads(json.dumps(initial)),
+                )
+                self.assertEqual(expired["result"], "fail")
+                self.assertEqual(expired["checks"][-1]["result"], "pass")
+                observed[upstream]["selected"] = observed[upstream]["available"]
+                recovered = assess(
+                    *arguments,
+                    now=now + timedelta(seconds=7202),
+                    grace_seconds=7200,
+                    upstreams=observed,
+                    previous=expired,
+                )
+                self.assertEqual(recovered["result"], "pass")
+                self.assertFalse(any("pending_since" in item for item in recovered["checks"]))
+
+    def test_missing_or_invalid_kernel_upstream_cannot_pass(self):
+        arguments = (
+            "a" * 40,
+            dict.fromkeys(PACKAGES, "a" * 40),
+            dict.fromkeys(PACKAGES, "succeeded"),
+            {"sources": {"particleve": "a" * 40}, "version": "45.0.3.0-1.1"},
+        )
+        for value in ({}, {"unknown": {}}, self.upstreams() | {"fedora-kernel:upstream": {}}):
+            with self.subTest(value=value), self.assertRaises(Error):
+                assess(
+                    *arguments,
+                    now=datetime(2026, 11, 12, tzinfo=UTC),
+                    grace_seconds=7200,
+                    upstreams=value,
+                )
 
     def report(self, *, age=60, sources=None, statuses=None, published=None):
         now = datetime(2026, 11, 8, tzinfo=UTC)
@@ -87,10 +156,14 @@ class PublicationTests(unittest.TestCase):
 
     def test_stalled_dependency_rebuild_does_not_claim_last_release_is_broken(self):
         statuses = dict.fromkeys(PACKAGES, "succeeded")
-        statuses["image"] = "building"
-        report = self.report(age=100000, statuses=statuses)
-        self.assertEqual(report["result"], "fail")
-        self.assertEqual(report["checks"][-1]["result"], "pass")
+        for package in ("image", "kernel"):
+            with self.subTest(package=package):
+                pending = statuses | {package: "building"}
+                report = self.report(age=100000, statuses=pending)
+                self.assertEqual(report["result"], "fail")
+                self.assertEqual(report["checks"][-1]["result"], "pass")
+                check = next(c for c in report["checks"] if c["name"] == package + ":build")
+                self.assertEqual(check["result"], "fail")
 
     def test_missing_observation_or_future_clock_cannot_pass(self):
         sources = dict.fromkeys(PACKAGES, "a" * 40)
@@ -177,6 +250,24 @@ class PublicationTests(unittest.TestCase):
                 response.headers = {"Content-Length": length}
                 with self.assertRaises(Error):
                     request("https://example.org/file", method="HEAD")
+
+    def test_http_failures_identify_the_endpoint_without_exporting_query_parameters(self):
+        target = "https://example.org/path?private=hidden"
+        error = urllib.error.HTTPError(target, 404, "Not Found", {}, None)
+        with patch("urllib.request.build_opener") as opener:
+            opener.return_value.open.side_effect = error
+            with self.assertRaisesRegex(Error, r"publication HTTP 404: example\.org/path$") as result:
+                request(target)
+        self.assertNotIn("hidden", str(result.exception))
+        self.assertNotIn("private", str(result.exception))
+
+    def test_native_source_refresh_response_retains_its_pending_contract(self):
+        error = urllib.error.HTTPError(
+            "https://api.opensuse.org/source", 400, "service in progress", {}, None
+        )
+        with patch("urllib.request.build_opener") as opener:
+            opener.return_value.open.side_effect = error
+            self.assertIsNone(read_source("https://api.opensuse.org/source"))
 
     def test_observer_rejects_shared_state_before_any_network_request(self):
         script = Path(__file__).resolve().parent.parent / "Tools/check-publication.py"
