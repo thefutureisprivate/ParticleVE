@@ -12,6 +12,7 @@ from pathlib import Path
 
 from particleve.common import atomic_write, require, run
 from particleve.versioning import OBS_RECIPE, source_key
+from Tools.trust import system_tls_environment
 
 p = argparse.ArgumentParser(description=__doc__)
 p.add_argument("--tree", required=True, help="exact Git commit or tree object")
@@ -83,6 +84,7 @@ with tempfile.TemporaryDirectory() as temporary:
         cwd=root,
         capture_output=True,
         check=True,
+        env=system_tls_environment(),
     )
     require((root / "Cargo.lock").read_bytes() == original_lock, "Cargo changed the source lock")
     (root / ".cargo").mkdir(exist_ok=True)

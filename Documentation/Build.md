@@ -94,6 +94,8 @@ Only HTTPS source URLs without embedded credentials are accepted; URL rewrites
 and redirects are refused. Install any required CA in the system store; a
 tool-specific bundle does not change source trust. Immutable revision, release-tag
 and patch checks remain independent of transport authentication.
+Cargo vendoring selects the same system bundle for source and HTTPS-proxy
+connections, overriding inherited Cargo-specific CA paths.
 The GitHub release tool likewise selects the distribution trust paths for its
 GitHub CLI child and fixes the publication host to `github.com`.
 Workstation network policy lives in [`Tools/trust.py`](../Tools/trust.py), outside

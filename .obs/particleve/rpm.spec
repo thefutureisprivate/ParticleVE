@@ -1,7 +1,7 @@
 # Native OBS rpm flavor; the default build consumes these RPMs for the image.
 %global _buildshell /bin/bash
 Name:           particleve
-Version:        45.0.2.7
+Version:        45.0.2.8
 Release:        1%{?dist}
 Summary:        ParticleVE host installation and maintenance coordinator
 # Project sources are LGPL; statically linked crates select MIT where dual
@@ -28,6 +28,10 @@ BuildRequires:  zstd
 BuildRequires:  git-core
 BuildRequires:  openssh-clients
 BuildRequires:  openssl
+# TLS source checks exercise Fedora's real system trust store.
+BuildRequires:  ca-certificates
+BuildRequires:  p11-kit-trust
+BuildRequires:  cpio
 BuildRequires:  selinux-policy-devel
 BuildRequires:  make
 Requires:       bubblewrap

@@ -30,5 +30,7 @@ def system_tls_environment():
         "SSL_CERT_DIR": paths["capath"],
         "CURL_CA_BUNDLE": paths["cafile"],
         "REQUESTS_CA_BUNDLE": paths["cafile"],
+        "CARGO_HTTP_CAINFO": paths["cafile"],
+        "CARGO_HTTP_PROXY_CAINFO": paths["cafile"],
         "P11_KIT_NO_USER_CONFIG": "1",
     }

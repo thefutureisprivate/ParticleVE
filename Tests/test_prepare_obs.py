@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from Tools.trust import system_trust_paths
+
 
 class PrepareObsTests(unittest.TestCase):
     def test_source_cpio_directory_modes_do_not_inherit_the_callers_umask(self):
@@ -14,7 +16,10 @@ class PrepareObsTests(unittest.TestCase):
             **os.environ,
             "GIT_CONFIG_GLOBAL": "/dev/null",
             "GIT_CONFIG_NOSYSTEM": "1",
-            "PYTHONPATH": str(project / "Sources"),
+            "PYTHONPATH": os.pathsep.join((str(project / "Sources"), str(project))),
+            "CARGO_HTTP_CAINFO": "/nonexistent/cargo-ca",
+            "CARGO_HTTP_PROXY_CAINFO": "/nonexistent/cargo-proxy-ca",
+            "SSL_CERT_FILE": "/nonexistent/tool-ca",
         }
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -50,8 +55,11 @@ class PrepareObsTests(unittest.TestCase):
             )
             cargo.write_text(
                 "#!/usr/bin/python3\n"
-                "import pathlib,sys\n"
+                "import os,pathlib,sys\n"
                 "assert sys.argv[1:] == ['vendor','--locked','--versioned-dirs','vendor']\n"
+                f"expected = {system_trust_paths()['cafile']!r}\n"
+                "assert all(os.environ[key] == expected for key in "
+                "('CARGO_HTTP_CAINFO','CARGO_HTTP_PROXY_CAINFO','SSL_CERT_FILE'))\n"
                 "pathlib.Path('vendor').mkdir()\n"
                 "pathlib.Path('vendor/fixture').write_text('locked dependency fixture')\n"
                 f"print({configuration!r})\n"
