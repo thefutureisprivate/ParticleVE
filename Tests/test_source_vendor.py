@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from particleve.common import Error
 from Tools.source_releases import main as publish_releases
-from Tools.source_releases import publish_vendor, vendor_digest
+from Tools.source_releases import publish_vendor, release_id, vendor_digest
 from Tools.trust import system_trust_paths
 
 
@@ -23,6 +23,9 @@ class SourceVendorTests(unittest.TestCase):
         self.archive = Path(temporary.name) / "vendor.tar.zst"
         self.lock = b"version = 4\r\n"
         self.release = {"tag": "v45.0.2.6"}
+        lookup = patch("Tools.source_releases.release_id", return_value="42")
+        lookup.start()
+        self.addCleanup(lookup.stop)
 
     def write_archive(self, *, duplicate=False, link=False):
         with tarfile.open(self.archive, "w:zst") as output:
@@ -126,12 +129,30 @@ class SourceVendorTests(unittest.TestCase):
             patch(
                 "Tools.source_releases.github",
                 side_effect=[self.asset("sha256:checked", draft=True), self.asset("sha256:checked")],
-            ),
+            ) as api,
             patch("Tools.source_releases.run") as command,
         ):
             publish_vendor("owner/repository", self.release, self.archive, "sha256:checked")
         self.assertEqual(command.call_count, 1)
         self.assertEqual(command.call_args.args[0][2], "edit")
+        self.assertTrue(all(call.args[1] == "releases/42" for call in api.call_args_list))
+
+    def test_draft_lookup_uses_paginated_list_and_exact_tag(self):
+        with patch("Tools.source_releases.run", return_value=SimpleNamespace(stdout="42\n")) as command:
+            self.assertEqual(release_id("owner/repository", self.release["tag"]), "42")
+        arguments = command.call_args.args[0]
+        self.assertIn("--paginate", arguments)
+        self.assertIn('select(.tag_name == "v45.0.2.6")', arguments[-1])
+        self.assertEqual(arguments[-3], "repos/owner/repository/releases")
+
+    def test_missing_or_ambiguous_release_id_stops_publication(self):
+        for response in ("", "41\n42\n", "not-an-id\n", "0\n"):
+            with (
+                self.subTest(response=response),
+                patch("Tools.source_releases.run", return_value=SimpleNamespace(stdout=response)),
+                self.assertRaisesRegex(Error, "missing or ambiguous"),
+            ):
+                release_id("owner/repository", self.release["tag"])
 
     def test_wrong_lock_aborts_before_any_release_publication(self):
         self.write_archive()

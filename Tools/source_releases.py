@@ -77,8 +77,33 @@ def vendor_digest(archive, lock):
         return "sha256:" + hashlib.file_digest(source, "sha256").hexdigest()
 
 
+def release_id(repository, tag):
+    # The tag endpoint exposes published releases. List with the publication
+    # credential to locate drafts too, then address the exact release by ID.
+    response = run(
+        [
+            "gh",
+            "api",
+            "--hostname",
+            "github.com",
+            "--paginate",
+            f"repos/{repository}/releases",
+            "--jq",
+            f".[] | select(.tag_name == {json.dumps(tag)}) | .id",
+        ],
+        timeout=300,
+        env=system_tls_environment() | {"GH_HOST": "github.com"},
+    ).stdout
+    values = response.splitlines()
+    require(
+        len(values) == 1 and values[0].isdecimal() and int(values[0]) > 0,
+        "source release ID is missing or ambiguous",
+    )
+    return values[0]
+
+
 def publish_vendor(repository, release, archive, digest):
-    endpoint = "releases/tags/" + release["tag"]
+    endpoint = "releases/" + release_id(repository, release["tag"])
 
     def existing():
         info = github(repository, endpoint)
