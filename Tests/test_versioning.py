@@ -15,8 +15,8 @@ from particleve.config import version_key
 from particleve.versioning import bump, mkosi_args, source_key, verify_obs_sources
 from Tests.fixtures import devices, host, release
 from Tests.runtime import RustDriverTests
+from Tools.source_releases import ensure_tag, release_plan
 from Tools.source_releases import main as publish_releases
-from Tools.source_releases import release_plan
 from Tools.trust import system_trust_paths
 
 
@@ -240,7 +240,16 @@ class SourceReleaseTests(unittest.TestCase):
                 self.assertEqual(kwargs["env"]["SSL_CERT_DIR"], system_trust_paths()["capath"])
             if arguments[:2] == ["gh", "api"]:
                 self.assertEqual(arguments[arguments.index("--hostname") + 1], "github.com")
-                return SimpleNamespace(stdout="v45.0.1.1\n")
+                if "--paginate" in arguments:
+                    return SimpleNamespace(stdout="v45.0.1.1\n")
+                if "git/matching-refs/tags/" in arguments[4]:
+                    return SimpleNamespace(stdout="[]")
+                self.assertEqual(
+                    json.loads(kwargs["input"]), {"ref": "refs/tags/v45.0.1.2", "sha": expected["commit"]}
+                )
+                return SimpleNamespace(
+                    stdout=json.dumps({"object": {"type": "commit", "sha": expected["commit"]}})
+                )
             if arguments[:3] == ["gh", "release", "create"]:
                 self.assertEqual(arguments[arguments.index("--repo") + 1], "github.com/owner/repository")
                 created.append(arguments)
@@ -267,7 +276,8 @@ class SourceReleaseTests(unittest.TestCase):
             publish_releases()
         self.assertEqual(len(created), 1)
         self.assertEqual(created[0][3], "v45.0.1.2")
-        self.assertEqual(created[0][created[0].index("--target") + 1], expected["commit"])
+        self.assertIn("--verify-tag", created[0])
+        self.assertNotIn("--target", created[0])
         self.assertIn("Fix the loader", (output / "v45.0.1.2.md").read_text())
 
     def test_publication_failure_is_not_recorded_as_a_completed_release(self):
@@ -287,6 +297,7 @@ class SourceReleaseTests(unittest.TestCase):
         with (
             patch("Tools.source_releases.Path.cwd", return_value=self.root),
             patch("Tools.source_releases.run", side_effect=command),
+            patch("Tools.source_releases.ensure_tag"),
             patch(
                 "sys.argv",
                 ["source_releases", "--repository", "owner/repository", "--output", str(output), "--publish"],
@@ -295,3 +306,35 @@ class SourceReleaseTests(unittest.TestCase):
         ):
             publish_releases()
         self.assertFalse((output / "releases.json").exists())
+
+    def test_existing_annotated_tag_is_verified_without_moving_it(self):
+        release = {"tag": "v45.0.1.2", "commit": "b" * 40}
+        responses = [
+            [
+                {"ref": "refs/tags/v45.0.1.20", "object": {"type": "commit", "sha": "c" * 40}},
+                {"ref": "refs/tags/v45.0.1.2", "object": {"type": "tag", "sha": "a" * 40}},
+            ],
+            {"object": {"type": "commit", "sha": release["commit"]}},
+        ]
+        with patch("Tools.source_releases.github", side_effect=responses) as api:
+            ensure_tag("owner/repository", release)
+        self.assertEqual(api.call_count, 2)
+        self.assertTrue(all(len(call.args) == 2 for call in api.call_args_list))
+
+    def test_wrong_existing_remote_tag_is_rejected_without_replacement(self):
+        release = {"tag": "v45.0.1.2", "commit": "b" * 40}
+        response = [{"ref": "refs/tags/v45.0.1.2", "object": {"type": "commit", "sha": "c" * 40}}]
+        with (
+            patch("Tools.source_releases.github", return_value=response) as api,
+            self.assertRaisesRegex(Error, "another commit"),
+        ):
+            ensure_tag("owner/repository", release)
+        self.assertEqual(api.call_count, 1)
+
+    def test_tag_creation_failure_is_not_treated_as_release_success(self):
+        release = {"tag": "v45.0.1.2", "commit": "b" * 40}
+        with (
+            patch("Tools.source_releases.github", side_effect=[[], Error("GitHub refused tag creation")]),
+            self.assertRaisesRegex(Error, "refused tag"),
+        ):
+            ensure_tag("owner/repository", release)

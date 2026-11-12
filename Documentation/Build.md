@@ -186,6 +186,12 @@ source release. [`Tools/source_releases.py`](../Tools/source_releases.py) prepar
 the notes without publishing unless `--publish` is supplied. OBS image counters
 do not create separate GitHub Releases.
 
+Publication creates a missing source-version Git tag and verifies its exact
+commit before creating the release from that existing tag. Annotated tags are
+peeled and checked; an existing tag is never moved. Release creation does not
+resend a historical target commit, which would invoke GitHub's separate workflow
+permission check when its workflow files differ from the default branch.
+
 ## Source updates and uploads
 
 The source repository and OBS ref are declared in [`.obs/site.json`](../.obs/site.json).

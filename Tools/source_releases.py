@@ -15,6 +15,40 @@ def git(root, *arguments, check=True):
     return run(["git", "-C", root, *arguments], check=check)
 
 
+def github(repository, endpoint, body=None):
+    arguments = ["gh", "api", "--hostname", "github.com", f"repos/{repository}/{endpoint}"]
+    if body is not None:
+        arguments.extend(["--input", "-"])
+    response = run(
+        arguments,
+        input=json.dumps(body) if body is not None else None,
+        timeout=60,
+        env=system_tls_environment() | {"GH_HOST": "github.com"},
+    )
+    require(len(response.stdout) <= 1024**2, "oversized release-reference response")
+    return json.loads(response.stdout)
+
+
+def ensure_tag(repository, release):
+    """Create only a missing ref; never move an existing source-version tag."""
+    reference = "refs/tags/" + release["tag"]
+    matches = github(repository, "git/matching-refs/tags/" + release["tag"])
+    exact = [item for item in matches if item["ref"] == reference]
+    require(len(exact) <= 1, "ambiguous source-version tag")
+    if exact:
+        value = exact[0]["object"]
+    else:
+        value = github(repository, "git/refs", {"ref": reference, "sha": release["commit"]})["object"]
+    for _ in range(5):
+        require(re.fullmatch(r"[0-9a-f]{40}", value["sha"]), "invalid source-version tag object")
+        if value["type"] == "commit":
+            require(value["sha"] == release["commit"], "release tag points to another commit")
+            return
+        require(value["type"] == "tag", "source-version tag does not identify a commit")
+        value = github(repository, "git/tags/" + value["sha"])["object"]
+    require(False, "too many nested source-version tag objects")
+
+
 def release_plan(root, repository):
     require(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository), "invalid GitHub repository")
     commits = git(root, "log", "--first-parent", "--reverse", "--format=%H", "--", "particleve.version")
@@ -86,6 +120,11 @@ def main():
             tag.returncode != 0 or tag.stdout.strip() == release["commit"],
             "release tag points to another commit",
         )
+        # Authorize and verify the immutable Git ref separately. Resending a
+        # historical target_commitish to the Releases API invokes its workflow
+        # permission check even though an existing tag already selects the
+        # release's contents. Keep release publication scoped to that ref.
+        ensure_tag(args.repository, release)
         run(
             [
                 "gh",
@@ -94,8 +133,7 @@ def main():
                 release["tag"],
                 "--repo",
                 "github.com/" + args.repository,
-                "--target",
-                release["commit"],
+                "--verify-tag",
                 "--title",
                 "ParticleVE " + release["version"],
                 "--notes-file",
