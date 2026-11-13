@@ -87,11 +87,14 @@ invocation identities and state markers:
 | Boundary | Required observations |
 | --- | --- |
 | VM start, stop and restart | KVM and native readiness; actual process privileges, seccomp and MCS labels; disk/network I/O; graceful process exit; retained disk, EFI and optional TPM identity. |
-| Maintenance interruption | Refused and late guest exits, concurrent starts/restarts, failed reboot requests and interrupted coordinator state. The host stays running on refusal; only VMs stopped by that attempt are restored. |
+| Maintenance interruption | Refused and late guest exits, concurrent starts/restarts, pre-enqueue refusal, accepted requests followed by IPC/observation failure, and journal-write failure. Persist both reboot intents before enqueue; an uncertain result must preserve selection and stopped-VM intent and block same-boot recovery. Only confirmed pre-enqueue failure permits ordinary restoration. |
 | Two-disk update | Complete authenticated sets, explicit disk identities, interruption at artifact boundaries, retained boot entries and no unrelated disk writes. |
-| Boot assessment and fallback | Correct physical `/usr` backing, native counters/blessing, rejected-image quarantine and unchanged writable state. |
+| Boot assessment and fallback | Correct physical `/usr` backing, native counters/blessing, and unchanged writable state. Make one ESP read-only during rejection: retain per-ESP progress, retry after repair, and verify no rejected UKI remains bootable. Repeat with an absent quarantined member returning. |
 | EFI loader trial | A trusted deliberately broken or hanging loader fails before OS selection; known-working fixed paths and BootOrder remain intact. A real candidate boot is required for promotion. |
 | Mirror authority | Degraded NOCOW writes, a returned stale member kept locked, stale-only refusal, explicit erased rebuild, independent readback and owner recovery after an unclean session. |
+| Replacement finalization | Interrupt after Btrfs copy and swap addition but before complete ESP/firmware provisioning. Retry the recorded authenticated release, verify OS/UKI/loader/default/firmware readback, then permit readmission and journal removal. Preserve unrelated firmware entries and BootNext. |
+| Private DNS routing | Reject unaddressed private interfaces and empty private scopes. Exercise authenticated private/public queries with the management interface healthy, without addresses, without carrier, and restored. Keep a public resolver reachable and observe its queries to prove private names never fall through to it. |
+| BPF and module policy | Confirm both BPF values are applied before PID 1 and survive initrd/host reapplication; prove the one-way lock, privileged broker/device BPF and unprivileged seccomp behavior. Require enabled module enforcement, signed storage/KVM driver loads, and rejection of unsigned/modified modules. Compare fresh JIT programs and representative VM startup/I/O with paired samples; preserve raw samples and report scope and variation. |
 | Policy and trust changes | Positive and negative access probes, retained-image compatibility, both independent boot paths, current TPM authorization and independent recovery. |
 
 Stop a repeated run on failure and retain its evidence. Do not use repeated

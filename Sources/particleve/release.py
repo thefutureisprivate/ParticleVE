@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 
 from .common import hash_file, read_json, require, run
-from .config import VERITY_SIGNATURE_SIZE, integer, version_key
+from .config import VERITY_SIGNATURE_SIZE, integer, kernel_parameter_key, version_key
 from .consoles import SERIAL_CONSOLES, uki_profiles
 
 KINDS = ("usr", "verity", "verity_sig", "uki", "bootloader", "fwupd_efi")
@@ -185,10 +185,13 @@ def inspect_uki(path, manifest):
         "kvm_intel.nested=0",
         "kvm_amd.nested=0",
         "rfkill.default_state=0",
+        "module.sig_enforce=1",
+        "sysctl.kernel.unprivileged_bpf_disabled=1",
+        "sysctl.net.core.bpf_jit_harden=2",
     ):
-        key = expected.split("=", 1)[0]
+        key = kernel_parameter_key(expected)
         require(
-            [word for word in cmdline if word.split("=", 1)[0] == key] == [expected],
+            [word for word in cmdline if kernel_parameter_key(word) == key] == [expected],
             "UKI security command line differs: " + key,
         )
     require(

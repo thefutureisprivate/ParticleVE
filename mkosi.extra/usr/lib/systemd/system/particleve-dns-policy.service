@@ -1,0 +1,43 @@
+[Unit]
+Description=Stage private DNS routes independently of management-link availability
+DefaultDependencies=no
+Requires=systemd-networkd.service
+After=local-fs.target systemd-networkd.service
+Before=systemd-resolved.service shutdown.target
+Conflicts=shutdown.target
+Wants=systemd-resolved.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/particleve prepare-dns
+RemainAfterExit=yes
+RuntimeDirectory=particleve-dns-policy
+RuntimeDirectoryMode=0755
+# The image helper owns the files; keep the configuration labels and views until
+# the next helper run or reboot rather than asking PID 1 to remove configuration.
+RuntimeDirectoryPreserve=yes
+TimeoutStartSec=45s
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+# libc's interface-index lookup needs a local datagram socket, without network
+# administration authority. No remote DNS or TLS client runs in this helper.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+LimitCORE=0
+UMask=0022

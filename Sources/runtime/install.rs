@@ -1028,26 +1028,133 @@ pub fn replace(
         "--add",
         &member(&device, "swap")?,
     ])?;
-    backend.expose_boot(role, &release)?;
-    crate::bootloaders::Loaders::new(backend).restore(role)?;
-    backend.with_esp(role, |esp| {
-        backend.default(esp, Some(text(field(&release, "version")?)?))
+    complete_replacement_boot(&NativeReplacementBoot {
+        backend,
+        role,
+        release: &release,
+        device: &device,
     })?;
-    run(&[
-        "efibootmgr",
-        "--create",
-        "--disk",
-        text(field(&device, "path")?)?,
-        "--part",
-        "1",
-        "--label",
-        &format!("ParticleVE {role}"),
-        "--loader",
-        "\\EFI\\systemd\\systemd-bootx64.efi",
-    ])?;
     Ok(
         json!({"action":"replacement-started","next":"wait for Btrfs replace and swap sync; restore RAID1 profiles, then finalize"}),
     )
+}
+/// Boot provisioning must finish before replacement readmission discards its journal.
+pub trait ReplacementBoot {
+    fn verify_os(&self) -> Result<bool>;
+    fn copy_os(&self) -> Result<()>;
+    fn expose_uki(&self) -> Result<()>;
+    fn restore_loaders(&self) -> Result<()>;
+    fn set_default(&self) -> Result<()>;
+    fn verify_boot(&self) -> Result<()>;
+    fn ensure_firmware_entry(&self) -> Result<()>;
+}
+pub fn complete_replacement_boot(boot: &impl ReplacementBoot) -> Result<()> {
+    if !boot.verify_os()? {
+        boot.copy_os()?;
+        require(boot.verify_os()?, "replacement OS failed readback")?;
+    }
+    boot.expose_uki()?;
+    boot.restore_loaders()?;
+    boot.set_default()?;
+    boot.verify_boot()?;
+    boot.ensure_firmware_entry()
+}
+struct NativeReplacementBoot<'a> {
+    backend: &'a Linux,
+    role: &'a str,
+    release: &'a Value,
+    device: &'a Value,
+}
+impl ReplacementBoot for NativeReplacementBoot<'_> {
+    fn verify_os(&self) -> Result<bool> {
+        self.backend.verify_disk(self.role, self.release, false)
+    }
+    fn copy_os(&self) -> Result<()> {
+        write_os(
+            self.device,
+            self.release,
+            &self
+                .backend
+                .cache
+                .join(text(field(self.release, "version")?)?),
+        )
+    }
+    fn expose_uki(&self) -> Result<()> {
+        self.backend.with_esp(self.role, |esp| {
+            let version = text(field(self.release, "version")?)?;
+            let entries = Linux::boot_entries(esp, version)?;
+            require(entries.len() <= 1, "ambiguous replacement UKIs")?;
+            if let Some((path, count)) = entries.first() {
+                require(
+                    count.is_none_or(|n| n > 0),
+                    "replacement boot attempts exhausted; owner review required",
+                )?;
+                let item = &self.release["artifacts"]["uki"];
+                if hash_file(path, None)? != text(field(item, "sha256")?)? {
+                    // Only the transaction-owned replacement ESP is repaired;
+                    // preserve the existing entry name and remaining boot count.
+                    atomic_write(
+                        path,
+                        &fs::read(
+                            self.backend
+                                .cache
+                                .join(version)
+                                .join(text(field(item, "file")?)?),
+                        )?,
+                        0o600,
+                    )?;
+                }
+            }
+            Ok(())
+        })?;
+        self.backend.expose_boot(self.role, self.release)
+    }
+    fn restore_loaders(&self) -> Result<()> {
+        crate::bootloaders::Loaders::new(self.backend).restore(self.role)
+    }
+    fn set_default(&self) -> Result<()> {
+        self.backend.with_esp(self.role, |esp| {
+            self.backend
+                .default(esp, Some(text(field(self.release, "version")?)?))
+        })
+    }
+    fn verify_boot(&self) -> Result<()> {
+        require(
+            self.backend.verify_disk(self.role, self.release, true)?,
+            "replacement boot artifacts failed readback",
+        )?;
+        self.backend.with_esp(self.role, |esp| {
+            self.backend
+                .verify_default(esp, text(field(self.release, "version")?)?)
+        })
+    }
+    fn ensure_firmware_entry(&self) -> Result<()> {
+        crate::bootloaders::Loaders::new(self.backend).ensure_fixed_entry(self.role)
+    }
+}
+pub fn replacement_version(record: &Value, device: &Value) -> Result<String> {
+    require(
+        matches!(text(field(record, "role")?)?, "a" | "b"),
+        "invalid replacement role",
+    )?;
+    let proposed = field(record, "device")?;
+    for name in ["role", "path", "serial", "disk_uuid", "partitions"] {
+        require(
+            field(proposed, name)? == field(device, name)?,
+            "replacement identity differs from its journal",
+        )?;
+    }
+    let partitions = list(field(proposed, "partitions")?)?;
+    let system = partitions
+        .iter()
+        .filter(|p| p["role"] == "a_usr")
+        .collect::<Vec<_>>();
+    require(system.len() == 1, "replacement journal lacks one OS slot")?;
+    let version = text(field(system[0], "label")?)?
+        .strip_prefix("PVE_")
+        .ok_or_else(|| Error::new("replacement journal has no release identity"))?;
+    crate::config::version_key(version)?;
+    Ok(version.into())
 }
 pub fn finalize_replacement(backend: &mut Linux) -> Result<Value> {
     let record = read_json(backend.directory.join("replacement.json"))?;
@@ -1071,7 +1178,38 @@ pub fn finalize_replacement(backend: &mut Linux) -> Result<Value> {
             .contains("finished"),
         "Btrfs replacement has not completed",
     )?;
+    let checked = common::command(
+        &["btrfs", "device", "stats", "--check", "/"].map(str::to_owned),
+        None,
+        Some(Duration::from_secs(120)),
+        8 * 1024 * 1024,
+        false,
+    )?;
+    require(checked.code == 0, "replacement has device errors")?;
     let role = text(field(&record, "role")?)?;
+    let device = backend.disk(role)?;
+    let version = replacement_version(&record, &device)?;
+    require(
+        backend.current_esp_role()? != role,
+        "boot the admitted survivor before repairing replacement boot artifacts",
+    )?;
+    backend.check_usr_boot_disk()?;
+    let release = crate::release::verify_directory(
+        &backend.cache.join(&version),
+        &backend.keyring,
+        &backend.certificate,
+        true,
+    )?;
+    require(
+        release["version"] == version && digest(&release)? == record["release_sha256"],
+        "replacement release differs from its transaction",
+    )?;
+    complete_replacement_boot(&NativeReplacementBoot {
+        backend,
+        role,
+        release: &release,
+        device: &device,
+    })?;
     let uuid = block_uuid(
         &format!("/dev/mapper/particleve-state-{role}"),
         Some("UUID_SUB"),
@@ -1088,16 +1226,9 @@ pub fn finalize_replacement(backend: &mut Linux) -> Result<Value> {
         backend.directory.join("installation.json"),
         &backend.manifest,
     )?;
-    let checked = common::command(
-        &["btrfs", "device", "stats", "--check", "/"].map(str::to_owned),
-        None,
-        Some(Duration::from_secs(120)),
-        8 * 1024 * 1024,
-        false,
-    )?;
-    require(checked.code == 0, "replacement has device errors")?;
     crate::admission::readmit(&backend.manifest, role)?;
     fs::remove_file(backend.directory.join("replacement.json"))?;
+    fs::File::open(&backend.directory)?.sync_all()?;
     let restoration = backend.restore_vms()?;
     Ok(
         json!({"action":"replacement-finalized","vm_restoration":restoration,"next":"validate both boot paths and recommission"}),
@@ -1107,6 +1238,92 @@ pub fn finalize_replacement(backend: &mut Linux) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::{Cell, RefCell};
+    #[derive(Default)]
+    struct BootFixture {
+        os: Cell<bool>,
+        fail: Cell<Option<&'static str>>,
+        calls: RefCell<Vec<&'static str>>,
+    }
+    impl BootFixture {
+        fn step(&self, name: &'static str) -> Result<()> {
+            self.calls.borrow_mut().push(name);
+            require(self.fail.get() != Some(name), format!("interrupted {name}"))
+        }
+    }
+    impl ReplacementBoot for BootFixture {
+        fn verify_os(&self) -> Result<bool> {
+            self.step("verify-os")?;
+            Ok(self.os.get())
+        }
+        fn copy_os(&self) -> Result<()> {
+            self.step("copy-os")?;
+            self.os.set(true);
+            Ok(())
+        }
+        fn expose_uki(&self) -> Result<()> {
+            self.step("uki")
+        }
+        fn restore_loaders(&self) -> Result<()> {
+            self.step("loaders")
+        }
+        fn set_default(&self) -> Result<()> {
+            self.step("default")
+        }
+        fn verify_boot(&self) -> Result<()> {
+            self.step("verify-boot")
+        }
+        fn ensure_firmware_entry(&self) -> Result<()> {
+            self.step("firmware")
+        }
+    }
+    #[test]
+    fn replacement_boot_repairs_resume_after_data_copy_without_skipping_boot_readback() {
+        for boundary in ["uki", "loaders", "default", "verify-boot", "firmware"] {
+            let fixture = BootFixture::default();
+            fixture.os.set(true);
+            fixture.fail.set(Some(boundary));
+            assert!(complete_replacement_boot(&fixture).is_err(), "{boundary}");
+            assert_eq!(fixture.calls.borrow().last(), Some(&boundary));
+            fixture.fail.set(None);
+            fixture.calls.borrow_mut().clear();
+            complete_replacement_boot(&fixture).expect("resume missing boot work");
+            assert_eq!(
+                *fixture.calls.borrow(),
+                [
+                    "verify-os",
+                    "uki",
+                    "loaders",
+                    "default",
+                    "verify-boot",
+                    "firmware"
+                ]
+            );
+        }
+        let fixture = BootFixture::default();
+        complete_replacement_boot(&fixture).expect("repair OS too");
+        assert_eq!(
+            &fixture.calls.borrow()[..3],
+            ["verify-os", "copy-os", "verify-os"]
+        );
+    }
+    #[test]
+    fn replacement_version_and_device_remain_bound_to_the_existing_journal() {
+        let device = json!({"role":"b","path":"/dev/disk/by-id/new","serial":"NEW","disk_uuid":Uuid::new_v4().to_string(),"partitions":[{"role":"a_usr","label":"PVE_45.0.3.4-1.4"}]});
+        let record = json!({"role":"b","device":device});
+        assert_eq!(
+            replacement_version(&record, &device).unwrap(),
+            "45.0.3.4-1.4"
+        );
+        for field in ["role", "path", "serial", "disk_uuid", "partitions"] {
+            let mut other = device.clone();
+            other[field] = Value::Null;
+            assert!(replacement_version(&record, &other).is_err(), "{field}");
+        }
+        let mut malformed = record;
+        malformed["device"]["partitions"][0]["label"] = json!("PVE_../../latest");
+        assert!(replacement_version(&malformed, &malformed["device"]).is_err());
+    }
     #[test]
     fn tpm_policy_requires_signed_pcr11_and_preserves_owner_slots() {
         let token = json!({"type":"systemd-tpm2","tpm2-pcrs":[7],"tpm2-pcr-bank":"sha256","tpm2_pubkey_pcrs":[11],"tpm2_pubkey":"expected-public-key","keyslots":["1"]});

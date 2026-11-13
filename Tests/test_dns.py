@@ -52,22 +52,76 @@ def observation(config):
             "servers": servers(policy["public"]),
             "resolvConfMode": "stub",
             "searchDomains": [{"name": ".", "routeOnly": True}],
-            "negativeTrustAnchors": sorted(BUILTIN_NTA),
+            "negativeTrustAnchors": sorted(BUILTIN_NTA | set(policy["private"][0]["negative_trust_anchors"])),
         },
         {
             **strict,
             "ifname": "mgmt0",
+            "ifindex": 2,
             "defaultRoute": False,
             "servers": servers(policy["private"][0]["servers"]),
             "searchDomains": [{"name": "corp.example.org", "routeOnly": True}],
             "negativeTrustAnchors": ["unsigned.corp.example.org"],
-            "scopes": [{"protocol": "dns"}],
+            "scopes": [{"protocol": "dns", "dnsOverTLS": "yes", "dnssec": "yes"}],
         },
         {"ifname": "ns-guest", "defaultRoute": False, "scopes": []},
+        {
+            "delegate": "50-particleve-private",
+            "defaultRoute": False,
+            "servers": [dict(row, ifindex=2) for row in servers(policy["private"][0]["servers"])],
+            "searchDomains": [{"name": "corp.example.org", "routeOnly": True}],
+            "scopes": [{"protocol": "dns", "dnsOverTLS": "yes", "dnssec": "yes"}],
+        },
     ]
 
 
 class DNSPolicyTests(RustDriverTests):
+    def test_declared_but_unaddressed_private_interface_is_rejected(self):
+        config = configured()
+        config["network"]["links"].append({"name": "priv0", "mac": "52:54:00:23:00:02"})
+        config["network"]["dns"]["private"][0]["link"] = "priv0"
+        self.assertIn("error", self.request("config-validate", config=config))
+
+    def test_private_delegation_survives_link_scope_loss_and_requires_management_binding(self):
+        config = configured()
+        files = self.evaluate("dns-runtime-files", network=config["network"], ifindex=2)
+        delegate = files["delegates/50-particleve-private.dns-delegate"]
+        self.assertIn("DNS=192.0.2.53%2#dns.example.org\n", delegate)
+        self.assertIn("Domains=~corp.example.org\nDefaultRoute=no\n", delegate)
+        anchors = set(files["anchors/50-particleve.negative"].splitlines())
+        self.assertEqual(anchors, BUILTIN_NTA | {"unsigned.corp.example.org"})
+        self.assertIn("DNSOverTLS=yes\nDNSSEC=yes\n", files["resolved.conf.d/90-particleve.conf"])
+        self.assertIn("error", self.request("dns-runtime-files", network=config["network"]))
+        for mutation in (
+            "lost_link_scope",
+            "lost_delegate",
+            "lost_delegate_scope",
+            "wrong_delegate_interface",
+            "insecure_delegate_scope",
+        ):
+            rows = observation(config)
+            if mutation == "lost_link_scope":
+                rows[1]["scopes"] = []
+            elif mutation == "lost_delegate":
+                rows.pop()
+            elif mutation == "lost_delegate_scope":
+                rows[-1]["scopes"] = []
+            elif mutation == "wrong_delegate_interface":
+                rows[-1]["servers"][0]["ifindex"] = 3
+            else:
+                rows[-1]["scopes"][0]["dnsOverTLS"] = "no"
+            with self.subTest(mutation=mutation):
+                self.assertIn(
+                    "error",
+                    self.request(
+                        "dns-assess",
+                        policy=config["network"]["dns"],
+                        observed=rows,
+                        links=["mgmt0"],
+                        management="mgmt0",
+                    ),
+                )
+
     def test_private_routes_require_strict_tls_dnssec_and_scoped_exceptions(self):
         config = configured()
         self.evaluate("config-validate", config=config)
@@ -131,9 +185,13 @@ class DNSPolicyTests(RustDriverTests):
         config = configured()
         expected = observation(config)
         self.assertTrue(
-            self.evaluate("dns-assess", policy=config["network"]["dns"], observed=expected, links=["mgmt0"])[
-                "strict_tls"
-            ]
+            self.evaluate(
+                "dns-assess",
+                policy=config["network"]["dns"],
+                observed=expected,
+                links=["mgmt0"],
+                management="mgmt0",
+            )["strict_tls"]
         )
         for mutation in (
             "tls",
@@ -190,7 +248,11 @@ class DNSPolicyTests(RustDriverTests):
                 self.assertIn(
                     "error",
                     self.request(
-                        "dns-assess", policy=config["network"]["dns"], observed=rows, links=["mgmt0"]
+                        "dns-assess",
+                        policy=config["network"]["dns"],
+                        observed=rows,
+                        links=["mgmt0"],
+                        management="mgmt0",
                     ),
                 )
 

@@ -372,12 +372,15 @@ pub fn verify_uki_sections(sections: &Value, manifest: &Value) -> Result<()> {
         "kvm_intel.nested=0".into(),
         "kvm_amd.nested=0".into(),
         "rfkill.default_state=0".into(),
+        "module.sig_enforce=1".into(),
+        "sysctl.kernel.unprivileged_bpf_disabled=1".into(),
+        "sysctl.net.core.bpf_jit_harden=2".into(),
     ] {
-        let key = expected.split('=').next().unwrap_or("");
+        let key = crate::security::kernel_parameter_key(&expected);
         require(
             words
                 .iter()
-                .filter(|v| v.split('=').next() == Some(key))
+                .filter(|v| crate::security::kernel_parameter_key(v) == key)
                 .copied()
                 .collect::<Vec<_>>()
                 == [expected.as_str()],
@@ -794,7 +797,7 @@ mod tests {
     fn sections() -> (Value, Value) {
         let manifest = json!({"version":"45.0.1.2-1.1","usr_root_hash":"ab".repeat(32)});
         let cmdline = format!(
-            "usrhash={} audit=1 enforcing=1 zswap.enabled=1 systemd.ssh_auto=no kvm_intel.nested=0 kvm_amd.nested=0 rfkill.default_state=0 console=tty0",
+            "usrhash={} audit=1 enforcing=1 zswap.enabled=1 systemd.ssh_auto=no kvm_intel.nested=0 kvm_amd.nested=0 rfkill.default_state=0 module.sig_enforce=1 sysctl.kernel.unprivileged_bpf_disabled=1 sysctl.net.core.bpf_jit_harden=2 console=tty0",
             manifest["usr_root_hash"].as_str().expect("hash")
         );
         let mut expected = vec![json!({"ID":"main"})];
@@ -817,6 +820,10 @@ mod tests {
             "missing-profile",
             "missing-signature",
             "weaker-kernel",
+            "module-enforcement-override",
+            "missing-module-enforcement",
+            "module-enforcement-alias",
+            "jit-hardening-alias",
             "wrong-console",
             "override",
             "reordered",
@@ -841,6 +848,23 @@ mod tests {
                         .to_owned()
                         + " enforcing=0";
                     changed["_profiles"][20][".cmdline"]["text"] = text.into();
+                }
+                "module-enforcement-override" | "missing-module-enforcement" => {
+                    let text = changed[".cmdline"]["text"].as_str().expect("cmdline");
+                    changed[".cmdline"]["text"] = if kind == "module-enforcement-override" {
+                        json!(format!("{text} module.sig_enforce=0"))
+                    } else {
+                        json!(text.replace("module.sig_enforce=1", ""))
+                    };
+                }
+                "module-enforcement-alias" | "jit-hardening-alias" => {
+                    let alias = if kind == "module-enforcement-alias" {
+                        "module.sig-enforce=0"
+                    } else {
+                        "sysctl.net/core/bpf_jit_harden=0"
+                    };
+                    let text = changed[".cmdline"]["text"].as_str().expect("cmdline");
+                    changed[".cmdline"]["text"] = json!(format!("{text} {alias}"));
                 }
                 "wrong-console" => {
                     changed["_profiles"][20][".cmdline"]["text"] = "console=ttyS0".into();

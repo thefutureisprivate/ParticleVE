@@ -159,6 +159,14 @@ The kernel policy retains `KPROBES` and `KPROBE_EVENTS` for
 that privileged interface; image and runtime checks reject kernels without it.
 Unprivileged BPF and perf restrictions remain part of the shared runtime policy.
 
+The signed command line selects module-signature enforcement and the kernel's
+pre-init `sysctl.*` mechanism for the BPF creation lock and JIT hardening.
+The shared initrd/host sysctl asset reapplies those BPF values. Build, release and
+runtime checks reject missing or conflicting command-line settings, including
+equivalent module/sysctl spellings that could otherwise override a value.
+Module-signature force mode need not be compiled in: the signed boot parameter
+and observed enabled enforcement are mandatory.
+
 The supported kernel uses the pinned Fedora packaging and reviewed secureblue
 baseline described above. Reviewed source updates flow through OBS package and
 dependency rebuilds and the ordinary signed-image publication path.

@@ -9,6 +9,11 @@ from .versioning import VERSION
 VERITY_SIGNATURE_SIZE = 1024 * 1024
 
 
+def kernel_parameter_key(word):
+    """Detect equivalent module/sysctl spellings when rejecting overrides."""
+    return word.split("=", 1)[0].replace("/", ".").replace("-", "_")
+
+
 def version_key(value):
     match = VERSION.fullmatch(value)
     require(

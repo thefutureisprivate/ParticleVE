@@ -10,10 +10,62 @@ from pathlib import Path
 from unittest.mock import patch
 
 from particleve.common import Error, read_json
-from Tools.publication import PACKAGES, HTTPSRedirects, assess, collect, read_source, request, source_revision
+from Tools.publication import (
+    PACKAGES,
+    HTTPSRedirects,
+    assess,
+    collect,
+    read_source,
+    request,
+    source_revision,
+    source_workflow,
+)
 
 
 class PublicationTests(unittest.TestCase):
+    def test_source_selection_failure_is_visible_before_the_build_ref_moves(self):
+        now = datetime(2026, 11, 13, tzinfo=UTC)
+        args = (
+            "a" * 40,
+            dict.fromkeys(PACKAGES, "a" * 40),
+            dict.fromkeys(PACKAGES, "succeeded"),
+            {"sources": {"particleve": "a" * 40}, "version": "45.0.3.4-1.4"},
+        )
+        selection = {"revision": "b" * 40, "system_changes": 1, "workflow": "fail"}
+        self.assertEqual(assess(*args, now=now, grace_seconds=7200, selection=selection)["result"], "fail")
+        selection["workflow"] = "pending"
+        pending = assess(*args, now=now, grace_seconds=7200, selection=selection)
+        self.assertEqual(pending["result"], "pending")
+        expired = assess(
+            *args,
+            now=now + timedelta(seconds=7201),
+            grace_seconds=7200,
+            selection=selection,
+            previous=pending,
+        )
+        self.assertEqual(expired["result"], "fail")
+        selection.update(system_changes=0, workflow="fail")
+        self.assertEqual(assess(*args, now=now, grace_seconds=7200, selection=selection)["result"], "pass")
+
+    def test_source_workflow_observation_is_bound_to_the_exact_push(self):
+        run = {
+            "head_sha": "a" * 40,
+            "head_branch": "main",
+            "event": "push",
+            "path": ".github/workflows/check.yml",
+            "status": "completed",
+            "conclusion": "failure",
+        }
+        self.assertEqual(source_workflow({"total_count": 1, "workflow_runs": [run]}, "a" * 40), "fail")
+        self.assertEqual(source_workflow({"total_count": 0, "workflow_runs": []}, "a" * 40), "pending")
+        for key, value in (
+            ("head_sha", "b" * 40),
+            ("path", ".github/workflows/another.yml"),
+            ("event", "pull_request"),
+        ):
+            with self.subTest(key=key), self.assertRaises(Error):
+                source_workflow({"total_count": 1, "workflow_runs": [run | {key: value}]}, "a" * 40)
+
     def test_one_source_package_can_publish_rpms_and_the_image_independently(self):
         site = read_json(Path(__file__).resolve().parent.parent / ".obs/site.json")
         owner = '<person userid="' + site["obs_user"] + '" role="maintainer"/>'

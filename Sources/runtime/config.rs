@@ -343,7 +343,7 @@ pub fn validate(config: Value, publication: bool) -> Result<Value> {
     }
     crate::dns::validate(
         field(network, "dns")?,
-        &names.iter().cloned().collect::<Vec<_>>(),
+        &[text(field(network, "management")?)?.to_owned()],
     )?;
     require(
         network.get("ntp").is_none(),

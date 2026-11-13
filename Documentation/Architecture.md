@@ -280,6 +280,15 @@ LLMNR and mDNS are disabled; failed private resolution does not authorize
 plaintext transport or a public fallback. DNS transport authentication and
 DNSSEC validation are separate controls.
 
+Private DNS belongs to the statically addressed management interface. Before
+resolved starts, an image-owned helper stages native DNS delegates bound to its
+interface index, private suffixes and approved DNSSEC exceptions. These scopes
+persist independently of link addresses and carrier, so losing a private link
+cannot expose its names to the global public route. Resolved receives read-only
+configuration views with native systemd configuration labels; the helper retains
+ownership of the volatile files. Effective-policy checks require both the
+healthy management-link scope and its independent delegate.
+
 SSH forwarding, tunnelling, X11, and agent forwarding are disabled. The signed
 command line disables generated automatic SSH listeners. An authorized shell
 can still run a network client; these restrictions remove unnecessary SSH
@@ -314,8 +323,12 @@ and the complete pending release are checked before touching guests. Starts
 and restarts are temporarily inhibited, the actual VM/unit/process set is
 reconciled, and ACPI poweroff is requested. Only confirmed exits permit reboot.
 
-Failure cancels activation and restores only VMs stopped by that attempt,
-including late exits. Previously stopped guests remain stopped. After a
+Failure before the reboot request cancels activation and restores only VMs
+stopped by that attempt, including late exits. Both coordinator and VM intent
+are durable before enqueue. Once a request may have reached systemd, failed IPC
+or observation retains boot selection and stopped-VM intent for owner recovery;
+it cannot authorize rollback under a possibly queued reboot. Previously stopped
+guests remain stopped. After a
 successful reboot, external startup policy applies. If time or DNS cannot
 bootstrap because the RTC is outside certificate validity, independent console
 or numeric management access supports owner-verified clock recovery; the host

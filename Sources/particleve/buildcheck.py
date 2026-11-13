@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 from .common import hash_file, read_json, require, run, write_json
-from .config import version_key
+from .config import kernel_parameter_key, version_key
 from .consoles import uki_profiles
 from .contracts import PERSISTENT_STATE
 from .kernels import verify_kernel, verify_kernel_packages
@@ -170,6 +170,7 @@ def summary_check(summary):
         )
     require(main["Profiles"] == ["particleve"], "build only the ParticleVE profile")
     require("chrony" in main["Packages"], "the authenticated clock owner is missing")
+    require("node-exporter" in main["Packages"], "the management metrics exporter is missing")
     require(not (FORBIDDEN & set(main["Packages"])), "inherited desktop/build/zram package")
     require(
         not main["Credentials"] and main["UnifiedKernelImageProfiles"] == uki_profiles(),
@@ -195,6 +196,16 @@ def summary_check(summary):
     )
     require("systemd.ssh_auto=no" in cmdline, "automatic SSH socket generation must be disabled")
     require("rfkill.default_state=0" in cmdline, "early radio defaults must be blocked")
+    for expected in (
+        "module.sig_enforce=1",
+        "sysctl.kernel.unprivileged_bpf_disabled=1",
+        "sysctl.net.core.bpf_jit_harden=2",
+    ):
+        key = kernel_parameter_key(expected)
+        require(
+            [word for word in cmdline if kernel_parameter_key(word) == key] == [expected],
+            "signed early kernel policy differs: " + key,
+        )
     require(
         main["MicrocodeHost"] is False
         and main["KernelModulesIncludeHost"] is False
@@ -319,6 +330,8 @@ def root_check(root, *, tree="usr", output=None, source_dir=None):
             "usr/bin/chronyc",
             "usr/sbin/chronyd",
             "usr/lib/systemd/system/chronyd-restricted.service",
+            "usr/bin/prometheus-node-exporter",
+            "usr/lib/systemd/system/prometheus-node-exporter.service",
             "usr/bin/busctl",
             "usr/libexec/particleve-health-sender",
             "usr/libexec/particleve-radio-policy",
@@ -352,9 +365,19 @@ def root_check(root, *, tree="usr", output=None, source_dir=None):
         check_layout(root)
         check_resolver_defaults(root)
         check_radio_rules(root)
+        require(
+            "/run/particleve-dns-policy(/.*)? system_u:object_r:systemd_conf_t:s0"
+            in (root / "usr/share/factory/etc/selinux/targeted/contexts/files/file_contexts.local")
+            .read_text()
+            .splitlines(),
+            "DNS policy views lack the native systemd configuration label",
+        )
         for name in (
             "systemd/system/chronyd-restricted.service.d/50-particleve.conf",
+            "systemd/system/prometheus-node-exporter.service.d/50-particleve.conf",
             "systemd/system/particleve-ca-trust.service",
+            "systemd/system/particleve-dns-policy.service",
+            "systemd/system/systemd-resolved.service.d/70-private-dns.conf",
             "systemd/system/systemd-resolved.service.d/60-system-trust.conf",
             "systemd/system/fwupd.service.d/60-system-trust.conf",
             "systemd/ntp-units.d/50-chronyd.list",
@@ -484,6 +507,7 @@ def root_check(root, *, tree="usr", output=None, source_dir=None):
                 *units,
                 "systemd-vmspawn@particleve-verify.service",
                 "sshd.socket",
+                "prometheus-node-exporter.service",
                 "multi-user.target",
             ],
             timeout=120,

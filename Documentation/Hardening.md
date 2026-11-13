@@ -192,6 +192,16 @@ required. General login/service domains cannot create user namespaces, PF_KEY,
 or XFRM interfaces; AF_ALG remains available only in demonstrated administrative
 and native-service cryptsetup contexts. QEMU and swtpm retain their own domains.
 
+Node_exporter retains Fedora's unprivileged service account with no capabilities,
+read-only host access and no textfile input. Its timex collector may read
+`adjtimex`; the empty capability set prevents clock writes. Disallowed syscalls
+return `EPERM`, allowing library feature probes to handle denied operations.
+Its HTTP listener depends on the active management firewall. IPv4 and IPv6
+scrapes require an approved source, the management ingress interface and a
+configured management destination; loopback and established flows do not bypass
+that boundary. See the
+[scrape configuration](Operations.md#prometheus-host-metrics).
+
 Effective SELinux checks include domain-permissive flags and detect policy
 reloads during observation. An image policy hash cannot substitute for effective
 permission decisions. Local storage requires `virt_use_nfs`, `virt_use_samba`,
@@ -261,8 +271,12 @@ certificate-time validation or adopting unauthenticated NTP. Authenticated time
 does not eliminate packet-delay or denial-of-service attacks.
 
 Resolved requires strict DNS-over-TLS with explicit certificate identities and
-DNSSEC policy. Private domains and negative anchors are scoped to their selected
-links; local discovery is disabled. Transport authentication and DNSSEC are
+DNSSEC policy. Private domains and negative anchors are confined to the
+management interface's selected private suffixes. Native delegate scopes retain
+those routes during address or carrier loss, before a public fallback can be
+considered. Resolved receives read-only volatile policy views labeled as systemd
+configuration; its SELinux permissions remain confined. Local discovery is
+disabled. Transport authentication and DNSSEC are
 verified separately. Resolver/time bootstrap, wrong identities, expired
 certificates, source disagreement, private-route leakage, and plaintext/public
 fallback belong to native acceptance. See
@@ -363,7 +377,8 @@ selected kernel.
 
 | Interface | Observed 63.1 baseline → selected policy | Purpose, owner and compatibility evidence |
 | --- | --- | --- |
-| `kernel.unprivileged_bpf_disabled` | `2` → assert `2` | Fedora default; preserve privileged systemd BPF. An inert privileged socket-filter program loaded and closed without any attachment; VM device-policy setup and launch passed. |
+| `kernel.unprivileged_bpf_disabled` | `2` → `1` | Lock unprivileged BPF creation off for the rest of the boot, preserving trusted systemd BPF and classic seccomp. Reapplying `1` succeeds; attempts to write `0` or `2` are rejected. |
+| `net.core.bpf_jit_harden` | Not recorded in the 63.1 comparison → `2` | Blind JIT constants for privileged programs too. This trades BPF execution cost for JIT-spray resistance and disables JIT symbol export. Use paired fresh-program measurements and representative VM workloads to assess the cost. |
 | `kernel.perf_event_paranoid` | `2` → assert `2` | Fedora default excludes unprivileged kernel/system-wide profiling. Own-process software perf events remained available at both `2` and `3`; no claim that `3` globally disables perf. |
 | `vm.unprivileged_userfaultfd` | `0` → assert `0` | Fedora default restricts kernel-fault handling. Zero-capability probes denied ordinary userfaultfd but allowed `UFFD_USER_MODE_ONLY`; this is deliberately not a ban on that API. |
 | `kernel.yama.ptrace_scope` | `1` → `2` | ParticleVE sysctl policy requires `CAP_SYS_PTRACE` for attach/traceme. A disposable zero-capability parent/child was denied; privileged tracing, homed SSH/run0, namespace setup and VM restarts passed. |
@@ -384,6 +399,22 @@ user-namespace, or io_uring ban is inferred from the table. The
 [memfd interface](https://docs.kernel.org/userspace-api/mfd_noexec.html) distinguishes
 non-executable defaults from denying explicit executable requests. Larger numeric
 settings are not accepted as unreviewed compatibility changes.
+
+The signed UKI includes `sysctl.kernel.unprivileged_bpf_disabled=1` and
+`sysctl.net.core.bpf_jit_harden=2`. The selected kernel applies these before
+starting PID 1, so the first userspace-loaded BPF programs receive the policy.
+The shared initrd/host sysctl asset reapplies the same values. Changing JIT
+hardening later affects newly compiled programs, rather than rewriting existing
+ones. Performance comparisons must compile fresh programs under each setting;
+a BPF-only microbenchmark does not establish whole-VM overhead.
+
+`module.sig_enforce=1` is also bound into every signed UKI profile. Runtime
+assessment requires enabled signature enforcement independently of the lockdown
+observation. The Fedora-derived kernel retains its reviewed signing authorities
+and off-host OBS signing path; explicit enforcement introduces no new trusted
+key. Valid signed modules remain available, while unsigned, untrusted and
+modified modules must fail loading, including in the initrd. Firmware recovery
+and temporary diagnostic releases retain this signature requirement.
 
 When the verified kernel configuration enables `KEXEC_CORE`, assessment requires
 `kernel.kexec_load_disabled=1`, which is irreversible for the current boot.

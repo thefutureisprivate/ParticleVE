@@ -13,6 +13,14 @@ use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
+fn reboot_outcome(attempt: impl FnOnce() -> Result<bool>) -> crate::coordinator::RebootOutcome {
+    use crate::coordinator::RebootOutcome;
+    match attempt() {
+        Ok(true) => RebootOutcome::Accepted,
+        Ok(false) => RebootOutcome::Uncertain("no queued reboot could be confirmed".into()),
+        Err(error) => RebootOutcome::Uncertain(error.to_string()),
+    }
+}
 fn firmware_pending(v: &Value) -> Result<bool> {
     match v {
         Value::Object(map) => {
@@ -746,6 +754,28 @@ impl Linux {
             )
         })
     }
+    fn default_entry(&self, version: Option<&str>) -> Result<String> {
+        let suffix =
+            crate::consoles::profile(&self.config)?.map_or(String::new(), |p| format!("@{p}"));
+        Ok(format!(
+            "ParticleVE_{}_x86-64*.efi{suffix}",
+            version.unwrap_or("*")
+        ))
+    }
+    pub fn verify_default(&self, esp: &Path, version: &str) -> Result<()> {
+        let data = crate::common::read_bounded(esp.join("loader/loader.conf"), 65536)?;
+        let content =
+            std::str::from_utf8(&data).map_err(|_| Error::new("invalid loader configuration"))?;
+        let defaults = content
+            .lines()
+            .map(|line| line.split_whitespace().collect::<Vec<_>>())
+            .filter(|fields| fields.first() == Some(&"default"))
+            .collect::<Vec<_>>();
+        require(
+            defaults == [vec!["default", self.default_entry(Some(version))?.as_str()]],
+            "loader default differs from the transaction release",
+        )
+    }
     pub fn default(&self, esp: &Path, version: Option<&str>) -> Result<()> {
         let path = esp.join("loader/loader.conf");
         let old = if path.exists() {
@@ -759,12 +789,7 @@ impl Linux {
             .filter(|line| !re.is_match(line))
             .map(String::from)
             .collect::<Vec<_>>();
-        let suffix =
-            crate::consoles::profile(&self.config)?.map_or(String::new(), |p| format!("@{p}"));
-        lines.push(format!(
-            "default ParticleVE_{}_x86-64*.efi{suffix}",
-            version.unwrap_or("*")
-        ));
+        lines.push(format!("default {}", self.default_entry(version)?));
         atomic_write(path, (lines.join("\n") + "\n").as_bytes(), 0o600)
     }
     pub fn pin_current(&self, current: &str) -> Result<()> {
@@ -851,7 +876,7 @@ impl Linux {
         }
         Ok(())
     }
-    pub fn conditional_reboot(&self, version: &str) -> Result<bool> {
+    pub fn conditional_reboot(&self, version: &str) -> Result<crate::coordinator::RebootOutcome> {
         let disk = self.disk(&self.current_esp_role()?)?;
         let release = self.local_release(version)?;
         let temporary = tempfile::Builder::new()
@@ -878,11 +903,16 @@ impl Linux {
         .code
             != 0
         {
-            return Ok(false);
+            return Ok(crate::coordinator::RebootOutcome::NotAccepted);
         }
         let loaders = Loaders::new(self);
-        let result = (|| {
-            loaders.queue(&release)?;
+        if let Err(error) = loaders.queue(&release) {
+            loaders.cancel()?;
+            return Err(error);
+        }
+        // Starting the command crosses an uncertain boundary even if it later
+        // times out or loses its IPC reply. Never cancel its loader trial here.
+        Ok(reboot_outcome(|| {
             run(&["/usr/lib/systemd/systemd-sysupdate", &definitions, "reboot"])?;
             let jobs = invoke(
                 vec![
@@ -901,29 +931,12 @@ impl Linux {
                 false,
             )?
             .stdout;
-            let queued = jobs.contains("reboot.target") || state.trim() == "stopping";
-            if !queued {
-                loaders.cancel()?;
-            }
-            Ok(queued)
-        })();
-        if result.is_err() {
-            loaders.cancel()?;
-        }
-        result
+            Ok(jobs.contains("reboot.target") || state.trim() == "stopping")
+        }))
     }
     pub fn reject(&self, version: &str, current: &str) -> Result<()> {
         Loaders::new(self).cancel()?;
-        for role in ["a", "b"] {
-            let _ = self.with_esp(role, |esp| {
-                self.default(esp, Some(current))?;
-                for (path, _) in Self::boot_entries(esp, version)? {
-                    fs::rename(&path, path.with_extension("rejected"))?;
-                }
-                Ok(())
-            });
-        }
-        Ok(())
+        crate::quarantine::reject(self, version, current)
     }
     pub fn health(&self) -> Result<()> {
         self.health_with_kcore(Path::new("/proc/kcore"))
@@ -1118,6 +1131,9 @@ pub fn timestamp() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, false)
 }
 impl crate::coordinator::Backend for Linux {
+    fn retry_quarantine(&self) -> Result<()> {
+        crate::quarantine::retry(self)
+    }
     fn config(&self) -> &Value {
         &self.config
     }
@@ -1187,7 +1203,7 @@ impl crate::coordinator::Backend for Linux {
     fn select(&self, version: &str) -> Result<()> {
         self.select(version)
     }
-    fn conditional_reboot(&self, version: &str) -> Result<bool> {
+    fn conditional_reboot(&self, version: &str) -> Result<crate::coordinator::RebootOutcome> {
         self.conditional_reboot(version)
     }
     fn reject(&self, version: &str, current: &str) -> Result<()> {
@@ -1214,6 +1230,27 @@ impl crate::coordinator::Backend for Linux {
 mod mount_tests {
     use super::*;
     use std::cell::Cell;
+    #[test]
+    fn post_enqueue_failures_and_missing_observation_never_report_refusal() {
+        let queued = Cell::new(false);
+        let outcome = reboot_outcome(|| {
+            queued.set(true);
+            Err(Error::new("systemctl observation lost during shutdown"))
+        });
+        assert!(queued.get());
+        assert!(matches!(
+            outcome,
+            crate::coordinator::RebootOutcome::Uncertain(_)
+        ));
+        assert!(matches!(
+            reboot_outcome(|| Ok(false)),
+            crate::coordinator::RebootOutcome::Uncertain(_)
+        ));
+        assert!(matches!(
+            reboot_outcome(|| Ok(true)),
+            crate::coordinator::RebootOutcome::Accepted
+        ));
+    }
     #[test]
     fn firmware_history_is_recursive_and_only_known_clear_states_allow_os_work() {
         for state in 0..6 {

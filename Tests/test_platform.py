@@ -103,6 +103,33 @@ class PlatformTests(RustDriverTests):
         candidate["network"]["vlans"] = [{"name": "v10", "id": 10, "parent": "br0", "bridge": "br0"}]
         self.assertIn("error", self.request("config-validate", config=candidate))
 
+    def test_metrics_require_management_ingress_destination_and_source_for_each_family(self):
+        candidate = host()
+        candidate["network"].update(
+            bridges=[{"name": "br-mgmt"}],
+            management="br-mgmt",
+            addresses=["192.0.2.10/24", "2001:db8:1::10/64"],
+            allowed_sources=["192.0.2.128/25", "2001:db8:2::/64"],
+        )
+        candidate["network"]["links"][0]["bridge"] = "br-mgmt"
+        candidate = self.evaluate("config-validate", config=candidate)
+        firewall = self.evaluate("network-firewall", config=candidate)
+        # Neither loopback nor conntrack may bypass the metrics-only chain.
+        guard = firewall.index("tcp dport 9100 jump metrics")
+        self.assertLess(guard, firewall.index('iifname "lo" accept'))
+        self.assertLess(guard, firewall.index("ct state established,related accept"))
+        metrics = firewall.split("  chain metrics {\n", 1)[1]
+        self.assertEqual(
+            metrics,
+            '    iifname "br-mgmt" ip daddr 192.0.2.10 ip saddr 192.0.2.128/25 accept\n'
+            '    iifname "br-mgmt" ip6 daddr 2001:db8:1::10 ip6 saddr 2001:db8:2::/64 accept\n'
+            "    drop\n  }\n}\n",
+        )
+        # A configured address without an approved source of its family stays closed.
+        candidate["network"]["allowed_sources"] = ["192.0.2.128/25"]
+        firewall = self.evaluate("network-firewall", config=candidate)
+        self.assertNotIn("ip6 daddr", firewall)
+
     def test_release_requires_complete_immutable_artifacts(self):
         manifest = fixture_release()
         release.validate(manifest)

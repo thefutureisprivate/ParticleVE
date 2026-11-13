@@ -52,6 +52,9 @@ printf '/etc/(selinux|audit) -l system_u:object_r:etc_t:s0\n' >>/etc/selinux/tar
 # Runtime views remain public certificate data. The NTS-state helper uses the
 # already-selected restricted chrony domain, without a new transition.
 printf '/run/particleve-ca-trust(/.*)? system_u:object_r:cert_t:s0\n/usr/libexec/particleve-nts-trust -- system_u:object_r:chronyd_exec_t:s0\n' >>/etc/selinux/targeted/contexts/files/file_contexts.local
+# Resolved reads these root-owned, immutable-in-its-namespace policy views as
+# ordinary systemd configuration, without access to generic runtime files.
+printf '/run/particleve-dns-policy(/.*)? system_u:object_r:systemd_conf_t:s0\n' >>/etc/selinux/targeted/contexts/files/file_contexts.local
 # Build the narrow EFI-write policy into the image, never the worker's kernel.
 semodule --noreload --install /usr/lib/particleve/particleve_boot.cil
 semodule --noreload --install /usr/lib/particleve/particleve_witness.pp

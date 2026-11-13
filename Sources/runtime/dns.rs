@@ -4,9 +4,15 @@ use crate::config::dns_name;
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
+    ffi::CString,
+    fs,
     net::IpAddr,
-    time::Duration,
+    os::unix::fs::{DirBuilderExt, PermissionsExt},
+    path::Path,
+    time::{Duration, Instant},
 };
+pub const RUNTIME: &str = "/run/particleve-dns-policy";
+pub const PRIVATE_DELEGATE: &str = "50-particleve-private";
 pub fn remote_address(value: &str) -> Result<String> {
     require(
         !value.contains('%'),
@@ -132,6 +138,123 @@ pub fn render(policy: &Value) -> Result<BTreeMap<String, String>> {
             "[Resolve]\nDNS=\nDNS={endpoints}\nFallbackDNS=\nDomains=\nDomains=~.\nDNSOverTLS=yes\nDNSSEC=yes\nLLMNR=no\nMulticastDNS=no\nDNSStubListener=yes\nResolveUnicastSingleLabel=no\n"
         ),
     )]))
+}
+fn negative_anchors(policy: &Value) -> Result<BTreeSet<String>> {
+    let mut anchors = nta();
+    for route in list(field(policy, "private")?)? {
+        anchors.extend(strings(field(route, "negative_trust_anchors")?)?);
+    }
+    Ok(anchors)
+}
+pub fn runtime_files(network: &Value, ifindex: Option<u32>) -> Result<BTreeMap<String, String>> {
+    let policy = field(network, "dns")?;
+    validate(policy, &[text(field(network, "management")?)?.to_owned()])?;
+    let mut files = BTreeMap::from([
+        (
+            "resolved.conf.d/90-particleve.conf".into(),
+            render(policy)?["etc/systemd/resolved.conf.d/50-particleve.conf"].clone(),
+        ),
+        (
+            "anchors/50-particleve.negative".into(),
+            negative_anchors(policy)?
+                .into_iter()
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n",
+        ),
+    ]);
+    if let Some(route) = list(field(policy, "private")?)?.first() {
+        let index = ifindex
+            .filter(|i| *i > 0)
+            .ok_or_else(|| Error::new("private DNS management interface is unavailable"))?;
+        let servers = list(field(route, "servers")?)?
+            .iter()
+            .map(|server| {
+                let value = endpoint(server)?;
+                let (address, name) = value
+                    .split_once('#')
+                    .ok_or_else(|| Error::new("DNS endpoint lacks TLS identity"))?;
+                Ok(format!("{address}%{index}#{name}"))
+            })
+            .collect::<Result<Vec<_>>>()?
+            .join(" ");
+        let domains = list(field(route, "domains")?)?
+            .iter()
+            .map(|v| text(v).map(|s| format!("~{s}")))
+            .collect::<Result<Vec<_>>>()?
+            .join(" ");
+        files.insert(
+            format!("delegates/{PRIVATE_DELEGATE}.dns-delegate"),
+            format!("[Delegate]\nDNS={servers}\nDomains={domains}\nDefaultRoute=no\n"),
+        );
+    }
+    Ok(files)
+}
+fn management_index(name: &str) -> Result<u32> {
+    let name = CString::new(name).map_err(|_| Error::new("invalid management interface"))?;
+    let started = Instant::now();
+    loop {
+        // SAFETY: libc observes this live NUL-terminated name and retains no pointer.
+        let index = unsafe { libc::if_nametoindex(name.as_ptr()) };
+        if index > 0 {
+            return Ok(index);
+        }
+        let error = std::io::Error::last_os_error();
+        require(
+            matches!(
+                error.raw_os_error(),
+                Some(libc::ENODEV | libc::ENXIO | libc::ENOENT)
+            ),
+            format!("cannot inspect management interface: {error}"),
+        )?;
+        require(
+            started.elapsed() < Duration::from_secs(30),
+            "management interface did not appear for private DNS",
+        )?;
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+pub fn write_runtime(network: &Value, root: &Path) -> Result<()> {
+    let index = if list(field(field(network, "dns")?, "private")?)?.is_empty() {
+        None
+    } else {
+        Some(management_index(text(field(network, "management")?)?)?)
+    };
+    let files = runtime_files(network, index)?;
+    require(!root.is_symlink(), "DNS runtime directory is a symlink")?;
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o755)
+        .create(root)?;
+    fs::set_permissions(root, fs::Permissions::from_mode(0o755))?;
+    for name in ["delegates", "anchors", "resolved.conf.d"] {
+        let directory = root.join(name);
+        require(!directory.is_symlink(), "DNS policy directory is a symlink")?;
+        fs::create_dir_all(&directory)?;
+        fs::set_permissions(&directory, fs::Permissions::from_mode(0o755))?;
+        for entry in fs::read_dir(&directory)? {
+            let entry = entry?;
+            let relative = format!("{name}/{}", entry.file_name().to_string_lossy());
+            require(
+                entry.file_type()?.is_file(),
+                "unexpected non-file DNS runtime input",
+            )?;
+            require(
+                matches!(
+                    relative.as_str(),
+                    "anchors/50-particleve.negative" | "resolved.conf.d/90-particleve.conf"
+                ) || relative == format!("delegates/{PRIVATE_DELEGATE}.dns-delegate"),
+                "unknown file in managed DNS policy",
+            )?;
+            if !files.contains_key(&relative) {
+                fs::remove_file(entry.path())?;
+            }
+        }
+    }
+    for (name, content) in files {
+        crate::common::atomic_write(root.join(name), content.as_bytes(), 0o644)?;
+    }
+    Ok(())
 }
 pub fn link_settings(policy: &Value, name: &str) -> Result<Vec<String>> {
     let mut lines = [
@@ -260,14 +383,22 @@ fn nta() -> BTreeSet<String> {
     }
     values
 }
-pub fn assess(policy: &Value, observed: &Value, links: &[String]) -> Result<Value> {
-    validate(policy, links)?;
+pub fn assess(
+    policy: &Value,
+    observed: &Value,
+    links: &[String],
+    management: &str,
+) -> Result<Value> {
+    validate(policy, &[management.to_owned()])?;
     let rows = list(observed)?;
     require(
         (1..=4096).contains(&rows.len()) && rows.iter().all(Value::is_object),
         "unknown resolved status format",
     )?;
-    let global: Vec<_> = rows.iter().filter(|r| r.get("ifname").is_none()).collect();
+    let global: Vec<_> = rows
+        .iter()
+        .filter(|r| r.get("ifname").is_none() && r.get("delegate").is_none())
+        .collect();
     require(global.len() == 1, "missing or ambiguous global DNS status")?;
     let global = global[0];
     strict(global)?;
@@ -290,7 +421,8 @@ pub fn assess(policy: &Value, observed: &Value, links: &[String]) -> Result<Valu
         "public DNS routing policy drift",
     )?;
     require(
-        strings(global.get("negativeTrustAnchors").unwrap_or(&json!([])))? == nta(),
+        strings(global.get("negativeTrustAnchors").unwrap_or(&json!([])))?
+            == negative_anchors(policy)?,
         "global DNSSEC exception policy drift",
     )?;
     let private = list(field(policy, "private")?)?;
@@ -338,11 +470,55 @@ pub fn assess(policy: &Value, observed: &Value, links: &[String]) -> Result<Valu
                 .all(|s| s["protocol"] == "dns"),
             "unexpected local DNS discovery scope",
         )?;
+        if route.is_some() {
+            require(
+                !values(row, "scopes")?.is_empty(),
+                "private DNS link has no active unicast scope",
+            )?;
+        }
     }
     require(
         links.iter().all(|l| names.contains(l.as_str())),
         "missing or ambiguous DNS link status",
     )?;
+    let delegates = rows
+        .iter()
+        .filter(|row| row.get("delegate").is_some())
+        .collect::<Vec<_>>();
+    require(
+        delegates.len() == private.len(),
+        "missing or unexpected private DNS delegation",
+    )?;
+    if let Some(route) = private.first() {
+        let row = delegates[0];
+        require(
+            row["delegate"] == PRIVATE_DELEGATE
+                && row.get("ifname").is_none()
+                && row["defaultRoute"] == false,
+            "private DNS delegate identity or default-route drift",
+        )?;
+        require(
+            endpoints(row)? == expected_endpoints(&route["servers"])?
+                && domains(row)? == strings(&route["domains"])?
+                && !values(row, "scopes")?.is_empty()
+                && values(row, "scopes")?.iter().all(|s| {
+                    s["protocol"] == "dns" && s["dnsOverTLS"] == "yes" && s["dnssec"] == "yes"
+                }),
+            "private DNS delegation has no matching active scope",
+        )?;
+        let managed = rows
+            .iter()
+            .find(|r| r["ifname"] == management)
+            .ok_or_else(|| Error::new("missing management DNS status"))?;
+        let index = crate::common::uint(field(managed, "ifindex")?)?;
+        require(
+            index > 0
+                && values(row, "servers")?
+                    .iter()
+                    .all(|s| s["ifindex"].as_u64() == Some(index)),
+            "private DNS delegation is not bound to management",
+        )?;
+    }
     Ok(
         json!({"strict_tls":true,"dnssec":true,"private_route_count":private.len(),"link_count":count}),
     )
@@ -372,7 +548,12 @@ pub fn probe(network: &Value) -> Result<Value> {
             }
         }
     }
-    assess(field(network, "dns")?, &status, &links)
+    assess(
+        field(network, "dns")?,
+        &status,
+        &links,
+        text(field(network, "management")?)?,
+    )
 }
 
 #[cfg(test)]
@@ -383,13 +564,13 @@ mod tests {
     }
     fn observation() -> Value {
         let mut global = json!({"dnsOverTLS":"yes","dnssec":"yes","llmnr":"no","mDNS":"no","servers":[{"addressString":"1.1.1.1","name":"cloudflare-dns.com","port":53}],"resolvConfMode":"stub","searchDomains":[{"name":".","routeOnly":true}]});
-        global["negativeTrustAnchors"] = json!(nta());
-        json!([global,{"dnsOverTLS":"yes","dnssec":"yes","llmnr":"no","mDNS":"no","ifname":"mgmt0","defaultRoute":false,"servers":[{"addressString":"192.0.2.53","name":"dns.example.org","port":53}],"searchDomains":[{"name":"corp.example.org","routeOnly":true}],"negativeTrustAnchors":["unsigned.corp.example.org"],"scopes":[{"protocol":"dns"}]},{"ifname":"ns-guest","defaultRoute":false,"scopes":[]}])
+        global["negativeTrustAnchors"] = json!(negative_anchors(&policy()).unwrap());
+        json!([global,{"dnsOverTLS":"yes","dnssec":"yes","llmnr":"no","mDNS":"no","ifname":"mgmt0","ifindex":2,"defaultRoute":false,"servers":[{"addressString":"192.0.2.53","name":"dns.example.org","port":53}],"searchDomains":[{"name":"corp.example.org","routeOnly":true}],"negativeTrustAnchors":["unsigned.corp.example.org"],"scopes":[{"protocol":"dns"}]},{"ifname":"ns-guest","defaultRoute":false,"scopes":[]},{"delegate":PRIVATE_DELEGATE,"defaultRoute":false,"servers":[{"addressString":"192.0.2.53","name":"dns.example.org","port":53,"ifindex":2}],"searchDomains":[{"name":"corp.example.org","routeOnly":true}],"scopes":[{"protocol":"dns","dnsOverTLS":"yes","dnssec":"yes"}]}])
     }
     #[test]
     fn strict_effective_policy_rejects_transport_routing_and_trust_drift() {
         let links = vec!["mgmt0".into()];
-        assert!(assess(&policy(), &observation(), &links).is_ok());
+        assert!(assess(&policy(), &observation(), &links, "mgmt0").is_ok());
         for (kind, value) in [
             ("dnsOverTLS", json!("opportunistic")),
             ("dnssec", json!("allow-downgrade")),
@@ -399,14 +580,17 @@ mod tests {
         ] {
             let mut status = observation();
             status[0][kind] = value;
-            assert!(assess(&policy(), &status, &links).is_err(), "{kind}");
+            assert!(
+                assess(&policy(), &status, &links, "mgmt0").is_err(),
+                "{kind}"
+            );
         }
         let mut status = observation();
         status[1]["defaultRoute"] = true.into();
-        assert!(assess(&policy(), &status, &links).is_err());
+        assert!(assess(&policy(), &status, &links, "mgmt0").is_err());
         status = observation();
         status[2]["servers"] = status[0]["servers"].clone();
-        assert!(assess(&policy(), &status, &links).is_err());
+        assert!(assess(&policy(), &status, &links, "mgmt0").is_err());
     }
     #[test]
     fn private_exceptions_cannot_expand_or_overlap_routes() {

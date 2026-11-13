@@ -30,6 +30,51 @@ fn backend(request: &Value) -> Result<Linux> {
         certificate: "/unused/secure-boot.crt".into(),
     })
 }
+/// Mount/readback fixture only; all quarantine transitions use the runtime code.
+struct QuarantineFixture {
+    linux: Linux,
+    isolated: Vec<String>,
+}
+impl particleve::bootloaders::Backend for QuarantineFixture {
+    fn directory(&self) -> &Path {
+        &self.linux.directory
+    }
+    fn cache(&self) -> &Path {
+        &self.linux.cache
+    }
+    fn disk(&self, _role: &str) -> Result<Value> {
+        unreachable!("quarantine fixture does not select disks")
+    }
+    fn current_esp_role(&self) -> Result<String> {
+        unreachable!("quarantine fixture does not select boot roles")
+    }
+    fn boot_id(&self) -> Result<String> {
+        unreachable!("quarantine fixture does not select boots")
+    }
+    fn with_esp<T>(&self, role: &str, operation: impl FnOnce(&Path) -> Result<T>) -> Result<T> {
+        operation(&self.linux.directory.join(role))
+    }
+}
+impl particleve::quarantine::Backend for QuarantineFixture {
+    fn isolated(&self, role: &str) -> Result<bool> {
+        Ok(!self.linux.directory.join(role).try_exists()?
+            && self.isolated.iter().any(|r| r == role))
+    }
+    fn fallback(&self, esp: &Path, version: &str) -> Result<()> {
+        self.linux.default(esp, Some(version))?;
+        self.verify_fallback(esp, version)
+    }
+    fn verify_fallback(&self, esp: &Path, version: &str) -> Result<()> {
+        self.linux.verify_default(esp, version)?;
+        particleve::common::require(
+            particleve::common::hash_file(
+                esp.join(format!("EFI/Linux/ParticleVE_{version}_x86-64.efi")),
+                None,
+            )? == particleve::common::hash_file(self.linux.directory.join("fallback.efi"), None)?,
+            "fixture fallback changed",
+        )
+    }
+}
 pub fn evaluate(request: &Value) -> Option<Result<Value>> {
     let operation = request.get("operation")?.as_str()?;
     (|| -> Result<Option<Value>> {
@@ -142,6 +187,30 @@ pub fn evaluate(request: &Value) -> Option<Result<Value>> {
             "loader-path" => Ok(json!(particleve::bootloaders::loader_path(text(field(
                 request, "sha256"
             )?)?)?)),
+            "loader-ensure-fixed-entry" => {
+                particleve::bootloaders::Loaders::new(&backend(request)?)
+                    .ensure_fixed_entry(text(field(request, "role")?)?)?;
+                Ok(Value::Null)
+            }
+            "quarantine-fixture" => {
+                let fixture = QuarantineFixture {
+                    linux: backend(request)?,
+                    isolated: list(field(request, "isolated")?)?
+                        .iter()
+                        .map(|r| text(r).map(str::to_owned))
+                        .collect::<Result<Vec<_>>>()?,
+                };
+                if let Some(version) = request.get("version") {
+                    particleve::quarantine::reject(
+                        &fixture,
+                        text(version)?,
+                        text(field(request, "fallback")?)?,
+                    )?;
+                } else {
+                    particleve::quarantine::retry(&fixture)?;
+                }
+                particleve::quarantine::status(&fixture.linux.directory)
+            }
             "loader-owned-entry" => Ok(json!(particleve::bootloaders::owned_entry(
                 &path(request, "path")?,
                 text(field(request, "sha256")?)?,

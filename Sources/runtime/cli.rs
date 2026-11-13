@@ -30,6 +30,8 @@ pub enum Commands {
     Preflight,
     #[command(about = "Apply this image's host-input policy to the configured host")]
     ApplyFirewall,
+    #[command(about = "Stage this image's private DNS routing and trust policy")]
+    PrepareDns,
     RenderNetwork {
         #[arg(long)]
         output: PathBuf,
@@ -252,6 +254,11 @@ pub fn execute(args: Arguments) -> Result<(i32, Value)> {
             )?;
             Ok((0, json!({"firewall":"active"})))
         }
+        Commands::PrepareDns => {
+            root()?;
+            crate::dns::write_runtime(&host["network"], Path::new(crate::dns::RUNTIME))?;
+            Ok((0, json!({"dns_policy":"ready"})))
+        }
         Commands::FetchRelease {
             output,
             version,
@@ -358,10 +365,7 @@ pub fn execute(args: Arguments) -> Result<(i32, Value)> {
                     let _ownership = lock(&state_dir)?;
                     crate::commission::commission(&backend, &evidence, enable)?
                 }
-                Commands::RecoverVms => {
-                    let _ownership = lock(&state_dir)?;
-                    backend.recover_vms()?
-                }
+                Commands::RecoverVms => Coordinator::new(&state_dir, &backend).recover_vms()?,
                 Commands::FinalizeReplacement => {
                     let _ownership = lock(&state_dir)?;
                     install::finalize_replacement(&mut backend)?
@@ -432,7 +436,7 @@ pub fn execute(args: Arguments) -> Result<(i32, Value)> {
                     )?
                 }
                 Commands::Status => {
-                    json!({"bootloaders":crate::bootloaders::Loaders::new(&backend).load()?,"state":crate::coordinator::load_state(&state_dir)?,"installation_sha256":digest(&backend.manifest)?,"capacity":backend.check_storage(false)?,"resources":backend.check_resources(false)?,"commissioned":backend.directory.join("commissioned.json").exists()})
+                    json!({"bootloaders":crate::bootloaders::Loaders::new(&backend).load()?,"esp_quarantine":crate::quarantine::status(&state_dir)?,"state":crate::coordinator::load_state(&state_dir)?,"installation_sha256":digest(&backend.manifest)?,"capacity":backend.check_storage(false)?,"resources":backend.check_resources(false)?,"commissioned":backend.directory.join("commissioned.json").exists()})
                 }
                 _ => return Err(Error::new("command dispatch invariant violated")),
             };

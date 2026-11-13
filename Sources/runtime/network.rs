@@ -120,8 +120,11 @@ pub fn firewall(config: &Value) -> Result<String> {
         "table inet particleve_host {",
         "  chain input {",
         "    type filter hook input priority 0; policy drop;",
-        "    iifname \"lo\" accept",
         "    ct state invalid drop",
+        // Enforce the metrics boundary even for loopback or an established flow
+        // arriving on another interface after a routing/policy change.
+        "    tcp dport 9100 jump metrics",
+        "    iifname \"lo\" accept",
         "    ct state established,related accept",
         "    meta l4proto { icmp, ipv6-icmp } accept",
         "    iifname \"vt-*\" meta nfproto ipv4 udp sport 68 udp dport 67 accept",
@@ -137,7 +140,25 @@ pub fn firewall(config: &Value) -> Result<String> {
             text(field(network, "management")?)?
         ));
     }
-    rules.extend(["  }".into(), "}".into()]);
+    rules.extend(["  }".into(), "  chain metrics {".into()]);
+    for address in list(field(network, "addresses")?)? {
+        let address = text(address)?;
+        let address = address
+            .split_once('/')
+            .ok_or_else(|| crate::common::Error::new("management address needs a prefix"))?
+            .0;
+        for source in list(field(network, "allowed_sources")?)? {
+            let source = text(source)?;
+            if source.contains(':') == address.contains(':') {
+                let family = if source.contains(':') { "ip6" } else { "ip" };
+                rules.push(format!(
+                    "    iifname \"{}\" {family} daddr {address} {family} saddr {source} accept",
+                    text(field(network, "management")?)?
+                ));
+            }
+        }
+    }
+    rules.extend(["    drop".into(), "  }".into(), "}".into()]);
     Ok(rules.join("\n") + "\n")
 }
 pub fn write(config: &Value, root: &Path) -> Result<()> {

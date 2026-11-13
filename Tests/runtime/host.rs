@@ -12,6 +12,7 @@ pub fn evaluate(request: &Value) -> Option<Result<Value>> {
             | "network-write"
             | "kernel-runtime-baseline"
             | "security-kernel-baseline"
+            | "kernel-boot-policy"
             | "security-selinux-baseline"
             | "security-usr-backing-disks"
             | "security-firmware-evidence"
@@ -42,6 +43,13 @@ pub fn evaluate(request: &Value) -> Option<Result<Value>> {
         "security-selinux-baseline" => particleve::security::selinux_baseline(),
         "security-kernel-baseline" => {
             particleve::security::kernel_baseline(Path::new(text(field(request, "root")?)?))
+        }
+        "kernel-boot-policy" => {
+            particleve::security::kernel_boot_policy(
+                text(field(request, "cmdline")?)?,
+                text(field(request, "enforcement")?)?,
+            )?;
+            Ok(Value::Null)
         }
         "security-usr-backing-disks" => Ok(json!(particleve::security::usr_backing_disks(
             text(field(request, "mapper")?)?,

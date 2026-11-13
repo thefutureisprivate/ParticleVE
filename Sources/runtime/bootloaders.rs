@@ -73,6 +73,95 @@ pub fn owned_entry(path: &Path, sha: &str, esp_uuid: &str) -> Result<bool> {
         && rest.windows(expected.len()).any(|w| w == expected)
         && rest.windows(16).any(|w| w == uuid))
 }
+fn fixed_option(data: &[u8], label: &str, esp_uuid: &str) -> Result<Option<bool>> {
+    require(
+        (12..=65536).contains(&data.len()),
+        "invalid EFI boot option size",
+    )?;
+    let description_end = (10..data.len() - 1)
+        .step_by(2)
+        .find(|i| data[*i..*i + 2] == [0, 0])
+        .ok_or_else(|| Error::new("unterminated EFI option description"))?;
+    if decode16(&data[10..description_end])? != label {
+        return Ok(None);
+    }
+    let size = u16::from_le_bytes([data[8], data[9]]) as usize;
+    let start = description_end + 2;
+    require(size <= data.len() - start, "truncated EFI device path")?;
+    let path = &data[start..start + size];
+    let expected = Uuid::parse_str(esp_uuid)
+        .map_err(|_| Error::new("invalid ESP UUID"))?
+        .to_bytes_le();
+    let mut offset = 0;
+    let mut disk = None;
+    let mut file = String::new();
+    let mut ended = false;
+    while offset < path.len() {
+        require(path.len() - offset >= 4, "truncated EFI path node")?;
+        let node_size = u16::from_le_bytes([path[offset + 2], path[offset + 3]]) as usize;
+        require(
+            node_size >= 4 && node_size <= path.len() - offset,
+            "invalid EFI path node size",
+        )?;
+        let node = &path[offset..offset + node_size];
+        match (node[0], node[1]) {
+            (4, 1) => {
+                require(
+                    node_size == 42 && disk.is_none() && file.is_empty(),
+                    "ambiguous EFI hard-drive path",
+                )?;
+                disk = Some(
+                    node[4..8] == 1_u32.to_le_bytes()
+                        && node[40..42] == [2, 2]
+                        && node[24..40] == expected,
+                );
+            }
+            (4, 4) => {
+                require(disk.is_some(), "EFI file path precedes its disk")?;
+                let part = decode16(&node[4..])?;
+                require(
+                    part.ends_with('\0') && !part[..part.len() - 1].contains('\0'),
+                    "invalid EFI file path",
+                )?;
+                file.push_str(part.trim_end_matches('\0'));
+            }
+            (0x7f, 0xff) => {
+                require(
+                    node_size == 4 && offset + node_size == path.len(),
+                    "ambiguous EFI end node",
+                )?;
+                ended = true;
+            }
+            _ => require(disk.is_none(), "unexpected EFI node after the disk path")?,
+        }
+        offset += node_size;
+    }
+    require(ended, "missing EFI end node")?;
+    Ok(
+        (disk == Some(true) && file.eq_ignore_ascii_case("\\EFI\\systemd\\systemd-bootx64.efi"))
+            .then_some(
+                u32::from_le_bytes(data[4..8].try_into().expect("bounded attributes")) & 1 != 0,
+            ),
+    )
+}
+fn boot_order(variables: &Path) -> Result<Vec<u16>> {
+    let path = variables.join(format!("BootOrder-{GLOBAL}"));
+    let data = match common::read_bounded(path, 65536) {
+        Ok(data) => data,
+        Err(error) if error.is_not_found() => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    require(
+        data.len() >= 4 && (data.len() - 4).is_multiple_of(2),
+        "invalid EFI boot order",
+    )?;
+    Ok(data[4..]
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|v| u16::from_le_bytes(*v))
+        .collect())
+}
 fn variable_paths(variables: &Path, prefix: &str) -> Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     for entry in fs::read_dir(variables)? {
@@ -144,6 +233,79 @@ impl<'a, B: Backend> Loaders<'a, B> {
             directory,
             path,
         }
+    }
+    fn fixed_entries(&self, role: &str, esp_uuid: &str) -> Result<Vec<(u16, bool)>> {
+        let expression = regex::Regex::new(&format!(r"^Boot([0-9A-Fa-f]{{4}})-{GLOBAL}$"))
+            .expect("constant pattern");
+        let mut entries = Vec::new();
+        for path in variable_paths(self.backend.variables(), "Boot")? {
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            if let Some(matched) = expression.captures(&name)
+                && let Some(active) = fixed_option(
+                    &common::read_bounded(&path, 65536)?,
+                    &format!("ParticleVE {role}"),
+                    esp_uuid,
+                )?
+            {
+                entries.push((
+                    u16::from_str_radix(&matched[1], 16)
+                        .map_err(|_| Error::new("invalid boot entry"))?,
+                    active,
+                ));
+            }
+        }
+        Ok(entries)
+    }
+    pub fn ensure_fixed_entry(&self, role: &str) -> Result<()> {
+        let disk = self.backend.disk(role)?;
+        let partition = list(field(&disk, "partitions")?)?
+            .iter()
+            .find(|p| p["role"] == "esp")
+            .ok_or_else(|| Error::new("missing replacement ESP"))?;
+        let uuid = text(field(partition, "uuid")?)?;
+        let mut entries = self.fixed_entries(role, uuid)?;
+        require(entries.len() <= 1, "ambiguous replacement firmware entries")?;
+        if entries.is_empty() {
+            self.backend.command(&[
+                "efibootmgr",
+                "--create-only",
+                "--disk",
+                text(field(&disk, "path")?)?,
+                "--part",
+                "1",
+                "--label",
+                &format!("ParticleVE {role}"),
+                "--loader",
+                "\\EFI\\systemd\\systemd-bootx64.efi",
+            ])?;
+            entries = self.fixed_entries(role, uuid)?;
+        }
+        require(
+            entries.len() == 1,
+            "replacement firmware entry was not written",
+        )?;
+        let (entry, active) = entries[0];
+        let number = format!("{entry:04X}");
+        if !active {
+            self.backend
+                .command(&["efibootmgr", "--bootnum", &number, "--active"])?;
+        }
+        let mut order = boot_order(self.backend.variables())?;
+        if !order.contains(&entry) {
+            order.push(entry);
+            let value = order
+                .iter()
+                .map(|id| format!("{id:04X}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            self.backend
+                .command(&["efibootmgr", "--bootorder", &value])?;
+        }
+        require(
+            self.fixed_entries(role, uuid)? == [(entry, true)]
+                && boot_order(self.backend.variables())? == order,
+            "replacement firmware entry or boot order failed readback",
+        )
     }
     pub fn load(&self) -> Result<Value> {
         let state = read_json(&self.path)?;
@@ -443,6 +605,7 @@ mod tests {
         commands: RefCell<Vec<Vec<String>>>,
         fail: Cell<Option<usize>>,
         writes: Cell<usize>,
+        command_failure: Cell<Option<usize>>,
     }
     impl Fixture {
         fn new() -> Self {
@@ -456,6 +619,7 @@ mod tests {
                 commands: RefCell::new(Vec::new()),
                 fail: Cell::new(None),
                 writes: Cell::new(0),
+                command_failure: Cell::new(None),
             }
         }
         fn release(&self, version: &str) -> Value {
@@ -541,10 +705,31 @@ mod tests {
                 .push(args.iter().map(|s| (*s).to_owned()).collect());
             let stdout = if args.contains(&"--create-only") {
                 let label = args.iter().position(|s| *s == "--label").unwrap();
+                if matches!(args[label + 1], "ParticleVE a" | "ParticleVE b") {
+                    fs::write(
+                        self.variables().join(format!("Boot00AF-{GLOBAL}")),
+                        fixed_bytes(
+                            args[label + 1],
+                            "54a2d82d-fb84-4a79-949d-a807c1392cda",
+                            true,
+                        ),
+                    )
+                    .unwrap();
+                }
                 format!("Boot00AF* {}\tHD(...)\n", args[label + 1])
             } else {
                 String::new()
             };
+            if let Some(index) = args.iter().position(|s| *s == "--bootorder") {
+                let mut data = 7_u32.to_le_bytes().to_vec();
+                for value in args[index + 1].split(',') {
+                    data.extend(u16::from_str_radix(value, 16).unwrap().to_le_bytes());
+                }
+                fs::write(self.variables().join(format!("BootOrder-{GLOBAL}")), data).unwrap();
+            }
+            if self.command_failure.get() == Some(self.commands.borrow().len()) {
+                return Err(Error::new("interrupted firmware command after mutation"));
+            }
             Ok(common::Output {
                 code: 0,
                 stdout,
@@ -560,6 +745,87 @@ mod tests {
                 }
             }
             atomic_write(path, data, 0o600)
+        }
+    }
+    fn fixed_bytes(label: &str, esp: &str, active: bool) -> Vec<u8> {
+        let mut path = vec![4, 1, 42, 0];
+        path.extend(1_u32.to_le_bytes());
+        path.extend(2048_u64.to_le_bytes());
+        path.extend(8192_u64.to_le_bytes());
+        path.extend(Uuid::parse_str(esp).unwrap().to_bytes_le());
+        path.extend([2, 2]);
+        let file = "\\EFI\\systemd\\systemd-bootx64.efi\0"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>();
+        path.extend([4, 4]);
+        path.extend(((file.len() + 4) as u16).to_le_bytes());
+        path.extend(file);
+        path.extend([127, 255, 4, 0]);
+        let mut data = 7_u32.to_le_bytes().to_vec();
+        data.extend(u32::from(active).to_le_bytes());
+        data.extend((path.len() as u16).to_le_bytes());
+        data.extend(
+            format!("{label}\0")
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes),
+        );
+        data.extend(path);
+        data
+    }
+    #[test]
+    fn fixed_firmware_entry_requires_real_device_path_binding() {
+        let uuid = Uuid::new_v4().to_string();
+        let data = fixed_bytes("ParticleVE b", &uuid, true);
+        assert_eq!(
+            fixed_option(&data, "ParticleVE b", &uuid).unwrap(),
+            Some(true)
+        );
+        assert_eq!(
+            fixed_option(
+                &fixed_bytes("ParticleVE b", &uuid, false),
+                "ParticleVE b",
+                &uuid
+            )
+            .unwrap(),
+            Some(false)
+        );
+        assert_eq!(fixed_option(&data, "ParticleVE a", &uuid).unwrap(), None);
+        let other = Uuid::new_v4().to_string();
+        let mut forged = fixed_bytes("ParticleVE b", &other, true);
+        forged.extend(Uuid::parse_str(&uuid).unwrap().to_bytes_le());
+        assert_eq!(fixed_option(&forged, "ParticleVE b", &uuid).unwrap(), None);
+        let mut truncated = data;
+        truncated[8..10].copy_from_slice(&u16::MAX.to_le_bytes());
+        assert!(fixed_option(&truncated, "ParticleVE b", &uuid).is_err());
+    }
+    #[test]
+    fn replacement_firmware_retries_do_not_duplicate_entries_or_reorder_other_disks() {
+        for boundary in [1, 2] {
+            let fixture = Fixture::new();
+            let mut order = 7_u32.to_le_bytes().to_vec();
+            order.extend(1_u16.to_le_bytes());
+            order.extend(2_u16.to_le_bytes());
+            fs::write(
+                fixture.variables().join(format!("BootOrder-{GLOBAL}")),
+                order,
+            )
+            .unwrap();
+            fixture.command_failure.set(Some(boundary));
+            let loaders = Loaders::new(&fixture);
+            assert!(loaders.ensure_fixed_entry("b").is_err());
+            fixture.command_failure.set(None);
+            loaders.ensure_fixed_entry("b").unwrap();
+            assert_eq!(boot_order(fixture.variables()).unwrap(), [1, 2, 0xaf]);
+            assert_eq!(
+                fixture
+                    .commands
+                    .borrow()
+                    .iter()
+                    .filter(|args| args.iter().any(|a| a == "--create-only"))
+                    .count(),
+                1
+            );
         }
     }
     fn setup(fixture: &Fixture) -> (Value, Value) {

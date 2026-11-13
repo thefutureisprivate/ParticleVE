@@ -299,6 +299,12 @@ pub fn snapshot(
         }
     }
     let state = crate::coordinator::load_state(&backend.directory)?;
+    let esp = crate::quarantine::status(&backend.directory)?;
+    checks
+        .push(json!({"name":"esp_quarantine","result":if esp.is_null(){"pass"}else{"attention"}}));
+    if !esp.is_null() {
+        details["esp_quarantine"] = json!({"version":esp["version"],"roles":{"a":esp["roles"]["a"]["status"],"b":esp["roles"]["b"]["status"]}});
+    }
     let rejected = quarantined_versions(&state)?;
     checks.push(json!({"name":"quarantined_releases","result":if rejected.is_empty(){"pass"}else{"attention"}}));
     details["quarantined_releases"] = json!(

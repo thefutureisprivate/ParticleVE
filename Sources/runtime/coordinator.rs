@@ -7,6 +7,12 @@ pub fn reboot_window(now: DateTime<Utc>, tolerance: u32) -> bool {
     let local = now.with_timezone(&chrono_tz::Europe::Berlin);
     local.hour() == 4 && local.minute() == 30 && local.second() < tolerance
 }
+/// Once enqueue has been attempted, an IPC/observation failure is not a refusal.
+pub enum RebootOutcome {
+    NotAccepted,
+    Accepted,
+    Uncertain(String),
+}
 pub trait Backend {
     fn config(&self) -> &Value;
     fn current_version(&self) -> Result<String>;
@@ -31,8 +37,10 @@ pub trait Backend {
     fn recover_vms(&self) -> Result<Value>;
     fn mark_vm_reboot(&self) -> Result<()>;
     fn select(&self, version: &str) -> Result<()>;
-    fn conditional_reboot(&self, version: &str) -> Result<bool>;
+    /// Errors are confined to preparation before a reboot request is attempted.
+    fn conditional_reboot(&self, version: &str) -> Result<RebootOutcome>;
     fn reject(&self, version: &str, current: &str) -> Result<()>;
+    fn retry_quarantine(&self) -> Result<()>;
     fn check_runtime_state(&self) -> Result<()>;
     fn health(&self) -> Result<()>;
     fn accept(&self, version: &str) -> Result<()>;
@@ -124,7 +132,20 @@ impl<'a, B: Backend> Coordinator<'a, B> {
         self.backend.check_resources(true)?;
         Ok(())
     }
+    fn guard_reboot_intent(&self, state: &Value) -> Result<()> {
+        require(
+            state["pending"]["phase"] != "booting"
+                || state["pending"]["boot_id"] != self.backend.boot_id()?,
+            "a reboot request may be in progress; reconcile before changing boot selection or restoring VMs",
+        )
+    }
     fn reconcile(&self, state: &mut Value) -> Result<()> {
+        if state["pending"]["phase"] == "booting"
+            && state["pending"]["boot_id"] == self.backend.boot_id()?
+        {
+            return Ok(());
+        }
+        self.backend.retry_quarantine()?;
         if state["pending"].is_null() {
             return Ok(());
         }
@@ -227,6 +248,7 @@ impl<'a, B: Backend> Coordinator<'a, B> {
         let _ownership = lock(&self.directory)?;
         let mut state = self.load()?;
         let mut vm_attempt = false;
+        let mut reboot_uncertain = false;
         let result = (|| {
             self.reconcile(&mut state)?;
             let tolerance = crate::common::uint(
@@ -295,16 +317,32 @@ impl<'a, B: Backend> Coordinator<'a, B> {
             self.backend.check_firmware_clear()?;
             self.backend.assert_no_vms()?;
             self.backend.check_time(Some(&clock))?;
-            require(
-                self.backend.conditional_reboot(&version)?,
-                "conditional reboot did not queue a host reboot",
-            )?;
+            // Both journals must describe the possible reboot before crossing
+            // the enqueue boundary. No fallible marker write follows acceptance.
             self.backend.mark_vm_reboot()?;
+            match self.backend.conditional_reboot(&version)? {
+                RebootOutcome::NotAccepted => {
+                    return Err(Error::new("conditional reboot did not queue a host reboot"));
+                }
+                RebootOutcome::Accepted => (),
+                RebootOutcome::Uncertain(reason) => {
+                    reboot_uncertain = true;
+                    return Err(Error::new(format!(
+                        "reboot acceptance is uncertain: {reason}"
+                    )));
+                }
+            }
             Ok(json!({"action":"activation-requested","version":version}))
         })();
         match result {
             Ok(v) => Ok(v),
             Err(error) => {
+                if reboot_uncertain {
+                    // A failed observation or journal write cannot authorize
+                    // changing BootNext/defaults under a possibly queued reboot.
+                    self.reason(&mut state, format!("{error}; activation intent retained"))?;
+                    return Err(error);
+                }
                 if vm_attempt {
                     let restore_boot = (|| {
                         let current = self.backend.current_version()?;
@@ -361,14 +399,21 @@ impl<'a, B: Backend> Coordinator<'a, B> {
     pub fn runtime_guard(&self) -> Result<()> {
         let _ownership = lock(&self.directory)?;
         let mut state = self.load()?;
+        self.guard_reboot_intent(&state)?;
         self.reconcile(&mut state)?;
         self.backend.check_runtime_state()?;
         self.backend.recover_vms()?;
         self.save(&mut state)
     }
+    pub fn recover_vms(&self) -> Result<Value> {
+        let _ownership = lock(&self.directory)?;
+        self.guard_reboot_intent(&self.load()?)?;
+        self.backend.recover_vms()
+    }
     pub fn assess(&self) -> Result<Value> {
         let _ownership = lock(&self.directory)?;
         let mut state = self.load()?;
+        self.guard_reboot_intent(&state)?;
         self.reconcile(&mut state)?;
         self.backend.check_runtime_state()?;
         self.backend.health()?;
@@ -391,6 +436,7 @@ impl<'a, B: Backend> Coordinator<'a, B> {
     pub fn bless(&self) -> Result<Value> {
         let _ownership = lock(&self.directory)?;
         let mut state = self.load()?;
+        self.guard_reboot_intent(&state)?;
         let current = self.backend.current_version()?;
         require(
             state["accepted"]
@@ -460,6 +506,8 @@ mod tests {
         refuse: bool,
         step: bool,
         queue: bool,
+        uncertain: bool,
+        fail_journal_after_enqueue: Option<PathBuf>,
         content_changed: bool,
         corrected_wall: Option<f64>,
         stop_block: Option<String>,
@@ -618,14 +666,29 @@ mod tests {
         fn select(&self, _version: &str) -> Result<()> {
             self.event("select")
         }
-        fn conditional_reboot(&self, _version: &str) -> Result<bool> {
+        fn conditional_reboot(&self, _version: &str) -> Result<RebootOutcome> {
             self.event("reboot")?;
-            Ok(self.state.borrow().queue)
+            if let Some(path) = &self.state.borrow().fail_journal_after_enqueue {
+                // Retain the persisted intent while forcing the next atomic
+                // replacement to fail, independently of the test runner's UID.
+                std::fs::rename(path, path.with_extension("retained.json")).unwrap();
+                std::fs::create_dir(path).unwrap();
+            }
+            Ok(if self.state.borrow().uncertain {
+                RebootOutcome::Uncertain("post-enqueue observation failed".into())
+            } else if self.state.borrow().queue {
+                RebootOutcome::Accepted
+            } else {
+                RebootOutcome::NotAccepted
+            })
         }
         fn reject(&self, version: &str, _current: &str) -> Result<()> {
             self.event(&format!("reject-{version}"))?;
             self.state.borrow_mut().entries.retain(|_, v| v != version);
             Ok(())
+        }
+        fn retry_quarantine(&self) -> Result<()> {
+            self.event("retry-quarantine")
         }
         fn check_runtime_state(&self) -> Result<()> {
             self.event("daemon-state")
@@ -708,6 +771,92 @@ mod tests {
             assert_eq!(result["version"], "45.0.1.2-1.1", "{boundary}");
             assert!(!backend.state.borrow().calls.iter().any(|v| v == "reboot"));
         }
+    }
+    #[test]
+    fn accepted_and_uncertain_reboots_preserve_boot_selection_and_vm_intent() {
+        for uncertain in [false, true] {
+            let directory = tempfile::tempdir().expect("state");
+            let backend = Fake::new();
+            let coordinator = Coordinator::new(directory.path(), &backend);
+            coordinator.prepare(true).expect("prepare");
+            backend.state.borrow_mut().calls.clear();
+            backend.state.borrow_mut().uncertain = uncertain;
+            let outcome = coordinator.reboot(Some(window()), true);
+            if uncertain {
+                assert!(
+                    outcome
+                        .expect_err("uncertain request")
+                        .message
+                        .contains("uncertain")
+                );
+            } else {
+                assert_eq!(outcome.expect("accepted")["action"], "activation-requested");
+            }
+            assert_eq!(
+                coordinator.load().expect("intent")["pending"]["phase"],
+                "booting"
+            );
+            assert!(coordinator.runtime_guard().is_err());
+            assert!(coordinator.recover_vms().is_err());
+            assert!(coordinator.assess().is_err());
+            assert!(coordinator.bless().is_err());
+            let state = backend.state.borrow();
+            let marker = state
+                .calls
+                .iter()
+                .position(|c| c == "mark-vm-reboot")
+                .expect("VM intent");
+            let enqueue = state
+                .calls
+                .iter()
+                .position(|c| c == "reboot")
+                .expect("request");
+            assert!(marker < enqueue);
+            assert!(!state.calls.iter().any(|c| ["protect", "pin", "restore-vms", "recover-vms"].contains(&c.as_str())));
+        }
+    }
+    #[test]
+    fn failed_vm_reboot_marker_precedes_enqueue_and_allows_ordinary_abort() {
+        let directory = tempfile::tempdir().expect("state");
+        let backend = Fake::new();
+        let coordinator = Coordinator::new(directory.path(), &backend);
+        coordinator.prepare(true).expect("prepare");
+        backend.state.borrow_mut().calls.clear();
+        backend.state.borrow_mut().fail = Some("mark-vm-reboot".into());
+        assert!(coordinator.reboot(Some(window()), true).is_err());
+        assert_eq!(
+            coordinator.load().expect("intent")["pending"]["phase"],
+            "ready"
+        );
+        let state = backend.state.borrow();
+        assert!(!state.calls.iter().any(|c| c == "reboot"));
+        assert!(state.calls.iter().any(|c| c == "restore-vms"));
+    }
+    #[test]
+    fn post_enqueue_journal_failure_preserves_intent_without_ordinary_abort() {
+        let directory = tempfile::tempdir().expect("state");
+        let backend = Fake::new();
+        let coordinator = Coordinator::new(directory.path(), &backend);
+        coordinator.prepare(true).expect("prepare");
+        {
+            let mut state = backend.state.borrow_mut();
+            state.calls.clear();
+            state.uncertain = true;
+            state.fail_journal_after_enqueue = Some(coordinator.path.clone());
+        }
+        assert!(coordinator.reboot(Some(window()), true).is_err());
+        assert_eq!(
+            read_json(coordinator.path.with_extension("retained.json")).unwrap()["pending"]["phase"],
+            "booting"
+        );
+        let state = backend.state.borrow();
+        assert!(state.calls.iter().any(|c| c == "reboot"));
+        assert!(
+            !state
+                .calls
+                .iter()
+                .any(|c| ["protect", "pin", "restore-vms"].contains(&c.as_str()))
+        );
     }
     #[test]
     fn refusal_clock_step_and_unqueued_reboot_restore_owned_vms() {
@@ -932,7 +1081,10 @@ mod tests {
         let coordinator = Coordinator::new(directory.path(), &backend);
         coordinator.prepare(false).expect("prepare");
         coordinator.reboot(None, false).expect("activate");
-        coordinator.runtime_guard().expect("same boot");
+        assert!(
+            coordinator.runtime_guard().is_err(),
+            "same-boot reboot intent is still authoritative"
+        );
         assert_eq!(coordinator.load().expect("state")["rejected"], json!({}));
         let directory = tempfile::tempdir().expect("state");
         let backend = Fake::new();

@@ -27,6 +27,7 @@ pub mod network;
 pub mod physical;
 pub mod platform;
 pub mod processes;
+pub mod quarantine;
 pub mod radio;
 pub mod reconfigure;
 pub mod release;

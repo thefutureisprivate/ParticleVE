@@ -81,6 +81,13 @@ After recovery, inspect the trial/quarantine outcome; do not promote a candidate
 merely because an OS eventually booted. See
 [bootloader trials](Operations.md#bootloader-trials-and-fallback).
 
+If ESP quarantine is incomplete, `particleve status` reports per-disk progress.
+Repair a present failed ESP before retrying boot assessment. Keep an absent,
+storage-quarantined member isolated until the erasing replacement procedure
+rebuilds it; its deferred ESP obligation does not authorize storage readmission.
+Preserve `quarantine.json` with the update and loader records. See
+[OS maintenance](Operations.md#os-maintenance).
+
 ## Persistent startup verification failed
 
 The signed initrd checks approved persistent configuration before installed
@@ -123,10 +130,16 @@ and reconciles actual process state before restoring only the guests stopped
 by that attempt.
 
 Inspect `particleve status` and the maintenance journal. Use
-`particleve recover-vms` for the recorded interrupted attempt, then inspect
+`particleve recover-vms` for an interrupted attempt before reboot enqueue, then inspect
 late exits and restoration failures before retrying. Do not delete the
 transaction record or start every historical guest indiscriminately. Previously
 stopped VMs must remain stopped, and still-running VMs must not be duplicated.
+
+If reboot acceptance is uncertain, same-boot recovery is blocked. Keep the host
+quiescent and inspect queued jobs and firmware selection over the independent
+console. An owner-supervised reboot allows boot assessment to reconcile the
+retained intent. A lost reply or journal failure is not permission to change boot
+defaults or restore guests beneath a possibly queued reboot.
 
 When there is no ready update, or verification, resource, firmware, clock, or
 graceful-shutdown checks fail, the host stays running. Automatic

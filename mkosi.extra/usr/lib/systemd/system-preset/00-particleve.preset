@@ -15,6 +15,7 @@ disable cockpit*
 disable libvirtd*
 disable virtqemud*
 enable particleve-firewall.service
+enable prometheus-node-exporter.service
 enable particleve-radio-policy.service
 enable particleve-boot-assess.service
 enable systemd-machined.service

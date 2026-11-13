@@ -279,10 +279,36 @@ removes its units afterward. It establishes that component's behavior on the
 fixture. Boot, disk-loss, TPM, guest-lifecycle, and physical-firmware coverage
 have their own prerequisites and procedures.
 
+For BPF policy acceptance, boot a disposable QEMU fixture with the selected
+kernel and signed boot policy, stage the compiled test driver, then run as root:
+
+```sh
+python3 -W error Tests/acceptance/bpf-module-policy.py \
+  --fixture-uuid REVIEWED_QEMU_UUID --allow-one-way-bpf-lock \
+  --driver /path/to/runtime-contract-driver \
+  --policy /usr/lib/sysctl.d/60-particleve-kernel.conf \
+  --output /run/particleve-bpf-result.json
+```
+
+The probe verifies the actual boot/enforcement observation through the compiled
+helper, idempotent initrd/host policy application, irreversible BPF lock,
+unprivileged denial and working classic seccomp. Its paired JIT microbenchmark
+alternates fresh unattached socket-filter programs at `0` and `2`, records every
+sample and restores JIT hardening to `2`. Only the disposable fixture may run
+these temporary comparisons. Repeat native namespace/device-policy and VM
+startup/I/O checks separately; the microbenchmark measures BPF execution rather
+than application throughput. VM comparisons use the native service with
+`--keep-unit`: confirm the QEMU leader remains in the filtered unit and its
+device BPF program is attached. Record whether the comparison recompiles only
+fresh per-VM programs or boots the entire host with the control policy;
+long-lived programs are unchanged by a runtime sysctl write.
+Signed-module acceptance needs a valid signed
+positive load and modified/unsigned negative loads under the selected kernel.
+
 | Purpose | Guide or entry point |
 | --- | --- |
 | Package source, recipe, and installed-payload identity | [Build and publication](Build.md); [`test_package_provenance.py`](../Tests/test_package_provenance.py) and [`test_upstream_provenance.py`](../Tests/test_upstream_provenance.py). |
-| Signed manifests, artifacts, and publication observation | [`test_signed_feed.py`](../Tests/test_signed_feed.py), [`test_buildartifacts.py`](../Tests/test_buildartifacts.py), and [`test_publication.py`](../Tests/test_publication.py). |
+| Signed manifests, artifacts, and publication observation | [`test_signed_feed.py`](../Tests/test_signed_feed.py), [`test_buildartifacts.py`](../Tests/test_buildartifacts.py), [`test_publication.py`](../Tests/test_publication.py), and [`test_publication_inputs.py`](../Tests/test_publication_inputs.py). |
 | Persisted JSON and compiled-policy equivalence | [`test_rust_common.py`](../Tests/test_rust_common.py), [`test_rust_storage.py`](../Tests/test_rust_storage.py), and [`test_rust_orchestration.py`](../Tests/test_rust_orchestration.py). |
 | Update interruption, guest shutdown, and restoration | Rust tests in [`coordinator.rs`](../Sources/runtime/coordinator.rs), [`vms.rs`](../Sources/runtime/vms.rs), [`vmrun.rs`](../Sources/runtime/vmrun.rs), and [repeated lifecycle tests](ReleaseDiagnostics.md#repeated-lifecycle-tests). |
 | Disk admission, stale members, and recovery | Rust tests in [`admission.rs`](../Sources/runtime/admission.rs), [`install.rs`](../Sources/runtime/install.rs), [`bootloaders.rs`](../Sources/runtime/bootloaders.rs), and [bootloader and mirror recovery](Commissioning.md#bootloader-and-mirror-recovery). |
@@ -499,7 +525,7 @@ checkout. These probes call the compiled Rust implementation:
 
 | Probe | Required compiled input and fixture |
 | --- | --- |
-| [`management-network.py`](../Tests/acceptance/management-network.py) | `--runtime-driver /run/particleve-tests/runtime-contract-driver`; a disposable installed host, native networking and reviewed VM state. |
+| [`management-network.py`](../Tests/acceptance/management-network.py) | `--runtime-driver /run/particleve-tests/runtime-contract-driver`; a disposable installed host, native networking, node_exporter and reviewed VM state. Checks real IPv4/IPv6 scrapes and denied source, interface, destination and loopback paths. `--component-fixture` records component coverage without claiming installed-image acceptance. |
 | [`storage-service.py`](../Tests/acceptance/storage-service.py) | The storage-watch service file as its positional argument and `--runtime-driver`; a disposable installed systemd/firmware-witness fixture. Includes a private inaccessible Btrfs submount: monitoring must succeed while shutdown's full inventory still refuses it. |
 | [`storage-member-counters.py`](../Tests/acceptance/storage-member-counters.py) | `--runtime-driver`; a disposable root fixture with Btrfs-backed `/var/tmp` and loop/device-mapper support. |
 | [`radio-policy.py`](../Tests/acceptance/radio-policy.py) | `--expect-installation`, reviewed `--source-dir` and `--runtime-binary` under `/run`; an isolated QEMU component fixture with the native RFKill units, no installed radio-policy service and no exposed radios. Use the matching RPM's compiled radio helper. |

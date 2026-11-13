@@ -14,7 +14,7 @@ from xml.etree import ElementTree
 from particleve.common import Error, digest, require
 from particleve.config import https_url, integer, version_key
 from particleve.release import checksums, verify_directory
-from Tools import kernel_freshness
+from Tools import kernel_freshness, publication_inputs
 from Tools.trust import system_tls_context
 
 PACKAGES = {
@@ -109,7 +109,66 @@ def read_source(url):
         raise
 
 
-def assess(head, sources, statuses, manifest, *, now, grace_seconds, previous=None, upstreams=None):
+def source_workflow(value, revision):
+    """Observe only the latest push workflow for the exact development commit."""
+    require(
+        type(value) is dict and type(value.get("total_count")) is int and value["total_count"] >= 0,
+        "invalid source workflow response",
+    )
+    runs = value.get("workflow_runs")
+    require(type(runs) is list and len(runs) <= 1, "unbounded source workflow observation")
+    if value["total_count"] == 0:
+        require(not runs, "inconsistent source workflow count")
+        return "pending"
+    require(len(runs) == 1, "missing source workflow run")
+    run = runs[0]
+    require(
+        type(run) is dict
+        and run.get("head_sha") == revision
+        and run.get("head_branch") == "main"
+        and run.get("event") == "push"
+        and run.get("path") == ".github/workflows/check.yml",
+        "source workflow identity differs",
+    )
+    status = run.get("status")
+    require(
+        status in {"completed", "queued", "in_progress", "waiting", "requested", "pending"},
+        "unknown source workflow state",
+    )
+    if status != "completed":
+        return "pending"
+    conclusion = run.get("conclusion")
+    require(
+        conclusion
+        in {
+            "success",
+            "failure",
+            "cancelled",
+            "timed_out",
+            "action_required",
+            "neutral",
+            "skipped",
+            "stale",
+            "startup_failure",
+        },
+        "unknown source workflow conclusion",
+    )
+    return "pass" if conclusion == "success" else "fail"
+
+
+def assess(
+    head,
+    sources,
+    statuses,
+    manifest,
+    *,
+    now,
+    grace_seconds,
+    previous=None,
+    upstreams=None,
+    source_matches=None,
+    selection=None,
+):
     """A pending build must become stale even when it never reports a terminal failure."""
     integer(grace_seconds, 60, "publication grace seconds")
     require(grace_seconds <= 7 * 86400, "publication grace cannot exceed seven days")
@@ -120,6 +179,44 @@ def assess(head, sources, statuses, manifest, *, now, grace_seconds, previous=No
         "invalid observed source identity",
     )
     checks = []
+    if source_matches is not None:
+        require(
+            type(source_matches) is dict
+            and source_matches.keys() == PACKAGES.keys()
+            and all(type(value) is bool for value in source_matches.values()),
+            "invalid component input comparison",
+        )
+        require(
+            all(not source_matches[name] for name, value in sources.items() if value is None),
+            "missing source cannot match",
+        )
+        require(
+            all(not source_matches[name] or sources[name] == head for name in ("particleve", "image")),
+            "host and image sources must match the selected commit",
+        )
+    if selection is not None:
+        require(
+            type(selection) is dict
+            and set(selection) == {"revision", "system_changes", "workflow"}
+            and isinstance(selection["revision"], str)
+            and re.fullmatch(r"[0-9a-f]{40}", selection["revision"])
+            and type(selection["system_changes"]) is int
+            and 0 <= selection["system_changes"] <= 100000
+            and selection["workflow"] in {"pass", "pending", "fail"},
+            "invalid development source observation",
+        )
+        changed = selection["system_changes"] != 0
+        checks.append(
+            {
+                "name": "source-selection",
+                "result": "fail"
+                if changed and selection["workflow"] == "fail"
+                else "pending"
+                if changed
+                else "pass",
+                **selection,
+            }
+        )
     for name in PACKAGES:
         code = statuses[name]
         require(re.fullmatch(r"[a-z_]{1,32}", code), "invalid OBS build status")
@@ -128,7 +225,9 @@ def assess(head, sources, statuses, manifest, *, now, grace_seconds, previous=No
         checks.append(
             {
                 "name": name + ":source",
-                "result": "pass" if sources[name] == head else "pending",
+                "result": "pass"
+                if (source_matches[name] if source_matches is not None else sources[name] == head)
+                else "pending",
                 "revision": sources[name],
             }
         )
@@ -212,6 +311,7 @@ def collect(site, keyring, certificate, *, grace_seconds=7200, previous=None):
     branch = quote(site["source_branch"], safe="")
     urls = {
         "github": f"https://api.github.com/repos/{repository[1]}/commits/{branch}",
+        "development": f"https://api.github.com/repos/{repository[1]}/commits/main",
         "builds": f"{api}/build/{project}/_result?arch=x86_64",
         "maintainers": source + "/_meta",
         **{
@@ -230,6 +330,7 @@ def collect(site, keyring, certificate, *, grace_seconds=7200, previous=None):
         }
         responses = {name: job.result() for name, job in pending.items()}
     github = json.loads(responses["github"])
+    development = json.loads(responses["development"])
     maintainers = ElementTree.fromstring(responses["maintainers"])
     require(
         [person.attrib for person in maintainers.findall("person")]
@@ -245,6 +346,16 @@ def collect(site, keyring, certificate, *, grace_seconds=7200, previous=None):
             and not metadata.findall("group"),
             "OBS package access differs from the reviewed owner-only policy: " + package,
         )
+    inputs = publication_inputs.collect(
+        site["source_repository"],
+        github["sha"],
+        development["sha"],
+        {name: responses[name] for name in PACKAGES},
+    )
+    workflow = "pass"
+    if inputs["system_changes"]:
+        url = f"https://api.github.com/repos/{repository[1]}/actions/workflows/check.yml/runs?head_sha={development['sha']}&event=push&branch=main&per_page=1"
+        workflow = source_workflow(json.loads(request(url)), development["sha"])
     builds = ElementTree.fromstring(responses["builds"])
     statuses = {}
     for label, (repository_name, package, _) in PACKAGES.items():
@@ -277,6 +388,12 @@ def collect(site, keyring, certificate, *, grace_seconds=7200, previous=None):
         grace_seconds=grace_seconds,
         previous=previous,
         upstreams=kernel_freshness.collect(repository[1], github["sha"]),
+        source_matches=inputs["matches"],
+        selection={
+            "revision": development["sha"],
+            "system_changes": inputs["system_changes"],
+            "workflow": workflow,
+        },
     )
     result["claims"] = (
         "OBS-signed metadata and HTTPS availability; payload bytes require normal release authentication"

@@ -98,8 +98,17 @@ fn evaluate(request: &Value) -> Result<Value> {
                 field(request, "policy")?,
                 field(request, "observed")?,
                 &links,
+                text(field(request, "management")?)?,
             )
         }
+        "dns-runtime-files" => Ok(json!(particleve::dns::runtime_files(
+            field(request, "network")?,
+            request
+                .get("ifindex")
+                .map(|v| u32::try_from(common::uint(v)?)
+                    .map_err(|_| Error::new("invalid fixture interface index")))
+                .transpose()?,
+        )?)),
         "timesync-assess" => particleve::timesync::assess(
             field(request, "policy")?,
             field(request, "reports")?,

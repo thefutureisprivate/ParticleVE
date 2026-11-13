@@ -11,7 +11,7 @@ reading, verification, and documentation responsibilities.
 | --- | --- |
 | [Development](Development.md) | Local builds, incremental work, tests, OBS coverage and reproduction, and safe cache cleanup. |
 | [Build and publication](Build.md) | Resolved image inputs, package provenance, signing, complete release publication, and build observation. |
-| [Host operations](Operations.md) | Installation, administration, storage, VM integration, OS maintenance, firmware, networking, and health reporting. |
+| [Host operations](Operations.md) | Installation, administration, storage, VM integration, OS maintenance, firmware, networking, Prometheus metrics, and health reporting. |
 | [Commissioning](Commissioning.md) | Installation-specific acceptance, recovery evidence, resource budgets, and enabling automatic OS maintenance. |
 | [Troubleshooting and recovery](Troubleshooting.md) | Boot, storage, administration, and maintenance recovery; data preservation and useful bug reports. |
 | [Release diagnostics](ReleaseDiagnostics.md) | Release preparation, signing evidence, lifecycle and failure checks, kernel acceptance, and hardware coverage. |

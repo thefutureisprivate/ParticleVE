@@ -104,6 +104,8 @@ behavior; ParticleVE's operating procedures are documented separately.
 - Run VMs through native systemd units, machined, machinectl, and QEMU/KVM.
 - Configure management networking with networkd, resolved, and nftables,
   including explicit VLAN and bridge ownership.
+- Export Prometheus host metrics with node_exporter, restricted to approved
+  sources on the management network.
 - Use systemd-homed accounts, hardware-backed FIDO2 SSH keys, run0/polkit
   administration, and independent owner recovery.
 - Prepare OS updates automatically and begin eligible maintenance at

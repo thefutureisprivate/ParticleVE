@@ -333,6 +333,36 @@ pub fn ssh_baseline() -> Result<Value> {
     }
     Ok(Value::Object(result))
 }
+/// Detect equivalent module/sysctl spellings when rejecting overrides.
+pub fn kernel_parameter_key(word: &str) -> String {
+    word.split('=')
+        .next()
+        .unwrap_or("")
+        .replace('/', ".")
+        .replace('-', "_")
+}
+/// The signed boot policy and the running kernel must agree on enforcement.
+pub fn kernel_boot_policy(cmdline: &str, enforcement: &str) -> Result<()> {
+    for expected in [
+        "module.sig_enforce=1",
+        "sysctl.kernel.unprivileged_bpf_disabled=1",
+        "sysctl.net.core.bpf_jit_harden=2",
+    ] {
+        let key = kernel_parameter_key(expected);
+        require(
+            cmdline
+                .split_whitespace()
+                .filter(|word| kernel_parameter_key(word) == key)
+                .collect::<Vec<_>>()
+                == [expected],
+            format!("signed early kernel policy differs: {key}"),
+        )?;
+    }
+    require(
+        matches!(enforcement.trim(), "Y" | "1"),
+        "kernel module-signature enforcement is not enabled",
+    )
+}
 pub fn kernel_baseline(root: &Path) -> Result<Value> {
     let mut trees = Vec::new();
     for entry in fs::read_dir(root.join("usr/lib/modules"))? {
@@ -727,8 +757,9 @@ pub fn live_baseline(root: &Path, evidence: bool, kcore: &Path) -> Result<Value>
         baseline["kernel"] == release,
         "running kernel differs from verified /usr",
     )?;
+    let cmdline = String::from_utf8(read_bounded("/proc/cmdline", 1024 * 1024)?)?;
     require(
-        String::from_utf8(read_bounded("/proc/cmdline", 1024 * 1024)?)?
+        cmdline
             .split_whitespace()
             .any(|s| s == "systemd.ssh_auto=no"),
         "automatic SSH socket generation is enabled",
@@ -749,10 +780,7 @@ pub fn live_baseline(root: &Path, evidence: bool, kcore: &Path) -> Result<Value>
     )?)?
     .trim()
     .to_owned();
-    require(
-        ["Y", "N", "1", "0"].contains(&enforcement.as_str()),
-        "unknown module-signature enforcement state",
-    )?;
+    kernel_boot_policy(&cmdline, &enforcement)?;
     let mut nested = Map::new();
     for entry in fs::read_dir("/sys/module")? {
         let entry = entry?;
@@ -822,6 +850,32 @@ pub fn live_baseline(root: &Path, evidence: bool, kcore: &Path) -> Result<Value>
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn kernel_boot_policy_requires_unique_signed_flags_and_enabled_module_enforcement() {
+        let policy = "module.sig_enforce=1 sysctl.kernel.unprivileged_bpf_disabled=1 sysctl.net.core.bpf_jit_harden=2";
+        for enabled in ["Y", "1", "Y\n"] {
+            kernel_boot_policy(policy, enabled).unwrap();
+        }
+        for disabled in ["N", "0", "", "unknown"] {
+            assert!(kernel_boot_policy(policy, disabled).is_err());
+        }
+        for word in policy.split_whitespace() {
+            let key = word.split('=').next().unwrap();
+            let alias = if let Some(path) = key.strip_prefix("sysctl.") {
+                format!("sysctl.{}", path.replace('.', "/"))
+            } else {
+                key.replace('_', "-")
+            };
+            for cmdline in [
+                policy.replace(word, ""),
+                format!("{policy} {key}=0"),
+                format!("{policy} {word}"),
+                format!("{policy} {alias}=0"),
+            ] {
+                assert!(kernel_boot_policy(&cmdline, "Y").is_err(), "{cmdline}");
+            }
+        }
+    }
     #[test]
     fn file_capability_revision_and_flags_are_strict() {
         let mut bytes = vec![0u8; 20];

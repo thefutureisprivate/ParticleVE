@@ -30,12 +30,13 @@ def ancillary(path):
     )
 
 
-def build_content(root, commit, path):
-    entry = git(root, "ls-tree", commit, "--", path).stdout
+def build_content(root, commit, path, *, git_command=None):
+    invoke = git_command or git
+    entry = invoke(root, "ls-tree", commit, "--", path).stdout
     if not entry:
         return None
     mode = entry.split()[0]
-    content = git(root, "show", f"{commit}:{path}").stdout
+    content = invoke(root, "show", f"{commit}:{path}").stdout
     if path == "pyproject.toml":
         project = tomllib.loads(content)
         # Ruff config affects source checks, not the installed Python package.
@@ -56,18 +57,19 @@ def build_content(root, commit, path):
     return mode, content
 
 
-def system_changes(root, base, candidate):
-    base = git(root, "rev-parse", "--verify", "--end-of-options", f"{base}^{{commit}}").stdout.strip()
-    candidate = git(
+def system_changes(root, base, candidate, *, git_command=None):
+    invoke = git_command or git
+    base = invoke(root, "rev-parse", "--verify", "--end-of-options", f"{base}^{{commit}}").stdout.strip()
+    candidate = invoke(
         root, "rev-parse", "--verify", "--end-of-options", f"{candidate}^{{commit}}"
     ).stdout.strip()
     require(
-        git(root, "merge-base", "--is-ancestor", base, candidate, check=False).returncode == 0,
+        invoke(root, "merge-base", "--is-ancestor", base, candidate, check=False).returncode == 0,
         "the build ref must be an ancestor of the checked candidate",
     )
     # Compare trees, not the last push: queued CI runs can combine several pushes.
     # Disabling rename detection ensures moving system code into docs still counts.
-    paths = git(root, "diff", "--name-only", "--no-renames", "-z", base, candidate, "--")
+    paths = invoke(root, "diff", "--name-only", "--no-renames", "-z", base, candidate, "--")
     return [
         path
         for path in paths.stdout.split("\0")
@@ -75,7 +77,8 @@ def system_changes(root, base, candidate):
         and not ancillary(path)
         and (
             not (path == "pyproject.toml" or (path.startswith(".obs/") and path.endswith("/_service")))
-            or build_content(root, base, path) != build_content(root, candidate, path)
+            or build_content(root, base, path, git_command=invoke)
+            != build_content(root, candidate, path, git_command=invoke)
         )
     ]
 

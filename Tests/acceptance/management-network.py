@@ -6,10 +6,13 @@ import errno
 import hashlib
 import json
 import os
+import pwd
 import select
+import shlex
 import stat
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from particleve.common import require
@@ -18,6 +21,11 @@ from particleve.versioning import image_version
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument(
     "--runtime-driver", type=Path, required=True, help="reviewed test-only Rust driver staged under /run"
+)
+parser.add_argument(
+    "--component-fixture",
+    action="store_true",
+    help="test components without claiming installed-image acceptance",
 )
 args = parser.parse_args()
 runtime_driver = args.runtime_driver.resolve(strict=True)
@@ -72,7 +80,7 @@ def validate_config(config):
     return config
 
 
-version = image_version()
+version = None if args.component_fixture else image_version()
 prefix = f"pvnet-{os.getpid()}-"
 namespaces = []
 root_links = set()
@@ -87,11 +95,22 @@ require(service["Service"]["ExecStart"] == "/usr/bin/particleve apply-firewall",
 config = validate_config(json.loads(Path("/etc/particleve/host.json").read_text()))
 management_name = config["network"]["management"]
 config["network"]["allowed_sources"] = ["10.233.0.2/32", "fd23:33:0::2/128"]
+config["network"]["addresses"] = ["10.233.0.1/30", "fd23:33:0::1/64"]
 validate_config(config)
 require(Path("/dev/kvm").exists(), "positive host-device visibility control is missing")
 guests_before = guest_inventory()
 firewall_before = subprocess.check_output(["nft", "--stateless", "list", "ruleset"], text=True)
 authority = None
+exporter_authority = None
+metrics_unit = f"particleve-metrics-acceptance-{os.getpid()}.service"
+metrics_service = configparser.ConfigParser(interpolation=None, strict=False)
+metrics_service.optionxform = str
+metrics_service.read(
+    [
+        "/usr/lib/systemd/system/prometheus-node-exporter.service",
+        "/usr/lib/systemd/system/prometheus-node-exporter.service.d/50-particleve.conf",
+    ]
+)
 settings = tempfile.TemporaryDirectory(prefix="particleve-firewall-acceptance-", dir="/run")
 
 
@@ -157,7 +176,8 @@ while True:
 """
 CLIENT = """import errno,json,socket,sys
 try:
- with socket.create_connection((sys.argv[1],int(sys.argv[2])),timeout=2) as s:
+ with socket.create_connection((sys.argv[1],int(sys.argv[2])),timeout=2,
+  source_address=(sys.argv[3],0) if sys.argv[3] else None) as s:
   received=b''
   while chunk:=s.recv(64):
    received+=chunk
@@ -165,6 +185,22 @@ try:
   assert received==b'particleve-acceptance-network'
  print(json.dumps({'connected':True}))
 except TimeoutError:print(json.dumps({'connected':False,'errno':errno.ETIMEDOUT}))
+except OSError as exc:print(json.dumps({'connected':False,'errno':exc.errno}))
+"""
+
+METRICS_CLIENT = """import errno,http.client,json,socket,sys
+source=sys.argv[2]
+try:
+ c=http.client.HTTPConnection(sys.argv[1],9100,timeout=2,
+  source_address=(source,0) if source else None)
+ try:
+  c.request('GET','/metrics');r=c.getresponse();body=r.read(8*1024*1024+1)
+  assert r.status==200 and len(body)<=8*1024*1024
+  for metric in (b'node_cpu_seconds_total{',b'node_memory_MemTotal_bytes ',b'node_uname_info{'):
+   assert metric in body,metric
+ finally:c.close()
+ print(json.dumps({'connected':True}))
+except (TimeoutError,socket.timeout):print(json.dumps({'connected':False,'errno':errno.ETIMEDOUT}))
 except OSError as exc:print(json.dumps({'connected':False,'errno':exc.errno}))
 """
 
@@ -211,13 +247,27 @@ def serve(name, ports):
 
 
 def probe(name, destination, port, allowed, purpose):
-    result = json.loads(inside(name, ["python3", "-c", CLIENT, destination, str(port)]))
+    source = ""
+    if name == "management":
+        source = "fd23:33:0::2" if ":" in destination else "10.233.0.2"
+    result = json.loads(inside(name, ["python3", "-c", CLIENT, destination, str(port), source]))
     require(result["connected"] == allowed, f"unexpected {purpose} result: {result}")
     if not allowed:
         require(
             result["errno"] == errno.ETIMEDOUT, f"probe failed without reaching the drop policy: {result}"
         )
     results.append({"case": purpose, "destination": destination, "port": port, "allowed": allowed})
+
+
+def metrics_probe(name, destination, allowed, purpose, source=""):
+    if name == "management" and not source:
+        # Adding the denied-source alias may change IPv6 source selection.
+        source = "fd23:33:0::2" if ":" in destination else "10.233.0.2"
+    result = json.loads(inside(name, ["python3", "-c", METRICS_CLIENT, destination, source]))
+    require(result["connected"] == allowed, f"unexpected {purpose} result: {result}")
+    if not allowed:
+        require(result["errno"] == errno.ETIMEDOUT, f"metrics did not reach the drop policy: {result}")
+    results.append({"case": purpose, "destination": destination, "port": 9100, "allowed": allowed})
 
 
 try:
@@ -230,6 +280,65 @@ try:
     connect("guest", "guest0", 1, 1)
     connect("destination", "uplink0", 2, 2)
     inside("host", ["sysctl", "-w", "net.ipv4.ip_forward=1", "net.ipv6.conf.all.forwarding=1"])
+    # Extra, routable management sources distinguish the source allowlist from
+    # ingress-interface filtering. Positive controls precede the rule load.
+    run(["ip", "-n", prefix + "management", "addr", "add", "10.233.0.9/32", "dev", "eth0"])
+    run(["ip", "-n", prefix + "management", "-6", "addr", "add", "fd23:33:0::9/128", "dev", "eth0", "nodad"])
+    run(["ip", "-n", prefix + "host", "route", "add", "10.233.0.9/32", "dev", management_name])
+    metrics_properties = [
+        "--property=" + key + "=" + value
+        for key, value in metrics_service["Service"].items()
+        if key not in {"ExecStart", "ExecReload", "EnvironmentFile"}
+    ]
+    run(
+        [
+            "systemd-run",
+            "--quiet",
+            "--collect",
+            "--service-type=exec",
+            "--unit=" + metrics_unit,
+            *metrics_properties,
+            "--property=NetworkNamespacePath=/run/netns/" + prefix + "host",
+            *shlex.split(metrics_service["Service"]["ExecStart"]),
+        ]
+    )
+    # Wait for readiness with a deadline; service execution alone does not mean
+    # the Go listener has bound. Do not hide a failed service behind retries.
+    deadline = time.monotonic() + 10
+    while ":9100 " not in inside("host", ["ss", "-H", "-lnt"]):
+        require(time.monotonic() < deadline, "node_exporter did not bind")
+        require(run(["systemctl", "is-active", metrics_unit]).strip() == "active", "exporter failed")
+        time.sleep(0.05)
+    pid = run(["systemctl", "show", metrics_unit, "--property=MainPID", "--value"]).strip()
+    status = dict(
+        line.split(":", 1) for line in Path("/proc", pid, "status").read_text().splitlines() if ":" in line
+    )
+    account = pwd.getpwnam("prometheus")
+    require(account.pw_uid != 0, "exporter account is privileged")
+    require(list(map(int, status["Uid"].split())) == [account.pw_uid] * 4, "wrong exporter UID")
+    require(list(map(int, status["Gid"].split())) == [account.pw_gid] * 4, "wrong exporter GID")
+    require(set(map(int, status["Groups"].split())) <= {account.pw_gid}, "extra exporter groups")
+    for field in ("CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb"):
+        require(int(status[field], 16) == 0, "exporter retained capabilities: " + field)
+    require(
+        status["NoNewPrivs"].strip() == "1" and status["Seccomp"].strip() == "2", "exporter sandbox absent"
+    )
+    exporter_authority = {
+        "uid": account.pw_uid,
+        "gid": account.pw_gid,
+        "capabilities": "all sets empty",
+        "no_new_privileges": True,
+        "seccomp": True,
+        "context": Path("/proc", pid, "attr/current").read_text().rstrip("\0\n"),
+    }
+    for management, other, source in (
+        ("10.233.0.1", "10.233.1.1", "10.233.0.9"),
+        ("fd23:33:0::1", "fd23:33:1::1", "fd23:33:0::9"),
+    ):
+        metrics_probe("management", management, True, "metrics listener positive control")
+        metrics_probe("management", management, True, "unapproved source positive control", source)
+        metrics_probe("guest", other, True, "guest listener positive control")
+        metrics_probe("management", other, True, "non-management destination positive control")
     # Reuse the installed service's authority. Only its namespace, read-only
     # configuration view, and post-test lifetime differ from the production unit.
     properties = [
@@ -289,14 +398,23 @@ try:
         probe("host", destination, 22, True, "denied-port listener positive control")
         probe("guest", destination, 443, True, "external forwarding allowed")
         probe("guest", destination, 22, False, "external forwarding denied")
+        metrics_probe("management", management, True, "authorized management metrics")
+        metrics_probe("management", host_guest, False, "non-management metrics destination denied")
+        metrics_probe("guest", host_guest, False, "guest metrics input denied")
+        metrics_probe("guest", management, False, "guest metrics management path denied")
+        source = "fd23:33:0::9" if ":" in management else "10.233.0.9"
+        metrics_probe("management", management, False, "unapproved management source denied", source)
+    for address in ("127.0.0.1", "::1"):
+        metrics_probe("host", address, False, "loopback metrics denied")
 finally:
-    if (
-        subprocess.check_output(
-            ["systemctl", "show", unit, "--property=LoadState", "--value"], text=True
-        ).strip()
-        != "not-found"
-    ):
-        run(["systemctl", "stop", unit])
+    for name in (metrics_unit, unit):
+        if (
+            subprocess.check_output(
+                ["systemctl", "show", name, "--property=LoadState", "--value"], text=True
+            ).strip()
+            != "not-found"
+        ):
+            run(["systemctl", "stop", name])
     for child in servers:
         child.terminate()
         child.wait(timeout=5)
@@ -319,8 +437,10 @@ print(
     json.dumps(
         {
             "image": version,
+            "scope": "component fixture" if args.component_fixture else "installed image",
             "network_acceptance": results,
             "firewall_loader_authority": authority,
+            "exporter_authority": exporter_authority,
             "service_sha256": hashlib.sha256(service_path.read_bytes()).hexdigest(),
             "temporary_topology_removed": True,
             "existing_guests_and_host_firewall_unchanged": True,

@@ -301,8 +301,8 @@ PYTHONPATH=Sources:. python3 Tools/check-publication.py --site .obs/site.json \
     --state-dir "$HOME/.local/state/particleve-publication"
 ```
 
-The observer directory must be private to that user. The check reads the declared
-GitHub branch, native OBS source revisions, the ParticleVE RPM, mkosi, fwupd-efi,
+The observer directory must be private to that user. The check reads `main`, the
+selected build branch, native OBS source revisions, the ParticleVE RPM, mkosi, fwupd-efi,
 kernel and image build targets, and project/package maintainer metadata.
 It verifies the feed's GPG-signed
 index and indexed manifest, then checks HTTPS availability and declared size for
@@ -310,6 +310,15 @@ all six artifacts. HTTP downgrade redirects are rejected. Availability checks do
 not replace full payload hashing and PE/verity verification by the normal release
 client. The check has no OBS/GitHub write credential and cannot promote, replace
 or withdraw a release.
+
+Host and image sources must match the selected commit exactly. Dependency
+sources may retain an earlier commit when their recipes and selected inputs are
+unchanged; the observer uses the same comparison as checked source refresh.
+It fetches public Git history into a temporary private repository using native
+Git and system CA trust. Unselected system changes on `main` remain pending
+until checked source selection advances. A failed source workflow for that exact
+development commit fails observation immediately; ancillary changes alone do
+not require a release or rebuild.
 
 A terminal or unknown build state fails immediately. A source/feed lag initially
 reports `pending`; its default grace is two hours from the observer's first

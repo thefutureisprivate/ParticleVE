@@ -80,7 +80,9 @@ class ConsoleTests(RustDriverTests):
         manifest = release()
         cmdline = (
             f"usrhash={manifest['usr_root_hash']} audit=1 enforcing=1 zswap.enabled=1 "
-            "systemd.ssh_auto=no kvm_intel.nested=0 kvm_amd.nested=0 rfkill.default_state=0 console=tty0"
+            "systemd.ssh_auto=no kvm_intel.nested=0 kvm_amd.nested=0 rfkill.default_state=0 "
+            "module.sig_enforce=1 sysctl.kernel.unprivileged_bpf_disabled=1 "
+            "sysctl.net.core.bpf_jit_harden=2 console=tty0"
         )
         profiles = []
         for index, item in enumerate([{"Profile": {"ID": "main"}}, *uki_profiles()]):
@@ -133,6 +135,10 @@ class ConsoleTests(RustDriverTests):
             "missing-signature",
             "unsigned-policy",
             "weaker-command-line",
+            "module-enforcement-override",
+            "missing-module-enforcement",
+            "module-enforcement-alias",
+            "jit-hardening-alias",
             "wrong-console",
             "kernel-override",
             "reordered",
@@ -151,6 +157,14 @@ class ConsoleTests(RustDriverTests):
                 last[".pcrsig"]["text"] = json.dumps(policy)
             elif change == "weaker-command-line":
                 last[".cmdline"]["text"] += " enforcing=0"
+            elif change == "module-enforcement-override":
+                last[".cmdline"]["text"] += " module.sig_enforce=0"
+            elif change == "missing-module-enforcement":
+                last[".cmdline"]["text"] = last[".cmdline"]["text"].replace("module.sig_enforce=1", "")
+            elif change == "module-enforcement-alias":
+                sections[".cmdline"]["text"] += " module.sig-enforce=0"
+            elif change == "jit-hardening-alias":
+                sections[".cmdline"]["text"] += " sysctl.net/core/bpf_jit_harden=0"
             elif change == "wrong-console":
                 last[".cmdline"]["text"] = last[".cmdline"]["text"].replace("ttyS3", "ttyS0")
             elif change == "kernel-override":

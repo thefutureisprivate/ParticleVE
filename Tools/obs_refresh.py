@@ -24,19 +24,20 @@ API = "https://api.opensuse.org"
 OID = re.compile(r"[0-9a-f]{40}")
 
 
-def component_changed(root, package, previous, candidate):
+def component_changed(root, package, previous, candidate, *, git_command=None):
+    invoke = git_command or git
     if previous == candidate:
         return False
     if package == "particleve":
         return True
-    if git(root, "cat-file", "-e", previous + "^{commit}", check=False).returncode:
+    if invoke(root, "cat-file", "-e", previous + "^{commit}", check=False).returncode:
         return True
     # Kernel generation binds every extracted input in .obs/kernel; the source
     # checks require that generated directory to match the helpers and pins.
     paths = [".obs/" + package]
     if package in {"mkosi", "fwupd-efi"}:
         paths.extend(("Sources/particleve/package_sources.py", "sources.lock.json"))
-    difference = git(root, "diff", "--quiet", previous, candidate, "--", *paths, check=False)
+    difference = invoke(root, "diff", "--quiet", previous, candidate, "--", *paths, check=False)
     require(difference.returncode in (0, 1), "OBS component source comparison failed")
     return difference.returncode == 1
 

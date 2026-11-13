@@ -24,6 +24,7 @@ supported interface for externally configured VMs. Use
 - [Supervised firmware maintenance](#supervised-firmware-maintenance)
 - [Bootloader trials and fallback](#bootloader-trials-and-fallback)
 - [Trust rotation and image retirement](#trust-rotation-and-image-retirement)
+- [Prometheus host metrics](#prometheus-host-metrics)
 - [External health reporting](#external-health-reporting)
 
 ## Configuration and recovery
@@ -98,12 +99,19 @@ and correct configuration suffice for VM startup.
 DNS uses resolved with strict DNS-over-TLS and DNSSEC. Every upstream has a
 numeric address and explicit certificate hostname. Certificates must chain to
 the OS trust store; no runtime private-DNS CA override or opportunistic transport
-is supported. Public resolvers handle the root route. Private resolvers have
-explicit per-link routing domains, no default route, and optional DNSSEC negative
-anchors confined to those domains. Resolved's documented built-in reserved/private
-negative anchors remain explicit in effective-policy checks. LLMNR and mDNS are
-disabled. Native machine status detects endpoint, transport, routing, DNSSEC and
-discovery drift independently of network reachability.
+is supported. Public resolvers handle the root route. Private resolvers use the
+statically addressed management interface, explicit routing domains, no default
+route, and optional DNSSEC negative anchors confined to those domains. Other
+declared interfaces cannot receive private DNS policies. Native DNS delegates
+retain those private routes even when the management interface loses all
+addresses or carrier; private failures therefore stay within the private route.
+The image-owned `particleve-dns-policy.service` prepares read-only resolved
+configuration before resolution starts. If an owner recreates the management
+interface, restart that service to bind the new interface index. Resolved's
+documented built-in reserved/private negative anchors remain explicit alongside
+approved private exceptions. LLMNR and mDNS are disabled. Native machine status
+requires active private link and delegate scopes and detects endpoint, transport,
+routing, DNSSEC and discovery drift independently of network reachability.
 
 A clock outside certificate validity can prevent both DoT and NTS bootstrap.
 Use the independent recovery console or numeric management address to correct
@@ -125,6 +133,7 @@ the bound host settings and sends it directly to nftables. Generic firewall fixe
 therefore follow the OS without replacing persistent installation settings.
 The host-input policy allows DHCP requests on native `vt-*` and broker `ns-*` TAPs;
 management SSH remains restricted to the configured management sources.
+See [Prometheus host metrics](#prometheus-host-metrics) for management-only scraping.
 Install the `particleve` host RPM and its matching `particleve-initrd` dependency
 from the owner-trusted OBS repository. The host package includes public
 release-verification material. Authenticate the repository key independently
@@ -646,6 +655,18 @@ validation. `userfaultfd` user-mode-only requests remain possible under the
 selected kernel-fault restriction, and own-process userspace perf remains
 available under Fedora's asserted value `2`.
 
+Unprivileged BPF creation is locked off with
+`kernel.unprivileged_bpf_disabled=1` until reboot. Trusted systemd BPF and classic
+seccomp remain available. `net.core.bpf_jit_harden=2` also hardens privileged JIT
+programs and suppresses their symbol export. Both values are applied through the
+signed command line before PID 1 and reapplied by the shared initrd/host policy.
+Do not try to switch the BPF lock back to `0` or `2` in a running boot.
+Kernel module signatures are explicitly required from early boot by
+`module.sig_enforce=1`; only modules accepted by the reviewed kernel signing
+authority may load. Independent recovery uses the signed drivers supplied by
+its own reviewed image. A diagnostic image needing another module must arrange
+approved signing before boot rather than disabling verification at runtime.
+
 Kexec is either compiled out or disabled irreversibly during a boot with
 `kernel.kexec_load_disabled=1`. Assessment checks the interface against the
 verified kernel configuration; a compiled-out sysctl is reported as absent.
@@ -797,10 +818,18 @@ slots intact. Existing boot counts and non-OS ESP files are preserved. At 04:30 
 maintenance service rechecks eligibility before touching guests. It temporarily
 inhibits template starts/restarts, inventories actual units/machines/processes,
 sends ACPI poweroff and waits for actual process exits. Refusal, late/unexpected
-restarts, firmware staging or failed reboot queuing cancels activation. Only VMs
-stopped by this attempt are restored; failed restoration is durable and reported.
+restarts, firmware staging or a refusal before reboot enqueue cancels activation.
+Only VMs stopped by this attempt are restored; failed restoration is durable and reported.
 No VM is force-killed. After a successful host reboot external startup policy
 applies; the coordinator does not enable or restore the last running set.
+
+Reboot intent is durable before enqueue. If the request may have been accepted
+but its result cannot be confirmed, activation retains the selected boot and VM
+journals. It blocks boot-default changes and `recover-vms` in that same boot.
+Keep the host quiescent and use the independent console to inspect queued jobs
+and firmware selection. Boot assessment reconciles the retained intent after an
+owner-supervised reboot; an observation or journal failure alone never triggers
+ordinary rollback beneath a possibly queued reboot.
 
 Use `particleve recover-vms` to reconcile an interrupted attempt. Inspect reported
 late exits/restoration failures before retrying. Boot health assessment gates
@@ -816,6 +845,13 @@ before retaining a contract across an upstream change; format-affecting changes
 must advance the appropriate interface and retain explicit compatibility review.
 The old package-version contract and the supervised-unit contract differ, so an
 older image cannot silently approve this transition or rewrite retained state.
+
+Rejected UKIs have durable per-ESP progress in `quarantine.json`, exposed by
+`particleve status`. A present but inaccessible or read-only ESP retains a
+failure and blocks completion until retry verifies the fallback default and
+removes every rejected boot entry. An absent, storage-quarantined member retains
+an isolated obligation for its return. This ESP work never readmits a storage
+member or authorizes its stale writable replicas.
 
 Before commissioning, supervised update acceptance uses `particleve prepare
 --manual`, then `particleve activate --manual`. Manual activation starts immediately
@@ -863,8 +899,12 @@ The metadata conversion also restores the system profile. Keep the owner session
 alive until balance completes, then recheck allocation profiles and device errors.
 `finalize-replacement` refuses completion until replacement/resync finish and all
 allocated Btrfs data/metadata/system profiles are RAID1 and device errors are
-clear. Only then does it readmit the freshly erased identities in firmware and
-restore the stopped VM set. Scrub, balance and healthy profiles alone never
+clear. It then authenticates the release recorded in the replacement journal
+from the local cache and reconciles OS/verity artifacts, UKI, proven fixed
+loaders, boot default and reachable firmware entry on the replacement. An interrupted
+ESP write is retried before journal removal. Only complete boot readback permits
+readmitting the freshly erased identities in firmware and restoring the stopped
+VM set. Scrub, balance and healthy profiles alone never
 authorize an old NOCOW replica. Interrupted replacement
 requires owner review of its durable journal. Test both independent boot paths
 and run `enroll-tpm` under maintenance to refresh enrollment evidence for the
@@ -991,6 +1031,23 @@ See the [systemd enrollment semantics](https://www.freedesktop.org/software/syst
 and [kernel module-signing policy](https://www.kernel.org/doc/html/latest/admin-guide/module-signing.html).
 The [release diagnostic matrix](ReleaseDiagnostics.md#trust-transition-acceptance)
 defines the evidence required for this procedure.
+
+## Prometheus host metrics
+
+Fedora's `prometheus-node-exporter.service` exposes host metrics at
+`http://MANAGEMENT_ADDRESS:9100/metrics` (use brackets around IPv6 addresses).
+Configure the external Prometheus server to scrape that endpoint. Its source
+address must be in `network.allowed_sources`, the same allowlist used for SSH.
+Nftables permits port 9100 only when traffic arrives on `network.management`
+for one of `network.addresses`; other sources, guest interfaces, non-management
+destination addresses and loopback are denied for both IPv4 and IPv6. This
+check precedes established-connection acceptance. The service starts only after
+the firewall succeeds and stops if that firewall service is stopped. Starting
+or restarting the firewall also starts the exporter on existing installations.
+The exporter runs under Fedora's unprivileged `prometheus` account with a read-only
+filesystem view; image-owned arguments disable writable textfile metrics.
+Scraping uses HTTP within the trusted management network or VPN. No exporter
+credentials, separate scrape allowlist or Prometheus server run on the host.
 
 ## External health reporting
 

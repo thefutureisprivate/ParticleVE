@@ -3,7 +3,8 @@ Description=ParticleVE host management input filtering
 DefaultDependencies=no
 After=local-fs.target
 Before=network-pre.target sshd.socket shutdown.target
-Wants=network-pre.target
+# Pull in metrics on existing installations as well as newly preset roots.
+Wants=network-pre.target prometheus-node-exporter.service
 Conflicts=shutdown.target
 
 [Service]
