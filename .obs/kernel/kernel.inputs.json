@@ -537,7 +537,7 @@
     },
     "kernel.recipe": {
       "algorithm": "sha256",
-      "digest": "0e6967e6227a13c248b29e160646f210822b13655761c3bb0032f2e27e7492d2",
+      "digest": "4b75739df8bb66cb12a6d8946302691ceeb41ad06055c9e92d0a580a9dcdf843",
       "mode": 420
     },
     "kernel.sbat.template": {
@@ -547,7 +547,7 @@
     },
     "kernelbuild.py": {
       "algorithm": "sha256",
-      "digest": "738ee70c9f38ae733a6f33463ef156d1af130851710a0c43ea5222069c35dd27",
+      "digest": "19390322d1b4c994d62b59fa60f3c41c2e6c32521214eb1dbb742b10cdc90cee",
       "mode": 420
     },
     "kernelpayload.py": {

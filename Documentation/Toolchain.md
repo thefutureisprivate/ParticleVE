@@ -119,6 +119,15 @@ run again before Fedora's recipe executes any source script.
 Fedora's log and patch-declaration lookups use that authenticated original recipe,
 independently of the worker's spec directory and OBS's counter/VCS rewrites.
 
+The kernel's build-only `particleve-kernel-build` dependency supplies a PAM
+`nofile` limit of 65536 for OBS's `abuild` account. It is installed before OBS
+opens the build session and is excluded from host and initrd package selections.
+Fedora's `linkdupes` raises its soft limit itself but retains open files while
+comparing the large kernel source tree, so the inherited hard limit must also
+allow that workload. Preparation checks the limit before compilation. Local
+builders must provide the same limit. Fedora's debug normalization, SELinux-aware
+deduplication and signing steps remain enabled.
+
 Kernel packaging retains Fedora's compatibility HMAC files using Python's native
 userspace SHA-512 HMAC with hmaccalc's published key and checksum format. It does
 not require the build worker's AF_ALG interface. Native equivalence checks cover

@@ -166,6 +166,19 @@ def adapt_spec(spec, manifest):
     ):
         spec = replace_once(spec, "sha512hmac " + arguments, "python3 %{SOURCE5010} --hmac-file " + arguments)
     spec = replace_once(spec, "redhat-rpm-config, hmaccalc, bison", "redhat-rpm-config, bison")
+    # linkdupes raises its own soft limit, but cannot exceed the hard limit
+    # inherited through OBS's PAM session. Reject an undersized worker before
+    # compilation; the kernel-only build dependency supplies that PAM policy.
+    spec = replace_once(
+        spec,
+        "%prep\n",
+        "%prep\n"
+        "ulimit -Sn 65536 || {\n"
+        "    echo 'Kernel packaging requires a hard nofile limit of at least 65536; "
+        "install particleve-kernel-build before opening the build session.' >&2\n"
+        "    exit 1\n"
+        "}\n",
+    )
     # baseonly removes extra kernel variants/tools, not DWARF/BTF generation.
     spec = "%global _with_baseonly 1\n" + spec
     for number, name in (

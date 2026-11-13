@@ -188,7 +188,8 @@ Source5010: kernelpayload.py
     require(spec.count("Source4002: gating.yaml\n") == 1, "Fedora source declarations changed")
     spec = spec.replace("Source4002: gating.yaml\n", "Source4002: gating.yaml\n\n" + declaration)
     spec = (
-        "# needssslcertforbuild\nBuildRequires: pesign-obs-integration >= 10\nBuildRequires: pesign\n" + spec
+        "# needssslcertforbuild\nBuildRequires: pesign-obs-integration >= 10\nBuildRequires: pesign\n"
+        "BuildRequires: particleve-kernel-build\n" + spec
     )
     # Native Fedora debug/strip steps still run. Its first RPM contains .ko
     # files; the standard OBS continuation signs those bodies, then compresses

@@ -1,7 +1,7 @@
 # Native OBS rpm flavor; the default build consumes these RPMs for the image.
 %global _buildshell /bin/bash
 Name:           particleve
-Version:        45.0.3.3
+Version:        45.0.3.4
 Release:        1%{?dist}
 Summary:        ParticleVE host installation and maintenance coordinator
 # Project sources are LGPL; statically linked crates select MIT where dual
@@ -100,6 +100,17 @@ Requires:       coreutils
 Final artifact verification and metadata assembly within mkosi's native OBS
 signing stages. Private signing material stays in OBS.
 
+%package -n particleve-kernel-build
+License:        LGPL-2.1-or-later
+Summary:        ParticleVE kernel build-worker resource policy
+BuildArch:      noarch
+Requires:       pam
+
+%description -n particleve-kernel-build
+PAM file-descriptor limits for OBS's abuild account. This build-only package
+keeps Fedora's kernel debug processing and duplicate-file processing within
+the worker's resource contract.
+
 %description
 Explicit-target installation, two-disk OS update transactions and supervised
 firmware-maintenance inhibition for the ParticleVE ParticleOS profile.
@@ -167,6 +178,8 @@ install -m0644 Sources/particleve/__init__.py Sources/particleve/common.py Sourc
 install -m0644 .obs/kernel/kernel.inputs.json %{buildroot}%{_prefix}/lib/particleve-build/
 install -D -m0755 Tools/obs-postoutput %{buildroot}%{_libexecdir}/particleve-obs-postoutput
 install -m0644 Sources/particleve/runtime-policy.json %{buildroot}%{_prefix}/lib/particleve-build/particleve/
+install -D -m0644 .obs/kernel/90-particleve-kernel-build.conf \
+    %{buildroot}%{_sysconfdir}/security/limits.d/90-particleve-kernel-build.conf
 
 %files
 %dir %{_prefix}/lib/particleve
@@ -201,6 +214,10 @@ install -m0644 Sources/particleve/runtime-policy.json %{buildroot}%{_prefix}/lib
 %license LICENSE
 %{_prefix}/lib/particleve-build
 %{_libexecdir}/particleve-obs-postoutput
+
+%files -n particleve-kernel-build
+%license LICENSE
+%{_sysconfdir}/security/limits.d/90-particleve-kernel-build.conf
 
 %changelog
 * Tue Nov 10 2026 ParticleVE maintainers <thefutureisprivate@users.noreply.github.com> - 45.0.2.2-1

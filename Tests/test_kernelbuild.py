@@ -1,5 +1,7 @@
 import hashlib
 import os
+import resource
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,7 +19,7 @@ from particleve.kernelbuild import (
 
 
 class KernelSourceTests(unittest.TestCase):
-    def test_fedora_patch_checks_use_the_authenticated_recipe_across_worker_layouts(self):
+    def recipe(self):
         version = "7.3.3"
         names = [
             "linux-" + version + ".tar.xz",
@@ -42,7 +44,12 @@ class KernelSourceTests(unittest.TestCase):
         spec += "sha512hmac $InstallName-$KernelVer\n"
         spec += "sha512hmac $InstallName-virt.efi\n"
         spec += "sha512hmac $(basename $DtbloaderImage)\n"
+        spec += "%prep\ntrue\n%build\ntrue\n"
         identity = {"lookaside_sha512": dict.fromkeys(names, "a" * 128)}
+        return spec, identity
+
+    def test_fedora_patch_checks_use_the_authenticated_recipe_across_worker_layouts(self):
+        spec, identity = self.recipe()
         adapted = adapt_spec(spec, identity)
         self.assertEqual(adapted.count("%{SOURCE5003}"), 2)
         self.assertNotIn("%{_specdir}", adapted)
@@ -53,6 +60,49 @@ class KernelSourceTests(unittest.TestCase):
             adapt_spec(spec.replace("sha512hmac $InstallName-virt.efi\n", ""), identity)
         with self.assertRaisesRegex(ValueError, "lookup boundary changed"):
             adapt_spec(spec.replace("patch %{_specdir}/${RPM_PACKAGE_NAME}.spec\n", ""), identity)
+
+    def run_preparation(self, hard):
+        spec, identity = self.recipe()
+        preparation = adapt_spec(spec, identity).split("%prep\n", 1)[1].split("%build\n", 1)[0]
+        script = preparation + 'echo "ready $(ulimit -Sn) $(ulimit -Hn)"\n'
+
+        def limit():
+            resource.setrlimit(resource.RLIMIT_NOFILE, (min(1024, hard), hard))
+
+        return subprocess.run(
+            ["bash", "-c", script],
+            preexec_fn=limit,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+
+    def hard_limit(self):
+        hard = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
+        return 131072 if hard == resource.RLIM_INFINITY else hard
+
+    def test_kernel_preparation_rejects_insufficient_hard_limits_before_building(self):
+        # An unprivileged OBS test process cannot raise its inherited hard limit.
+        for hard in sorted({min(1024, self.hard_limit()), min(65535, self.hard_limit())}):
+            with self.subTest(hard=hard):
+                result = self.run_preparation(hard)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("ready", result.stdout)
+                self.assertIn("install particleve-kernel-build", result.stderr)
+        spec, identity = self.recipe()
+        for changed in (spec.replace("%prep\n", ""), spec + "%prep\n"):
+            with self.assertRaisesRegex(ValueError, "recipe boundary changed"):
+                adapt_spec(changed, identity)
+
+    def test_kernel_preparation_uses_available_budget_without_raising_the_hard_limit(self):
+        if self.hard_limit() < 65536:
+            self.skipTest("positive build-limit probe requires an inherited hard nofile limit >=65536")
+        for hard in sorted({65536, min(131072, self.hard_limit())}):
+            with self.subTest(hard=hard):
+                result = self.run_preparation(hard)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, f"ready 65536 {hard}\n")
 
     def policy(self):
         return {

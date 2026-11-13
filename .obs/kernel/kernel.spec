@@ -1,6 +1,7 @@
 # needssslcertforbuild
 BuildRequires: pesign-obs-integration >= 10
 BuildRequires: pesign
+BuildRequires: particleve-kernel-build
 %global _with_baseonly 1
 # All Global changes to build and install go here.
 # Per the below section about __spec_install_pre, any rpm
@@ -2048,6 +2049,10 @@ Prebuilt default kernel image with auto DTB selection for ARM64 UEFI devices.
 python3 %{SOURCE5000} --prepare-sources %{_sourcedir} --manifest %{SOURCE5001}
 test -s %{_sourcedir}/_projectcert.crt
 openssl x509 -in %{_sourcedir}/_projectcert.crt -noout
+ulimit -Sn 65536 || {
+    echo 'Kernel packaging requires a hard nofile limit of at least 65536; install particleve-kernel-build before opening the build session.' >&2
+    exit 1
+}
 %{log_msg "Start of prep stage"}
 
 %{log_msg "Sanity checks"}
