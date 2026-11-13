@@ -85,9 +85,11 @@ make summary
 PYTHONPATH=Sources:. python3 Tools/obs-project.py --site .obs/site.json --summary build/summary.json
 ```
 
-`make summary` resolves and checks the three build trees; it does not build an
-image. The configuration tools write public generated inputs. Review those
-changes before publishing the source revision that OBS will build.
+`make summary` resolves and checks the three build trees and requires the tracked
+OBS dependency recipe to match them. It does not build an image or regenerate
+tracked files. If dependencies changed, use its new `build/summary.json` with
+`Tools/obs-project.py` as shown above, then rerun `make summary`. Review generated
+inputs before publishing the source revision that OBS will build.
 
 Source fetching and upstream-tag checks use native Git with the distribution CA
 bundle and directory. They enforce certificate verification, ignore per-user Git
@@ -143,6 +145,12 @@ check the exact generated commit. Dependent images rebuild through OBS's normal 
 Kernel updates retain Fedora's version cadence and use the ordinary signed-image
 publication and guarded host activation path. Failed checks leave the last usable
 release intact.
+
+The kernel source package also builds the independent `kernel:build-policy`
+flavor. Its small `particleve-kernel-build` RPM sets the worker's required PAM
+resource limit and is absent from deployed images. It does not inherit the host
+RPM's version or build counters. Host-only source changes therefore reuse the
+kernel; changed kernel inputs or relevant build dependencies still rebuild it.
 
 Kernel identity is recorded after Fedora's debug and strip transformations.
 Image and final-signing checks compare the reviewed source manifest, resolved
@@ -303,7 +311,10 @@ PYTHONPATH=Sources:. python3 Tools/check-publication.py --site .obs/site.json \
 
 The observer directory must be private to that user. The check reads `main`, the
 selected build branch, native OBS source revisions, the ParticleVE RPM, mkosi, fwupd-efi,
-kernel and image build targets, and project/package maintainer metadata.
+kernel, its build-policy flavor when present, and image build targets, and
+project/package maintainer metadata. A failed worker-policy build is reported
+directly, including while the main kernel target waits on it.
+Once observed, a missing flavor also fails observation.
 It verifies the feed's GPG-signed
 index and indexed manifest, then checks HTTPS availability and declared size for
 all six artifacts. HTTP downgrade redirects are rejected. Availability checks do

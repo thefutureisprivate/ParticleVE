@@ -122,6 +122,10 @@ independently of the worker's spec directory and OBS's counter/VCS rewrites.
 The kernel's build-only `particleve-kernel-build` dependency supplies a PAM
 `nofile` limit of 65536 for OBS's `abuild` account. It is installed before OBS
 opens the build session and is excluded from host and initrd package selections.
+The independent [`kernel:build-policy` flavor](../.obs/kernel/build-policy.spec)
+owns its version and build counters, so a ParticleVE host release does not update
+this kernel dependency. Epoch 1 supersedes the former host-versioned subpackage;
+subsequent policy versions advance only when the worker policy changes.
 Fedora's `linkdupes` raises its soft limit itself but retains open files while
 comparing the large kernel source tree, so the inherited hard limit must also
 allow that workload. Preparation checks the limit before compilation. Local

@@ -84,6 +84,9 @@ def service_definition(lock, fedora_names, repository):
             ".obs/kernel/kernel.spec",
             ".obs/kernel/kernel-local",
             ".obs/kernel/kernel.inputs.json",
+            ".obs/kernel/_multibuild",
+            ".obs/kernel/build-policy.spec",
+            ".obs/kernel/90-particleve-kernel-build.conf",
             "Sources/particleve/kernelbuild.py",
             "Sources/particleve/kernelpayload.py",
         ),
@@ -91,6 +94,7 @@ def service_definition(lock, fedora_names, repository):
             ".obs/kernel/kernel.spec": "kernel.recipe",
             ".obs/kernel/policy.json": "kernel-policy.json",
             ".obs/kernel/fedora-builtin.pem": "fedora-builtin.pem",
+            "LICENSE": "particleve.LICENSE",
         },
     )
     scm(

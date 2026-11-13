@@ -8,11 +8,15 @@
     <param name="extract">.obs/kernel/kernel.spec</param>
     <param name="extract">.obs/kernel/kernel-local</param>
     <param name="extract">.obs/kernel/kernel.inputs.json</param>
+    <param name="extract">.obs/kernel/_multibuild</param>
+    <param name="extract">.obs/kernel/build-policy.spec</param>
+    <param name="extract">.obs/kernel/90-particleve-kernel-build.conf</param>
     <param name="extract">Sources/particleve/kernelbuild.py</param>
     <param name="extract">Sources/particleve/kernelpayload.py</param>
     <param name="extract-rename">.obs/kernel/kernel.spec:kernel.recipe</param>
     <param name="extract-rename">.obs/kernel/policy.json:kernel-policy.json</param>
     <param name="extract-rename">.obs/kernel/fedora-builtin.pem:fedora-builtin.pem</param>
+    <param name="extract-rename">LICENSE:particleve.LICENSE</param>
   </service>
   <service name="obs_scm">
     <param name="scm">git</param>

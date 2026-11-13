@@ -168,6 +168,7 @@ def assess(
     upstreams=None,
     source_matches=None,
     selection=None,
+    kernel_build_policy=None,
 ):
     """A pending build must become stale even when it never reports a terminal failure."""
     integer(grace_seconds, 60, "publication grace seconds")
@@ -217,11 +218,15 @@ def assess(
                 **selection,
             }
         )
-    for name in PACKAGES:
-        code = statuses[name]
+    build_statuses = dict(statuses)
+    if kernel_build_policy is not None:
+        build_statuses["kernel-build-policy"] = kernel_build_policy
+    for name, code in build_statuses.items():
         require(re.fullmatch(r"[a-z_]{1,32}", code), "invalid OBS build status")
         state = "pass" if code in {"succeeded", "published"} else "pending" if code in PENDING else "fail"
         checks.append({"name": name + ":build", "result": state, "code": code})
+        if name not in PACKAGES:
+            continue
         checks.append(
             {
                 "name": name + ":source",
@@ -357,8 +362,8 @@ def collect(site, keyring, certificate, *, grace_seconds=7200, previous=None):
         url = f"https://api.github.com/repos/{repository[1]}/actions/workflows/check.yml/runs?head_sha={development['sha']}&event=push&branch=main&per_page=1"
         workflow = source_workflow(json.loads(request(url)), development["sha"])
     builds = ElementTree.fromstring(responses["builds"])
-    statuses = {}
-    for label, (repository_name, package, _) in PACKAGES.items():
+
+    def build_status(repository_name, package, *, required=True):
         matches = [
             status.attrib["code"]
             for result in builds.findall("result")
@@ -366,8 +371,19 @@ def collect(site, keyring, certificate, *, grace_seconds=7200, previous=None):
             for status in result.findall("status")
             if status.get("package") == package
         ]
-        require(len(matches) == 1, f"missing or ambiguous build observation: {package}")
-        statuses[label] = matches[0]
+        require(
+            len(matches) == 1 or (not required and not matches),
+            f"missing or ambiguous build observation: {package}",
+        )
+        return matches[0] if matches else None
+
+    statuses = {name: build_status(repo, package) for name, (repo, package, _) in PACKAGES.items()}
+    # Earlier selected sources have no worker-policy flavor. Once OBS exposes
+    # it, observe its own failure/deadline rather than only the blocked kernel.
+    worker_observed = previous is not None and any(
+        check["name"] == "kernel-build-policy:build" for check in previous["checks"]
+    )
+    kernel_build_policy = build_status("Fedora_45", "kernel:build-policy", required=worker_observed)
     manifest = signed_manifest(feed, keyring, certificate)
     with ThreadPoolExecutor(max_workers=4) as workers:
         pending = {
@@ -394,6 +410,7 @@ def collect(site, keyring, certificate, *, grace_seconds=7200, previous=None):
             "system_changes": inputs["system_changes"],
             "workflow": workflow,
         },
+        kernel_build_policy=kernel_build_policy,
     )
     result["claims"] = (
         "OBS-signed metadata and HTTPS availability; payload bytes require normal release authentication"

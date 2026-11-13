@@ -42,3 +42,4 @@ summary:
 	mkdir -p build
 	build/sources/mkosi/bin/mkosi --json summary > build/summary.json
 	$(PYTHON) Tools/check-build.py --summary build/summary.json
+	$(PYTHON) Tools/obs-project.py --site .obs/site.json --summary build/summary.json --check

@@ -77,7 +77,7 @@ release procedure for final publication and signed-image acceptance.
 | Build or check | Command | Output |
 | --- | --- | --- |
 | Source checks | `make check` | Rust and Python tests, compiled contract checks, lint, formatting, shell syntax and version consistency. |
-| Resolved image configuration | `make summary` | `build/summary.json`. |
+| Resolved image configuration and OBS dependency consistency | `make summary` | `build/summary.json`; rejects stale tracked dependencies without rewriting them. |
 | Local signed image | `build/sources/mkosi/bin/mkosi --force build` | `mkosi.output/ParticleVE_<version>_x86-64*`. |
 | OBS dependency configuration | `PYTHONPATH=Sources:. python3 Tools/obs-project.py --site .obs/site.json --summary build/summary.json` | `build/obs-project/` and `.obs/fedora/x86-64/mkosi.conf`. |
 | Image and ParticleVE RPM sources | `PYTHONPATH=Sources:. python3 Tools/prepare-obs.py --tree HEAD` | A fresh `build/obs-packages/particleve/`, including source and locked vendor archives. |

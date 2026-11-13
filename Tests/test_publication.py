@@ -66,7 +66,7 @@ class PublicationTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(Error):
                 source_workflow({"total_count": 1, "workflow_runs": [run | {key: value}]}, "a" * 40)
 
-    def test_one_source_package_can_publish_rpms_and_the_image_independently(self):
+    def observe_builds(self, worker_statuses=(), *, previous=None):
         site = read_json(Path(__file__).resolve().parent.parent / ".obs/site.json")
         owner = '<person userid="' + site["obs_user"] + '" role="maintainer"/>'
         builds = (
@@ -77,7 +77,9 @@ class PublicationTests(unittest.TestCase):
                 for repository, package, _ in PACKAGES.values()
             )
             + '<result repository="Fedora_45" arch="x86_64">'
-            '<status package="particleve" code="excluded"/></result>' + "</resultlist>"
+            '<status package="particleve" code="excluded"/>'
+            + "".join(f'<status package="kernel:build-policy" code="{code}"/>' for code in worker_statuses)
+            + "</result></resultlist>"
         )
         manifest = {"sources": {"particleve": "a" * 40}, "version": "45.0.1.1-87.2", "artifacts": {}}
 
@@ -97,7 +99,11 @@ class PublicationTests(unittest.TestCase):
             patch("Tools.publication.signed_manifest", return_value=manifest),
             patch("Tools.publication.kernel_freshness.collect", return_value=self.upstreams()),
         ):
-            result = collect(site, "unused", "unused")
+            result = collect(site, "unused", "unused", previous=previous)
+        return result, requests
+
+    def test_one_source_package_can_publish_rpms_and_the_image_independently(self):
+        result, requests = self.observe_builds()
         self.assertEqual(result["result"], "pass")
         self.assertIn("kernel:source", {check["name"] for check in result["checks"]})
         self.assertTrue(
@@ -108,6 +114,46 @@ class PublicationTests(unittest.TestCase):
         )
         self.assertFalse(any("/image/" in call.args[0] for call in requests.call_args_list))
         self.assertFalse(any("/particleve:rpm/" in call.args[0] for call in requests.call_args_list))
+
+    def test_kernel_worker_policy_failure_is_not_hidden_by_other_successful_builds(self):
+        for code, expected in (("succeeded", "pass"), ("failed", "fail"), ("building", "pending")):
+            with self.subTest(code=code):
+                result, _ = self.observe_builds((code,))
+                self.assertEqual(result["result"], expected)
+                worker = next(c for c in result["checks"] if c["name"] == "kernel-build-policy:build")
+                self.assertEqual(worker["code"], code)
+        with self.assertRaisesRegex(Error, "ambiguous build observation: kernel:build-policy"):
+            self.observe_builds(("succeeded", "failed"))
+        observed, _ = self.observe_builds(("succeeded",))
+        with self.assertRaisesRegex(Error, "missing or ambiguous build observation: kernel:build-policy"):
+            self.observe_builds(previous=observed)
+
+    def test_kernel_worker_policy_deadline_survives_build_to_signing_transition(self):
+        now = datetime(2026, 11, 13, tzinfo=UTC)
+        arguments = (
+            "a" * 40,
+            dict.fromkeys(PACKAGES, "a" * 40),
+            dict.fromkeys(PACKAGES, "succeeded"),
+            {"sources": {"particleve": "a" * 40}, "version": "45.0.3.5-1.1"},
+        )
+        initial = assess(*arguments, now=now, grace_seconds=7200, kernel_build_policy="building")
+        self.assertEqual(initial["result"], "pending")
+        expired = assess(
+            *arguments,
+            now=now + timedelta(seconds=7201),
+            grace_seconds=7200,
+            kernel_build_policy="signing",
+            previous=initial,
+        )
+        self.assertEqual(expired["result"], "fail")
+        recovered = assess(
+            *arguments,
+            now=now + timedelta(seconds=7202),
+            grace_seconds=7200,
+            kernel_build_policy="succeeded",
+            previous=expired,
+        )
+        self.assertEqual(recovered["result"], "pass")
 
     def upstreams(self):
         return {

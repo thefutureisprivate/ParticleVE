@@ -112,7 +112,7 @@ class OBSRefreshTests(unittest.TestCase):
         )
         self.assertEqual(result["packages"]["kernel"], "current")
 
-    def test_native_component_comparison_keeps_kernel_independent_of_cargo(self):
+    def test_native_component_comparison_keeps_kernel_independent_of_host_releases(self):
         env = {**os.environ, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
 
         def git(*arguments):
@@ -144,10 +144,16 @@ class OBSRefreshTests(unittest.TestCase):
         kernel = self.root / ".obs/kernel/kernel.inputs.json"
         kernel.parent.mkdir()
         kernel.write_text("reviewed kernel inputs\n")
+        worker = kernel.parent / "build-policy.spec"
+        worker.write_text("Name: particleve-kernel-build\nVersion: 1\n")
+        host = self.root / ".obs/particleve/rpm.spec"
+        host.parent.mkdir()
+        host.write_text("Name: particleve\nVersion: 45.0.3.5\n")
         cargo = self.root / "Cargo.lock"
         cargo.write_text("first runtime lock\n")
         base = commit()
         cargo.write_text("updated runtime lock\n")
+        host.write_text("Name: particleve\nVersion: 45.0.3.6\n")
         updated = commit()
         for package in ("kernel", "mkosi", "fwupd-efi"):
             self.assertFalse(component_changed(self.root, package, base, updated))
@@ -156,6 +162,8 @@ class OBSRefreshTests(unittest.TestCase):
         selected = commit()
         self.assertTrue(component_changed(self.root, "kernel", base, selected))
         self.assertTrue(component_changed(self.root, "kernel", "f" * 40, selected))
+        worker.write_text("Name: particleve-kernel-build\nVersion: 2\n")
+        self.assertTrue(component_changed(self.root, "kernel", selected, commit()))
 
     def test_in_flight_delivery_does_not_force_another_revision(self):
         self.stale = {("particleve", MARKERS["particleve"][0])}
