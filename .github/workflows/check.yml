@@ -46,6 +46,8 @@ jobs:
           ref: ${{ inputs.source_commit || github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Authorize the runner-owned checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Install the pinned Rust toolchain
         run: |
           rust_version=$(python3 -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("rust-toolchain.toml").read_text())["toolchain"]["channel"])')
