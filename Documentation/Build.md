@@ -273,6 +273,9 @@ package-service endpoint does not filter the push branch.
 [Renovate configuration](../.github/renovate.json) opens reviewed updates for the
 mkosi/fwupd source pins and recipes, both kernel source pins, Cargo dependencies
 and configured CI tools.
+Renovate waits seven days before proposing ordinary dependency updates and
+requires a release timestamp. The mkosi, fwupd-efi, Fedora kernel and secureblue
+kernel source updates are excluded from this cooldown.
 Automerge is disabled. Updates must retain matching locks, recipes, license
 notices and required acceptance coverage; source checks alone do not qualify a
 new signed image.

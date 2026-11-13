@@ -12,6 +12,9 @@
   "automerge": false,
   "pinDigests": true,
   "ignoreUnstable": true,
+  "minimumReleaseAge": "7 days",
+  "minimumReleaseAgeBehaviour": "timestamp-required",
+  "internalChecksFilter": "strict",
   "separateMajorMinor": false,
   "prConcurrentLimit": 2,
   "customManagers": [
@@ -70,6 +73,16 @@
     }
   ],
   "packageRules": [
+    {
+      "description": "Keep mkosi, fwupd-efi and kernel source updates outside the dependency cooldown.",
+      "matchDepNames": [
+        "systemd/mkosi",
+        "fwupd/fwupd-efi",
+        "particleve-fedora-kernel",
+        "particleve-secureblue-kernel"
+      ],
+      "minimumReleaseAge": null
+    },
     {
       "matchPackageNames": [
         "systemd/mkosi",
