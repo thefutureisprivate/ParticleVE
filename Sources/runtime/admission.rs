@@ -465,8 +465,12 @@ pub fn watch() -> Result<Value> {
         !allowed.is_empty(),
         "no authoritative storage members remain; owner recovery required",
     )?;
-    let mounted = mounts(&record)?;
-    let target = Path::new(text(field(&mounted[0], "target")?)?);
+    // Inspect the admitted filesystem through its stable host mount. A homed
+    // subvolume can appear below ProtectHome while this service starts; walking
+    // every mount would turn that deliberately inaccessible path into a storage
+    // failure. member_errors checks /var's FSID and each exact admitted mapper.
+    // finish still inventories every mount before clearing the unclean witness.
+    let target = Path::new("/var");
     let mut failed = BTreeSet::new();
     for role in allowed {
         let role = text(role)?;

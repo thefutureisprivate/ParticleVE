@@ -3,6 +3,7 @@
 import hashlib
 import json
 import stat
+import subprocess
 import tempfile
 import unittest
 from compression import zstd
@@ -10,8 +11,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from particleve.common import Error
-from particleve.kernelinitrd import entries, verify_archive
-from particleve.kernelpayload import METADATA, RECORD
+from particleve.kernelinitrd import INDEXES, entries, verify_archive
+from particleve.kernelpayload import METADATA, RECORD, kernel_hmac
 from particleve.provenance import INITRD_BINARIES, identity_path
 
 
@@ -77,7 +78,10 @@ class InitrdAuthorityTests(unittest.TestCase):
         tree.mkdir(parents=True)
         for name in (*METADATA, RECORD, "vmlinuz"):
             (tree / name).write_bytes(b"independently verified root metadata fixture")
+            (tree / name).chmod(0o644)
+        (tree / ".vmlinuz.hmac").write_text(kernel_hmac(tree / "vmlinuz"))
         (tree / "one.ko").write_bytes(b"module body independently verified in the native fixture")
+        (tree / "one.ko").chmod(0o644)
         files = {}
         for name, target in INITRD_BINARIES.items():
             path = self.root / target
@@ -117,6 +121,50 @@ class InitrdAuthorityTests(unittest.TestCase):
             )
         command.assert_not_called()
         verify.assert_not_called()
+
+    def test_signed_kernel_hmac_reaches_the_initrd_subset_verifier(self):
+        kernel = "7.3.3-test.x86_64"
+        original = self.root / "usr/lib/modules" / kernel
+        prefix = "usr/lib/modules/" + kernel + "/"
+        parts = [
+            *self.parts,
+            member("usr/lib/modules", mode=stat.S_IFDIR | 0o755, links=2),
+            member(prefix[:-1], mode=stat.S_IFDIR | 0o755, links=2),
+            member(prefix + "one.ko", (original / "one.ko").read_bytes()),
+            *(member(prefix + name, b"native subset index") for name in sorted(INDEXES)),
+            *(
+                member(prefix + name, (original / name).read_bytes())
+                for name in METADATA
+                if name.startswith("modules.")
+            ),
+        ]
+        path = self.base / "archive"
+        path.write_bytes(archive(parts))
+        workspace = self.base / "output"
+
+        def index(arguments, *, timeout):
+            self.assertEqual(arguments, ["depmod", "--basedir", workspace, "--all", kernel])
+            self.assertEqual(timeout, 180)
+            for name in INDEXES:
+                (workspace / prefix / name).write_bytes(b"native subset index")
+            return subprocess.CompletedProcess(arguments, 0, "", "")
+
+        def verify_subset(directory, source, certificate, *, filtered):
+            self.assertTrue(filtered)
+            tree = directory / kernel
+            self.assertEqual((tree / "vmlinuz").read_bytes(), (original / "vmlinuz").read_bytes())
+            self.assertEqual((tree / ".vmlinuz.hmac").read_text(), kernel_hmac(tree / "vmlinuz"))
+            return {"kernel": kernel}
+
+        with (
+            patch("particleve.kernelinitrd.run", side_effect=index),
+            patch("particleve.kernelinitrd.verify", side_effect=verify_subset) as verify,
+            patch("particleve.kernelinitrd.verify_modules"),
+        ):
+            result = verify_archive(path, self.root, {}, self.base / "certificate", self.policy, workspace)
+        verify.assert_called_once()
+        self.assertEqual(result["module_files"], 1)
+        self.assertEqual(result["kernel"], kernel)
 
     def test_duplicate_and_aliased_helper_overwrites_are_rejected_before_native_tools(self):
         target = next(iter(INITRD_BINARIES.values()))

@@ -161,6 +161,31 @@ class SecurityBaselineTests(RustDriverTests):
             with self.assertRaisesRegex(Error, "SECCOMP"):
                 kernel_baseline(root)
 
+    def test_namespace_broker_kernel_support_is_required_by_build_and_runtime(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            tree = root / "usr/lib/modules/test-kernel"
+            tree.mkdir(parents=True)
+            config = tree / "config"
+            required = {*KERNEL_REQUIRED, "BPF_LSM", "KPROBES", "KPROBE_EVENTS", "USER_NS", "NET_NS"}
+            original = "".join(f"CONFIG_{name}=y\n" for name in sorted(required))
+            original += (
+                "CONFIG_RFKILL=m\nCONFIG_SECURITY_YAMA=y\n"
+                "CONFIG_ARCH_MMAP_RND_BITS_MAX=32\nCONFIG_ARCH_MMAP_RND_COMPAT_BITS_MAX=16\n"
+                "CONFIG_SERIAL_8250_NR_UARTS=32\nCONFIG_SERIAL_8250_RUNTIME_UARTS=4\n"
+            )
+            for missing in ("KPROBES", "KPROBE_EVENTS", "BPF_LSM", "USER_NS", "NET_NS"):
+                with self.subTest(missing=missing):
+                    config.write_text(original.replace(f"CONFIG_{missing}=y\n", ""))
+                    with self.assertRaisesRegex(Error, missing):
+                        kernel_baseline(root)
+                    self.assertIn(
+                        missing,
+                        self.request("security-kernel-baseline", root=str(root))["error"],
+                    )
+            config.write_text(original)
+            self.assertEqual(self.evaluate("security-kernel-baseline", root=str(root)), kernel_baseline(root))
+
     def test_file_capabilities_preserve_both_words_and_namespace_root(self):
         data = struct.pack("<IIIIII", 0x03000001, 1, 2, 4, 8, 100000)
         self.assertEqual(

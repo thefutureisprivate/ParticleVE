@@ -83,6 +83,9 @@ pub fn evaluate(request: &Value) -> Option<Result<Value>> {
                 Ok(Value::Null)
             }
             "admission-bindings" => particleve::admission::bindings(field(request, "manifest")?),
+            "admission-mounts" => Ok(json!(particleve::admission::mounts(field(
+                request, "record"
+            )?)?)),
             "admission-mounted-uuid" => Ok(json!(particleve::admission::mounted_uuid(&path(
                 request, "target"
             )?)?)),

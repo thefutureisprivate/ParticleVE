@@ -93,11 +93,13 @@ def remove_mapper(name, identity):
 INNER = r"""import ctypes,errno,json,os,socket,subprocess,sys
 from pathlib import Path
 SESSION=Path('/run/particleve-admission/session.json')
-def runtime(operation,**fields):
+def request(operation,**fields):
  value=subprocess.run([sys.argv[2]],input=json.dumps({'operation':operation,**fields})+'\n',
   capture_output=True,text=True,timeout=30,check=True)
  assert not value.stderr,value.stderr
- result=json.loads(value.stdout);assert 'ok' in result,result
+ return json.loads(value.stdout)
+def runtime(operation,**fields):
+ result=request(operation,**fields);assert 'ok' in result,result
  return result['ok']
 def load():return runtime('admission-load')
 status=dict(line.split(':',1) for line in Path('/proc/self/status').read_text().splitlines() if ':' in line)
@@ -105,7 +107,8 @@ for name in ('CapEff','CapPrm','CapBnd'):assert int(status[name],16)==0x201200,(
 for name in ('CapInh','CapAmb'):assert int(status[name],16)==0
 assert status['NoNewPrivs'].strip()=='1' and status['Seccomp'].strip()=='2'
 assert not status['Groups'].strip() and os.getuid()==os.geteuid()==0
-assert os.readlink('/proc/self/ns/net')!=sys.argv[-1]
+assert os.readlink('/proc/self/ns/net')!=sys.argv[-2]
+assert os.readlink('/proc/self/ns/mnt')!=sys.argv[-1]
 def command(*argv,check=True):
  value=subprocess.run(argv,capture_output=True,text=True,timeout=10)
  if check:assert value.returncode==0 and not value.stderr,(argv,value.returncode,value.stderr[-1000:])
@@ -114,6 +117,29 @@ mode=sys.argv[1]
 if mode=='watch':
  result=runtime('admission-watch')
  assert result['storage_admission']==load()['allowed']
+elif mode=='watch-hidden-submount':
+ # Reproduce a homed mount visible in findmnt below an inaccessible parent,
+ # without touching an actual home. The unit owns this private mount namespace.
+ parent=Path('/run/particleve-admission')/('hidden-mount-'+str(os.getpid()))
+ parent.mkdir(mode=0o700);view=parent/'view';view.mkdir(mode=0o700);mounted=False
+ try:
+  command('mount','--bind','/var',str(view));mounted=True
+  parent.chmod(0)
+  try:fd=os.open(view,os.O_RDONLY|os.O_DIRECTORY)
+  except OSError as error:assert error.errno==errno.EACCES,error
+  else:os.close(fd);raise AssertionError('fixture mount was not inaccessible')
+  table=json.loads(command('findmnt','--json','--list','--types','btrfs',
+                           '--output','SOURCE,OPTIONS,TARGET').stdout)
+  assert any(m['target']==str(view) for m in table['filesystems'])
+  # Shutdown's complete inventory must still refuse an inaccessible mount.
+  denied=request('admission-mounts',record=load())
+  assert 'Permission denied' in denied.get('error',''),denied
+  result=runtime('admission-watch')
+  assert result['storage_admission']==load()['allowed']
+ finally:
+  parent.chmod(0o700)
+  if mounted:command('umount',str(view))
+  view.rmdir();parent.rmdir()
 elif mode=='witness':
  record=load();runtime('witness-save',record=record);assert load()==record
 elif mode=='session':
@@ -182,6 +208,7 @@ lock_inode = (RUNTIME / "maintenance.lock").stat().st_ino
 guests = runtime("vm-inventory")
 policy = hashlib.sha256(Path("/sys/fs/selinux/policy").read_bytes()).hexdigest()
 host_net_namespace = os.readlink("/proc/self/ns/net")
+host_mount_namespace = os.readlink("/proc/self/ns/mnt")
 manifest = json.loads(Path("/var/lib/particleve/installation.json").read_text())
 raw_disk = str(Path(manifest["devices"][0]["path"]).resolve(strict=True))
 for path in ("/dev/kvm", raw_disk):
@@ -202,7 +229,15 @@ with ExitStack() as cleanup:
     ).stdout.strip() in ("active", "activating", "deactivating"):
         assert time.monotonic() < deadline
         time.sleep(0.1)
-    for mode in ("watch", "witness", "session", "denials", "fence", "failed-reload"):
+    for mode in (
+        "watch",
+        "watch-hidden-submount",
+        "witness",
+        "session",
+        "denials",
+        "fence",
+        "failed-reload",
+    ):
         extra = []
         if mode == "denials":
             extra = [raw_disk]
@@ -233,6 +268,7 @@ with ExitStack() as cleanup:
                 str(args.runtime_driver),
                 *extra,
                 host_net_namespace,
+                host_mount_namespace,
             ]
         )
         result = json.loads(value.stdout)

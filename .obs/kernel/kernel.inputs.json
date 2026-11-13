@@ -102,9 +102,9 @@
     "CONFIG_KGDB_LOW_LEVEL_TRAP": "n",
     "CONFIG_KGDB_SERIAL_CONSOLE": "n",
     "CONFIG_KGDB_TESTS": "n",
-    "CONFIG_KPROBES": "n",
+    "CONFIG_KPROBES": "y",
     "CONFIG_KPROBES_SANITY_TEST": "n",
-    "CONFIG_KPROBE_EVENTS": "n",
+    "CONFIG_KPROBE_EVENTS": "y",
     "CONFIG_LATENCYTOP": "n",
     "CONFIG_LDISC_AUTOLOAD": "n",
     "CONFIG_LIVEPATCH": "n",
@@ -407,12 +407,12 @@
     },
     "kernel-local": {
       "algorithm": "sha256",
-      "digest": "4e45a4078363fab80e5c20a59484ba7d7d96699fff97f2e56777854d3fb50f26",
+      "digest": "b37256d446f44156007025bafb6869c5a357dc5dc72a5dca137b77f855be2108",
       "mode": 420
     },
     "kernel-policy.json": {
       "algorithm": "sha256",
-      "digest": "228c3d8ce6f371961469f22cbf6209c68374df1a9b8eb7be29eae8585820ea0f",
+      "digest": "b999a87982ed4caac8603bddbb5b26b5b10904b1d5276ca3adabff726743134f",
       "mode": 420
     },
     "kernel-ppc64le-debug-fedora.config": {
@@ -537,7 +537,7 @@
     },
     "kernel.recipe": {
       "algorithm": "sha256",
-      "digest": "7f2f794fe93051dec910767ff0a0a6e15d98a0944d102c1280a88c69939cbc49",
+      "digest": "0e6967e6227a13c248b29e160646f210822b13655761c3bb0032f2e27e7492d2",
       "mode": 420
     },
     "kernel.sbat.template": {
@@ -547,12 +547,12 @@
     },
     "kernelbuild.py": {
       "algorithm": "sha256",
-      "digest": "730f4858c375687e50864113ee4891f50ce94ff0032275411920f968132786ad",
+      "digest": "738ee70c9f38ae733a6f33463ef156d1af130851710a0c43ea5222069c35dd27",
       "mode": 420
     },
     "kernelpayload.py": {
       "algorithm": "sha256",
-      "digest": "e9967ab21249bd895101f2ce896e05746f39a08cd2d078a80386c7e6f5478a60",
+      "digest": "bbd123db1800256983d10a2c4630d9da2ea3e0c7aa4ba3268fb1d610a028f8e0",
       "mode": 420
     },
     "kmap.py": {

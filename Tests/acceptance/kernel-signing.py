@@ -105,6 +105,8 @@ gcc -g -c -Wall -Wextra -Werror -o probe.ko probe.c
 install -d %{buildroot}/usr
 install -Dm0644 probe.ko %{buildroot}/lib/modules/1.0-probe/kernel/probe.ko
 install -m0644 %{SOURCE1} %{buildroot}/lib/modules/1.0-probe/vmlinuz
+python3 %{SOURCE0} --hmac-file %{buildroot}/lib/modules/1.0-probe/vmlinuz \
+    > %{buildroot}/lib/modules/1.0-probe/.vmlinuz.hmac
 printf 'CONFIG_PROBE=y\n' > %{buildroot}/lib/modules/1.0-probe/config
 for name in System.map modules.builtin modules.builtin.modinfo modules.order; do
  printf 'inert probe metadata\n' > %{buildroot}/lib/modules/1.0-probe/$name

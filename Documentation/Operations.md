@@ -81,6 +81,9 @@ are masked. An unconfigured factory image has no time sources; installation
 supplies the reviewed NTS policy. Packaged DHCP/key/environment inputs are removed.
 Per-user PKCS#11 module configuration cannot replace the clock service's system
 trust policy.
+The image-owned service refreshes NTS keys every 12 hours, within the
+coordinator's 24-hour key-establishment age limit. This preserves the bound
+endpoint configuration and encrypted drift state across OS updates.
 The control observer drops to the chrony UID with no capabilities for each query.
 
 OS activation requires two authenticated agreeing operators, a sample/update
@@ -339,6 +342,11 @@ namespace. The root filesystem and firmware directory are read-only; only the
 existing witness file is writable. The writer retains only the capability needed
 to clear that file's immutable flag, requires no-new-privileges, and refuses to
 run outside this isolation. Runtime services cannot create firmware variables.
+
+The storage monitor checks member errors through the verified `/var` filesystem
+and exact admitted mappings. Activating a homed subvolume does not require the
+monitor to enter a home hidden by its service confinement. Shutdown separately
+checks every state-filesystem mount before clearing the active witness.
 
 ### Unclean shutdown and failed members
 
@@ -841,6 +849,18 @@ ESP receives the retained validated loader, even if the running OS bundles a
 quarantined loader candidate. VMs are inhibited and stopped for the copy. Keep the
 owner session or transient service alive until it returns; large devices can take
 hours. Do not impose a short service runtime limit on that copy.
+
+Degraded writes can allocate single-profile block groups. After the replacement
+copy and swap resynchronization complete, inspect `particleve status`. If any
+allocated data, metadata, or system profile is not RAID1, restore the profiles in
+the foreground before finalization:
+
+```sh
+btrfs balance start -dconvert=raid1,soft -mconvert=raid1,soft /
+```
+
+The metadata conversion also restores the system profile. Keep the owner session
+alive until balance completes, then recheck allocation profiles and device errors.
 `finalize-replacement` refuses completion until replacement/resync finish and all
 allocated Btrfs data/metadata/system profiles are RAID1 and device errors are
 clear. Only then does it readmit the freshly erased identities in firmware and

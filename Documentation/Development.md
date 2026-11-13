@@ -500,7 +500,7 @@ checkout. These probes call the compiled Rust implementation:
 | Probe | Required compiled input and fixture |
 | --- | --- |
 | [`management-network.py`](../Tests/acceptance/management-network.py) | `--runtime-driver /run/particleve-tests/runtime-contract-driver`; a disposable installed host, native networking and reviewed VM state. |
-| [`storage-service.py`](../Tests/acceptance/storage-service.py) | The storage-watch service file as its positional argument and `--runtime-driver`; a disposable installed systemd/firmware-witness fixture. |
+| [`storage-service.py`](../Tests/acceptance/storage-service.py) | The storage-watch service file as its positional argument and `--runtime-driver`; a disposable installed systemd/firmware-witness fixture. Includes a private inaccessible Btrfs submount: monitoring must succeed while shutdown's full inventory still refuses it. |
 | [`storage-member-counters.py`](../Tests/acceptance/storage-member-counters.py) | `--runtime-driver`; a disposable root fixture with Btrfs-backed `/var/tmp` and loop/device-mapper support. |
 | [`radio-policy.py`](../Tests/acceptance/radio-policy.py) | `--expect-installation`, reviewed `--source-dir` and `--runtime-binary` under `/run`; an isolated QEMU component fixture with the native RFKill units, no installed radio-policy service and no exposed radios. Use the matching RPM's compiled radio helper. |
 

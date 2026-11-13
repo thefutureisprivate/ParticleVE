@@ -1,6 +1,14 @@
 {
   "schema": 1,
   "overrides": {
+    "CONFIG_KPROBES": {
+      "value": "y",
+      "reason": "Upstream systemd-nsresourced uses a privileged retire_userns_sysctls kprobe to reclaim namespace policy; disabling probes disables its user namespace interfaces and native VM launch."
+    },
+    "CONFIG_KPROBE_EVENTS": {
+      "value": "y",
+      "reason": "The namespace broker attaches its required BPF cleanup probe through the kernel kprobe event interface."
+    },
     "CONFIG_VSOCKETS_DIAG": {
       "value": "m",
       "reason": "Native host and guest transport diagnostics require vsock listener discovery."

@@ -38,10 +38,19 @@ class KernelSourceTests(unittest.TestCase):
         )
         spec += "log %{_specdir}/${RPM_PACKAGE_NAME}.spec\n"
         spec += "patch %{_specdir}/${RPM_PACKAGE_NAME}.spec\n"
+        spec += "BuildRequires: gcc, redhat-rpm-config, hmaccalc, bison\n"
+        spec += "sha512hmac $InstallName-$KernelVer\n"
+        spec += "sha512hmac $InstallName-virt.efi\n"
+        spec += "sha512hmac $(basename $DtbloaderImage)\n"
         identity = {"lookaside_sha512": dict.fromkeys(names, "a" * 128)}
         adapted = adapt_spec(spec, identity)
         self.assertEqual(adapted.count("%{SOURCE5003}"), 2)
         self.assertNotIn("%{_specdir}", adapted)
+        self.assertEqual(adapted.count("python3 %{SOURCE5010} --hmac-file "), 3)
+        self.assertNotIn("sha512hmac", adapted)
+        self.assertNotIn("hmaccalc", adapted)
+        with self.assertRaisesRegex(ValueError, "recipe boundary changed"):
+            adapt_spec(spec.replace("sha512hmac $InstallName-virt.efi\n", ""), identity)
         with self.assertRaisesRegex(ValueError, "lookup boundary changed"):
             adapt_spec(spec.replace("patch %{_specdir}/${RPM_PACKAGE_NAME}.spec\n", ""), identity)
 

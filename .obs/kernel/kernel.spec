@@ -777,7 +777,7 @@ BuildRequires: bzip2, xz, findutils, m4, perl-interpreter, perl-Carp, perl-devel
 %ifarch x86_64 aarch64 riscv64
 BuildRequires: zstd
 %endif
-BuildRequires: gcc, binutils, redhat-rpm-config, hmaccalc, bison, flex, gcc-c++
+BuildRequires: gcc, binutils, redhat-rpm-config, bison, flex, gcc-c++
 BuildRequires: rust, rust-src, bindgen, rustfmt, clippy
 BuildRequires: net-tools, hostname, bc, elfutils-devel
 BuildRequires: dwarves
@@ -2581,7 +2581,7 @@ BuildKernel() {
     %{log_msg "hmac sign the kernel for FIPS"}
     %{log_msg "Creating hmac file: $RPM_BUILD_ROOT/%{image_install_path}/.vmlinuz-$KernelVer.hmac"}
     ls -l $RPM_BUILD_ROOT/%{image_install_path}/$InstallName-$KernelVer
-    (cd $RPM_BUILD_ROOT/%{image_install_path} && sha512hmac $InstallName-$KernelVer) > $RPM_BUILD_ROOT/%{image_install_path}/.vmlinuz-$KernelVer.hmac;
+    (cd $RPM_BUILD_ROOT/%{image_install_path} && python3 %{SOURCE5010} --hmac-file $InstallName-$KernelVer) > $RPM_BUILD_ROOT/%{image_install_path}/.vmlinuz-$KernelVer.hmac;
     cp $RPM_BUILD_ROOT/%{image_install_path}/.vmlinuz-$KernelVer.hmac $RPM_BUILD_ROOT/lib/modules/$KernelVer/.vmlinuz.hmac
 
     if [ $DoModules -eq 1 ]; then
@@ -2992,7 +2992,7 @@ BuildKernel() {
 	KernelUnifiedImageHMAC="$KernelUnifiedImageDir/.$InstallName-virt.efi.hmac"
 	%{log_msg "hmac sign the UKI for FIPS"}
 	%{log_msg "Creating hmac file: $KernelUnifiedImageHMAC"}
-	(cd $KernelUnifiedImageDir && sha512hmac $InstallName-virt.efi) > $KernelUnifiedImageHMAC;
+	(cd $KernelUnifiedImageDir && python3 %{SOURCE5010} --hmac-file $InstallName-virt.efi) > $KernelUnifiedImageHMAC;
 
 # with_efiuki
 %endif
@@ -3039,7 +3039,7 @@ BuildKernel() {
 
 	%{log_msg "hmac sign the DTB-loader kernel for FIPS"}
 	pushd $(dirname $DtbloaderImage)
-	sha512hmac $(basename $DtbloaderImage) > .$(basename $DtbloaderImage).hmac
+	python3 %{SOURCE5010} --hmac-file $(basename $DtbloaderImage) > .$(basename $DtbloaderImage).hmac
 	popd
     fi # -z "$Variant" || "$Variant" == "debug"
 # with_dtbloader

@@ -6,7 +6,9 @@ change its recorded ELF body. OpenSSL verifies the signature independently.
 """
 
 import argparse
+import base64
 import hashlib
+import hmac
 import json
 import lzma
 import os
@@ -44,6 +46,31 @@ def command(arguments, *, expected_stderr=b""):
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def kernel_hmac(path):
+    """Retain Fedora hmaccalc's public key and sum format without AF_ALG."""
+    path = Path(path)
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.+-]{0,255}", path.name):
+        raise ValueError("invalid kernel HMAC filename")
+    # This is hmaccalc's published compatibility key, not signing authority.
+    # Build workers need no kernel crypto sockets to produce the same bytes.
+    descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as source:
+        metadata = os.fstat(source.fileno())
+        if not stat.S_ISREG(metadata.st_mode) or not 0 < metadata.st_size <= 256 * 1024**2:
+            raise ValueError("not a bounded regular kernel HMAC input")
+        value = hmac.HMAC(b"FIPS-FTW-RHT2009", digestmod="sha512")
+        remaining = metadata.st_size
+        while remaining:
+            data = source.read(min(remaining, 1024**2))
+            if not data:
+                raise ValueError("truncated kernel HMAC input")
+            value.update(data)
+            remaining -= len(data)
+        if source.read(1):
+            raise ValueError("kernel HMAC input grew during hashing")
+    return f"{value.hexdigest()}  {path.name}\n"
 
 
 def module_parts(path):
@@ -92,6 +119,22 @@ def prepare_signing_continuation(path):
     environment = b"export XZ_DEFAULTS= XZ_OPT='--check=crc32 --threads=1'\n"
     if recipe.count(marker) != 1 or environment in recipe or b"\0" in recipe:
         raise ValueError("unexpected or already prepared native kernel signing recipe")
+    native_hmac = b'/usr/lib/rpm/pesign/gen-hmac -r %buildroot "/${sig%.sig}"'
+    if recipe.count(native_hmac) != 1:
+        raise ValueError("native kernel HMAC regeneration boundary changed")
+    # The continuation has only the emitted RPMs, signing requests and recipe.
+    # Carry this authenticated public helper inside that standalone recipe so
+    # post-PE HMAC regeneration uses the same Fedora key without worker AF_ALG.
+    helper = base64.encodebytes(regular(Path(__file__), 256 * 1024))
+    environment += (
+        b"base64 --decode > particleve-kernelpayload.py <<'PARTICLEVE_KERNEL_HELPER'\n"
+        + helper
+        + b"PARTICLEVE_KERNEL_HELPER\n"
+        b'particleve_kernel_hmac_helper="$PWD/particleve-kernelpayload.py"\n'
+    )
+    recipe = recipe.replace(
+        native_hmac, b'python3 "$particleve_kernel_hmac_helper" --hmac-file "$f" > "$hmac"'
+    )
     # The native generator compresses modules before loading its final RPM
     # macros. Set this in the outer continuation, before that generator runs.
     path.write_bytes(recipe.replace(marker, marker + environment, 1))
@@ -233,6 +276,8 @@ def verify(directory, source, certificate, *, filtered=False):
         raise ValueError("installed kernel does not match the selected source, payload and trust")
     verify_configuration(tree, source["configuration"])
     expected = value["modules"]
+    if regular(tree / ".vmlinuz.hmac", 4096).decode() != kernel_hmac(tree / "vmlinuz"):
+        raise ValueError("signed kernel HMAC differs from its Fedora compatibility format")
     paths = module_paths(tree)
     if (
         not isinstance(expected, dict)
@@ -284,7 +329,22 @@ if __name__ == "__main__":
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--filtered", action="store_true")
     parser.add_argument("--prepare-signing-continuation", type=Path)
+    parser.add_argument("--hmac-file", type=Path)
     args = parser.parse_args()
+    if args.hmac_file:
+        if any(
+            (
+                args.modules,
+                args.source_manifest,
+                args.certificate,
+                args.verify,
+                args.filtered,
+                args.prepare_signing_continuation,
+            )
+        ):
+            parser.error("kernel HMAC generation must be used alone")
+        print(kernel_hmac(args.hmac_file), end="")
+        raise SystemExit(0)
     if args.prepare_signing_continuation:
         if any((args.modules, args.source_manifest, args.certificate, args.verify, args.filtered)):
             parser.error("signing recipe preparation must be used alone")

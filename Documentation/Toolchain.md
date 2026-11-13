@@ -119,6 +119,13 @@ run again before Fedora's recipe executes any source script.
 Fedora's log and patch-declaration lookups use that authenticated original recipe,
 independently of the worker's spec directory and OBS's counter/VCS rewrites.
 
+Kernel packaging retains Fedora's compatibility HMAC files using Python's native
+userspace SHA-512 HMAC with hmaccalc's published key and checksum format. It does
+not require the build worker's AF_ALG interface. Native equivalence checks cover
+the kernel and UKI inputs. The standalone signing continuation carries the same
+authenticated public helper and regenerates the HMAC after attaching the PE
+signature. PE and module signatures remain independently verified.
+
 The mkosi continuation patch preserves native OBS signing while regenerating
 split partitions after verity signing, avoiding duplicate artifact copies, and
 handling absent optional signature classes. Recheck the patch against each
@@ -135,6 +142,13 @@ hardware. Do not use build-host CPU optimization or host-only module pruning.
 The [build guide](Build.md) describes final-artifact inspection and publication.
 
 ## Kernel and mitigation inputs
+
+The native namespace broker requires BPF LSM, user/network namespaces and kernel
+probe events. Its [upstream cleanup probe](https://github.com/systemd/systemd/blob/63511d728/src/bpf/userns-restrict.bpf.c#L657)
+reclaims namespace policy through `retire_userns_sysctls`.
+The kernel policy retains `KPROBES` and `KPROBE_EVENTS` for
+that privileged interface; image and runtime checks reject kernels without it.
+Unprivileged BPF and perf restrictions remain part of the shared runtime policy.
 
 The supported kernel uses the pinned Fedora packaging and reviewed secureblue
 baseline described above. Reviewed source updates flow through OBS package and

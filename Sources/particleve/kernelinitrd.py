@@ -215,6 +215,8 @@ def verify_archive(archive, root, source, certificate, policy, workspace):
         (module_root / name).write_bytes(
             regular(original / name, 256 * 1024**2 if name == "vmlinuz" else MAX_MODULE)
         )
+    # The common subset verifier checks the verified userspace kernel/HMAC pair.
+    (module_root / ".vmlinuz.hmac").write_bytes(regular(original / ".vmlinuz.hmac", 4096))
     seen, modules, indexes, metadata = set(), set(), {}, set()
     symlinks, nodes = {}, {}
     for name, mode, uid, gid, links, data in entries(regular(archive, MAX_INPUT)):

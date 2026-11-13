@@ -56,7 +56,8 @@ elif kind == "ptrace":
 elif kind == "ldisc":
     master, slave = pty.openpty()
     try:
-        fcntl.ioctl(slave, 0x5423, array.array("i", [13]))
+        # The supported PPS discipline supplies a harmless PTY autoload control.
+        fcntl.ioctl(slave, 0x5423, array.array("i", [18]))
         result = {"allowed": True, "errno": 0}
     except OSError as exc:
         result = {"allowed": False, "errno": exc.errno}
@@ -149,7 +150,7 @@ values = {
     "fs.protected_regular": "2",
 }
 original = {name: path(name).read_text() for name in values | {"kernel.perf_event_paranoid": ""}}
-assert not Path("/sys/module/n_hdlc").exists()
+assert not Path("/sys/module/pps_ldisc").exists()
 try:
     before = {name: worker(name) for name in ("perf", "ptrace", "memfd", "userfaultfd")}
     print(json.dumps({"before": before, "kexec": worker("kexec", root=True)}), flush=True)
@@ -158,9 +159,9 @@ try:
     path("dev.tty.ldisc_autoload").write_text("1")
     baseline = worker("ldisc")
     assert baseline == {"allowed": True, "errno": 0}, baseline
-    assert Path("/sys/module/n_hdlc").exists()
-    subprocess.run(["modprobe", "-r", "n_hdlc"], check=True)
-    assert not Path("/sys/module/n_hdlc").exists()
+    assert Path("/sys/module/pps_ldisc").exists()
+    subprocess.run(["modprobe", "-r", "pps_ldisc"], check=True)
+    assert not Path("/sys/module/pps_ldisc").exists()
     path("kernel.perf_event_paranoid").write_text("3")
     perf3 = worker("perf")
     path("kernel.perf_event_paranoid").write_text(original["kernel.perf_event_paranoid"])
@@ -171,13 +172,13 @@ try:
     assert after["ptrace"] == {"allowed": False, "errno": 1}, after
     assert worker("ptrace", root=True) == {"allowed": True, "errno": 0}
     assert after["ldisc"] == {"allowed": False, "errno": 1}, after
-    assert not Path("/sys/module/n_hdlc").exists()
+    assert not Path("/sys/module/pps_ldisc").exists()
     assert after["memfd"]["default"] == {"executable": False, "seal_exec": True, "chmod_exec": False}, after
     assert after["memfd"]["nx"] == after["memfd"]["default"]
     assert after["memfd"]["exec"]["executable"]
-    subprocess.run(["modprobe", "n_hdlc"], check=True)
+    subprocess.run(["modprobe", "pps_ldisc"], check=True)
     assert worker("ldisc") == {"allowed": True, "errno": 0}
-    subprocess.run(["modprobe", "-r", "n_hdlc"], check=True)
+    subprocess.run(["modprobe", "-r", "pps_ldisc"], check=True)
     print(
         json.dumps(
             {"after": after, "perf3": perf3, "privileged_ptrace": "pass", "privileged_ldisc_load": "pass"}
@@ -185,14 +186,17 @@ try:
         flush=True,
     )
 finally:
-    if Path("/sys/module/n_hdlc").exists():
-        subprocess.run(["modprobe", "-r", "n_hdlc"], check=True)
+    if Path("/sys/module/pps_ldisc").exists():
+        subprocess.run(["modprobe", "-r", "pps_ldisc"], check=True)
     for name, value in original.items():
         path(name).write_text(value)
         assert path(name).read_text() == value, name
     print(
         json.dumps(
-            {"sysctl_restore": "exact", "temporary_ldisc_unloaded": not Path("/sys/module/n_hdlc").exists()}
+            {
+                "sysctl_restore": "exact",
+                "temporary_ldisc_unloaded": not Path("/sys/module/pps_ldisc").exists(),
+            }
         ),
         flush=True,
     )

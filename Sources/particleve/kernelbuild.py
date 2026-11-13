@@ -157,6 +157,15 @@ def adapt_spec(spec, manifest):
     if spec.count(lookup) != 2:
         raise ValueError("Fedora recipe lookup boundary changed")
     spec = spec.replace(lookup, "%{SOURCE5003}")
+    # Fedora's hmaccalc provider uses AF_ALG, which an OBS worker kernel may
+    # omit. Preserve the exact compatibility HMAC format with userspace hashing.
+    for arguments in (
+        "$InstallName-$KernelVer",
+        "$InstallName-virt.efi",
+        "$(basename $DtbloaderImage)",
+    ):
+        spec = replace_once(spec, "sha512hmac " + arguments, "python3 %{SOURCE5010} --hmac-file " + arguments)
+    spec = replace_once(spec, "redhat-rpm-config, hmaccalc, bison", "redhat-rpm-config, bison")
     # baseonly removes extra kernel variants/tools, not DWARF/BTF generation.
     spec = "%global _with_baseonly 1\n" + spec
     for number, name in (

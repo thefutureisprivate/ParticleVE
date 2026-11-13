@@ -11,6 +11,7 @@ pub fn evaluate(request: &Value) -> Option<Result<Value>> {
             | "consoles-baseline"
             | "network-write"
             | "kernel-runtime-baseline"
+            | "security-kernel-baseline"
             | "security-selinux-baseline"
             | "security-usr-backing-disks"
             | "security-firmware-evidence"
@@ -39,6 +40,9 @@ pub fn evaluate(request: &Value) -> Option<Result<Value>> {
             boolean(field(request, "kexec_core")?)?,
         ),
         "security-selinux-baseline" => particleve::security::selinux_baseline(),
+        "security-kernel-baseline" => {
+            particleve::security::kernel_baseline(Path::new(text(field(request, "root")?)?))
+        }
         "security-usr-backing-disks" => Ok(json!(particleve::security::usr_backing_disks(
             text(field(request, "mapper")?)?,
             Path::new(text(field(request, "sysfs")?)?),
