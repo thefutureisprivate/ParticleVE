@@ -159,6 +159,10 @@ FORBIDDEN = {
 def summary_check(summary):
     main = next(i for i in summary["Images"] if i["Image"] == "main")
     initrd = next(i for i in summary["Images"] if i["Image"] == "default-initrd")
+    require(
+        all("hardened_malloc" in image["Packages"] for image in (main, initrd)),
+        "the global allocator must be installed in host and initrd",
+    )
     for image in (main, initrd, summary["Tools"]):
         require(
             image["Distribution"] == "fedora" and image["Release"] == "45",
@@ -262,6 +266,12 @@ def root_check(root, *, tree="usr", output=None, source_dir=None):
             upstream = upstream_inputs(source_dir)
             component = "fwupd-efi" if tree == "usr" else "mkosi"
             verify_upstream_package(root, component, upstream[component])
+        if tree in ("usr", "initrd"):
+            from .security import allocator_layout
+
+            allocator_layout(root, source_dir, initrd=tree == "initrd")
+            upstream = upstream_inputs(source_dir)
+            verify_upstream_package(root, "hardened_malloc", upstream["hardened_malloc"])
     query = "%{NAME}|%{EVR}|%{VENDOR}|%{DISTURL}\n"
     rows = [
         line.split("|", 3) for line in run(["rpm", "--root", root, "-qa", "--qf", query]).stdout.splitlines()
@@ -324,7 +334,11 @@ def root_check(root, *, tree="usr", output=None, source_dir=None):
             root / "usr/lib/particleve/trust/secure-boot.crt",
         )
         kernel_verification["packages"] = verify_kernel_packages(rows, kernel_verification["kernel"])
-        security = {"kernel": kernel_baseline(root), "privileged_files": check_privileges(root)}
+        security = {
+            "kernel": kernel_baseline(root),
+            "privileged_files": check_privileges(root),
+            "allocator": allocator_layout(root, source_dir),
+        }
         for path in (
             "usr/bin/particleve",
             "usr/bin/chronyc",

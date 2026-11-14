@@ -37,6 +37,16 @@ with tarfile.open(fileobj=io.BytesIO(archive)) as source:
         (".obs/fedora/x86-64/mkosi.conf", package / "mkosi.conf"),
         (str(OBS_RECIPE), package / OBS_RECIPE.name),
         (".obs/particleve/_multibuild", package / "_multibuild"),
+        (".obs/particleve/allocator.spec", package / "allocator.spec"),
+        (".obs/particleve/allocator.spec", package / "hardened_malloc.recipe"),
+        (
+            ".obs/particleve/hardened_malloc-chacha-output-pointer.patch",
+            package / "hardened_malloc-chacha-output-pointer.patch",
+        ),
+        (".obs/particleve/hardened_malloc.allowed_signers", package / "hardened_malloc.allowed_signers"),
+        ("sources.lock.json", package / "sources.lock.json"),
+        ("Sources/particleve/package_sources.py", package / "package_sources.py"),
+        ("Tests/acceptance/allocator/chacha-boundaries.c", package / "chacha-boundaries.c"),
     ):
         atomic_write(destination, source.extractfile(name).read(), 0o644)
     with tarfile.open(package / f"particleve-{version}.tar.xz", "w:xz") as output:

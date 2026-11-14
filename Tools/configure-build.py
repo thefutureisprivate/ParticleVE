@@ -47,7 +47,8 @@ for name, url, include, key in (
     (
         "packages",
         packages,
-        "particleve-* fwupd-efi* kernel-core kernel-modules-core kernel-modules kernel-modules-extra",
+        "particleve-* fwupd-efi* hardened_malloc* kernel-core kernel-modules-core "
+        "kernel-modules kernel-modules-extra",
         "packages",
     ),
 ):

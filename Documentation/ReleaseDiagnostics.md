@@ -95,6 +95,7 @@ invocation identities and state markers:
 | Replacement finalization | Interrupt after Btrfs copy and swap addition but before complete ESP/firmware provisioning. Retry the recorded authenticated release, verify OS/UKI/loader/default/firmware readback, then permit readmission and journal removal. Preserve unrelated firmware entries and BootNext. |
 | Private DNS routing | Reject unaddressed private interfaces and empty private scopes. Exercise authenticated private/public queries with the management interface healthy, without addresses, without carrier, and restored. Keep a public resolver reachable and observe its queries to prove private names never fall through to it. |
 | BPF and module policy | Confirm both BPF values are applied before PID 1 and survive initrd/host reapplication; prove the one-way lock, privileged broker/device BPF and unprivileged seccomp behavior. Require enabled module enforcement, signed storage/KVM driver loads, and rejection of unsigned/modified modules. Compare fresh JIT programs and representative VM startup/I/O with paired samples; preserve raw samples and report scope and variation. |
+| Global allocator | Verify default hardened_malloc in initrd helpers, installed PID 1, privileged authentication helpers, Rust services, QEMU and swtpm, including actual secure execution. Preserve confinement and recovery; reject unreadable preload policy and missing/modified libraries. Compare paired RSS, map counts, startup, disk/network I/O and memory pressure with the distribution allocator. |
 | Policy and trust changes | Positive and negative access probes, retained-image compatibility, both independent boot paths, current TPM authorization and independent recovery. |
 
 Stop a repeated run on failure and retain its evidence. Do not use repeated
@@ -179,7 +180,7 @@ what was actually executed rather than only the intended configuration:
 The signed manifest contains producer-authenticated provenance. It does not
 independently prove that a compromised build worker behaved correctly. Likewise,
 expected boot measurements do not prove the absence of runtime compromise.
-Document optional attestation or allocator/LoadPin adoption separately; the
+Document optional attestation or LoadPin adoption separately; the
 presence of an evaluation does not establish an enforced runtime control.
 
 Keep sensitive diagnostic material privately alongside its matching release.

@@ -100,16 +100,13 @@ def main():
         "fwupd must initially be inactive",
     )
     here = Path(__file__).resolve().parent
-    pin = json.loads((here / "source.json").read_text())
     payload = json.loads(args.payload_record.read_text())
-    require(payload["source"] == pin, "source pin mismatch")
+    pin = payload["source"]
+    installed = json.loads(Path("/usr/lib/particleve/source-identities/hardened_malloc.json").read_text())
+    require(installed["source"]["upstream"] == pin, "installed source pin mismatch")
     require(
-        json.loads(Path("/usr/share/hardened_malloc/source.json").read_text()) == pin,
-        "installed pin mismatch",
-    )
-    require(
-        set(payload["libraries"]) == {"libhardened_malloc.so", "libhardened_malloc-light.so"},
-        "incomplete payload record",
+        set(payload["libraries"]) == {"libhardened_malloc.so"},
+        "inspection must identify the production default library",
     )
     for name, record in payload["libraries"].items():
         require(
@@ -141,7 +138,7 @@ def main():
         "max_map_count": map_limit.strip(),
         "system_ca_bundle_sha256": ca_digest,
         "firmware_variable_fingerprints": firmware,
-        "variants": {label: [] for label in ("glibc", "default", "light")},
+        "variants": {label: [] for label in ("glibc", "default")},
         "execution_order": [],
     }
     created_directory = not directory.exists()
@@ -150,7 +147,6 @@ def main():
     variants = (
         ("glibc", None),
         ("default", "/usr/lib64/libhardened_malloc.so"),
-        ("light", "/usr/lib64/libhardened_malloc-light.so"),
     )
     with args.output.open("x") as output:
         start_requested = False

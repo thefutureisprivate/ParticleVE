@@ -461,6 +461,7 @@ where
     )
 }
 pub fn start_guard(name: &str) -> Result<[u16; 2]> {
+    crate::allocator::current()?;
     // SAFETY: geteuid only reads the calling task's identity.
     launch_authority(unsafe { libc::geteuid() }, || {
         Ok(Path::new(GATE).try_exists()?)
@@ -637,6 +638,7 @@ pub fn verify_processes(processes: &[Identity], proc: &Path) -> Result<()> {
     let mut types = BTreeSet::new();
     for entry in processes {
         let process = Process::open(entry.pid, Some(entry.starttime), proc)?;
+        crate::allocator::process_policy(&process)?;
         let current = process.text("attr/current", 4096)?;
         let kind = current
             .split(':')

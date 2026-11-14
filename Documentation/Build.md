@@ -33,6 +33,21 @@ The host package requires its matching initrd subpackage. The initrd installs
 only the early-boot component and its native dependencies. Python build tools
 and test harnesses are not installed as host or initrd runtime helpers.
 
+The `particleve:allocator` flavor builds the pinned GrapheneOS hardened_malloc
+default library independently of the Rust RPM. Host and initrd both install it;
+the tools tree keeps its distribution allocator. Its signed upstream tag, archive
+checksum, patch and recipe are checked before compilation, and its transformed
+library identity is checked again in the image and final initrd. The existing
+ParticleVE package-scoped source-service token covers this flavor.
+
+Renovate proposes allocator release tags after the dependency cooldown. Review
+the selected version, then run
+`PYTHONPATH=Sources:. python3 -m Tools.allocator_source --refresh` to authenticate
+its upstream SSH-signed tag and refresh the commit, epoch and archive checksum.
+Review the lock and recipe together. `make check-upstream` rejects stale or
+mismatched signed provenance; the RPM checks its downloaded archive against
+that lock too.
+
 Runtime dependencies are vendored by the pinned native Cargo during checked
 source publication from the reviewed `Cargo.lock`, with dependency updates
 disabled. The source release carries the locked vendor archive. Publication

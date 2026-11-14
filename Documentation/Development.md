@@ -25,8 +25,8 @@ PYTHONPATH=Sources:. python3 Tools/configure-build.py --site .obs/site.json
 make summary
 ```
 
-`make sources` fetches the mkosi, fwupd-efi, Fedora kernel packaging, and
-secureblue/kernel revisions in
+`make sources` fetches the mkosi, fwupd-efi, hardened_malloc, Fedora kernel
+packaging and secureblue/kernel revisions in
 [`sources.lock.json`](../sources.lock.json). This checkout is the ParticleOS
 fork; its recorded upstream revision is provenance, not another tree to download.
 Existing source checkouts must match their pins and have clean worktrees.
@@ -35,7 +35,7 @@ and image inputs. Review those tracked changes. `make summary` resolves and
 checks the configuration of all three trees before image generation.
 
 For a local signed image, first make the matching ParticleVE host, initrd,
-build-tools, kernel, pinned mkosi, and fwupd-efi RPMs available to the selected build
+build-tools, kernel, pinned mkosi, fwupd-efi and hardened_malloc RPMs available to the selected build
 environment and repositories. Their recorded source and payload identities must
 match the checkout. Changing runtime code, trust, recipes, or patches requires
 rebuilding the affected packages; published packages from another implementation
@@ -413,47 +413,49 @@ does not test authenticated variable-update transports, physical firmware,
 encrypted owner recovery or a complete signed-image transition. Those belong
 to the [release acceptance matrix](ReleaseDiagnostics.md#trust-transition-acceptance).
 
-### Scoped allocator components
+### Global allocator and component measurements
 
-[`Tests/acceptance/allocator/`](../Tests/acceptance/allocator/) contains the
-pinned hardened_malloc evaluation inputs. The source preparer uses the system
-CA store, checks the exact signed upstream tag and commit against the reviewed
-public SSH signer, and verifies the canonical archive hash:
+The production `particleve:allocator` flavor uses the signed source pin in
+[`sources.lock.json`](../sources.lock.json). Prepare its authenticated sources
+in a fresh directory and build with the recipe's declared dependencies in a
+disposable Fedora environment:
 
 ```sh
-mkdir -m 0700 /tmp/particleve-allocator-rpm
 PYTHONPATH=Sources:. python3 -W error Tests/acceptance/allocator/prepare.py \
   --output /tmp/particleve-allocator-rpm/SOURCES
 rpmbuild -ba --define '_topdir /tmp/particleve-allocator-rpm' \
-  /tmp/particleve-allocator-rpm/SOURCES/rpm.spec
+  /tmp/particleve-allocator-rpm/SOURCES/allocator.spec
 ```
 
-Build in a disposable Fedora environment with the recipe's declared dependencies.
-Both upstream default and light variants retain C++ allocation support, strict
-diagnostics and Fedora flags, with explicit x86-64-v2 targeting and native CPU
-tuning disabled. The narrow ChaCha pointer-lifetime patch has a comparison
-against the unmodified tagged implementation at block boundaries and counter
-carry. The upstream corruption suite covers the default variant; it does not
-establish equivalent coverage for light.
+The upstream default variant retains C++ allocation support, strict diagnostics
+and Fedora flags, explicit x86-64-v2 targeting and no native tuning. The narrow
+ChaCha pointer-lifetime patch is compared with the signed upstream implementation
+at block boundaries and counter carry; upstream's default-variant corruption
+suite runs during the RPM build. The library package contains only `/usr`
+payload. Host and initrd image policy select global loading separately.
 
 Set `ALLOCATOR_BINARY_RPM` and `ALLOCATOR_SOURCE_RPM` to the resulting normal
-binary and source RPM paths. Inspect their exact source, recipe, patch and
-installed-library bytes after normal RPM processing:
+binary and source RPM paths. Inspect their source, recipe, patch and
+installed-library identities after normal RPM processing:
 
 ```sh
-python3 -W error Tests/acceptance/allocator/inspect.py \
+PYTHONPATH=Sources:. python3 -W error Tests/acceptance/allocator/inspect.py \
   --rpm "$ALLOCATOR_BINARY_RPM" --source-rpm "$ALLOCATOR_SOURCE_RPM" \
   --output /tmp/particleve-allocator-rpm/payload.json
 ```
 
-This inspection checks local RPM digests, ELF hardening and the passive `/usr`
-payload. It does not authenticate an OBS signature or establish verified-image
-delivery. The package installs no global preload, sysctl or service policy.
-Keep its public source and inspection records with the build evidence.
+This checks local RPM digests, independent source/payload identities and ELF
+hardening. It does not authenticate OBS signatures or establish global loading
+in a signed image. Apply the [global allocator matrix](ReleaseDiagnostics.md#repeated-lifecycle-tests)
+including actual secure execution, installed PID 1, initrd helpers, authentication,
+confined workers, recovery and resource costs. Retain exact image and library
+hashes with the evidence.
 
 For component measurements, use a separately selected disposable Fedora QEMU
 recovery VM with enforcing SELinux, PID 1, GCC, QEMU, swtpm and util-linux.
-Install the reviewed evaluation RPM there, checking its exact hash and installed
+These distribution-allocator comparison fixtures reject an installed ParticleVE
+host or an existing global preload policy; they do not disable production policy.
+Install the reviewed production library RPM there, checking its exact hash and installed
 file digests. Stage the allocator probe directory, matching inspection record
 and compiled probe under `/run/particleve-allocator`, owned by root and readable
 but not writable by the probe UID:
@@ -471,7 +473,7 @@ python3 -W error /run/particleve-allocator/components.py \
 ```
 
 The probe requires the exact DMI UUID and absence of an installed-host record.
-It compares glibc, default and light in three interleaved rounds, recording
+It compares glibc and the default variant in three interleaved rounds, recording
 actual mappings, `malloc` resolution, RSS, mapping counts and timings. QEMU
 initializes virtual block/network devices while paused, copies a private disk
 through QMP, and exits. swtpm initializes a new private identity and answers a
@@ -486,7 +488,7 @@ the global allocator and map-count policy unchanged. These small component
 timings do not measure guest startup, guest disk/network performance, complete
 authentication or maintenance, whole-host pressure, or the selected signed
 image. Apply the [allocator adoption policy](Hardening.md#advanced-userspace-and-kernel-mitigations)
-and full release matrix before selecting an allocator for host use.
+and full release matrix when verifying the globally selected host allocator.
 
 The separate [`fwupd.py`](../Tests/acceptance/allocator/fwupd.py) probe exercises
 the packaged fwupd service and its actual SELinux domain and seccomp policy.
@@ -500,7 +502,7 @@ python3 -W error /run/particleve-allocator/fwupd.py \
   --output /run/particleve-allocator/fwupd-result.json
 ```
 
-Nine interleaved cases compare glibc, default and light through native service
+Six interleaved cases compare glibc and the default variant through native service
 starts and matching CLI/D-Bus device discovery. A temporary runtime drop-in
 selects only the allocator; the probe checks actual mappings, process authority
 and unchanged confinement properties. It records the effective `AT_SECURE`
@@ -556,6 +558,7 @@ revision, package identities, configuration, and diagnostics when reproducing it
 | [Host, initrd and build-tools RPMs](../.obs/particleve/rpm.spec) | Offline locked Rust build, strict formatting/Clippy, Rust and Python tests, SELinux policy compilation, and final ELF payload identity after normal RPM transformations. |
 | [Pinned mkosi RPM](../.obs/mkosi/mkosi.spec) | Exact upstream, recipe, and patch identity; installed-payload records; shell syntax checks for the OBS signing continuation. |
 | [fwupd EFI helper RPM](../.obs/fwupd-efi/fwupd-efi.spec) | Compiler diagnostics, retained SBAT/SBOM sections, payload identity, and separate PE signing. |
+| [Allocator RPM](../.obs/particleve/allocator.spec) | Signed GrapheneOS source pin, archive/patch identity, ChaCha boundary equivalence, upstream corruption tests, default C++ allocator and final library identity. Global-loader and resource probes are described above. |
 | [Kernel RPM](../.obs/kernel/kernel.spec) | Pinned Fedora/secureblue sources, selected configuration, normal Fedora transformations, module-body identity, and native OBS PE/module signing. |
 | [Image build](../.obs/fedora/x86-64/mkosi.conf) | Runtime/initrd/tools dependencies, package origins, installed identities, security inventory, and required kernel, storage, and KVM support. |
 | [Signing and publication](Build.md#signing-and-release-publication) | Final UKI, bootloader, verity, and firmware-helper signatures; complete release manifest and authenticated index. |

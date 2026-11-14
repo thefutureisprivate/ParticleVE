@@ -9,6 +9,13 @@
     <param name="versionrewrite-pattern">v(.*)</param>
     <param name="versionrewrite-replacement">\1</param>
     <param name="extract">.obs/fedora/x86-64/mkosi.conf</param>
+    <param name="extract">.obs/particleve/allocator.spec</param>
+    <param name="extract">.obs/particleve/hardened_malloc-chacha-output-pointer.patch</param>
+    <param name="extract">.obs/particleve/hardened_malloc.allowed_signers</param>
+    <param name="extract">sources.lock.json</param>
+    <param name="extract">Sources/particleve/package_sources.py</param>
+    <param name="extract">Tests/acceptance/allocator/chacha-boundaries.c</param>
+    <param name="extract-rename">.obs/particleve/allocator.spec:hardened_malloc.recipe</param>
   </service>
   <service name="download_files" />
   <service name="tar" mode="buildtime" />

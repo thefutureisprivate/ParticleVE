@@ -1,7 +1,7 @@
 # Native OBS rpm flavor; the default build consumes these RPMs for the image.
 %global _buildshell /bin/bash
 Name:           particleve
-Version:        45.0.3.5
+Version:        45.0.4.0
 Release:        1%{?dist}
 Summary:        ParticleVE host installation and maintenance coordinator
 # Project sources are LGPL; statically linked crates select MIT where dual
@@ -40,6 +40,7 @@ Requires:       keyutils
 Requires:       particleve-initrd = %{version}-%{release}
 Requires:       systemd-udev
 Requires:       openssh-clients
+Requires:       hardened_malloc
 Requires:       systemd-container
 Requires:       mdadm
 Requires:       cryptsetup
@@ -60,6 +61,7 @@ Requires:       p11-kit-trust
 
 %package initrd
 Summary:        ParticleVE early-boot storage admission and shutdown witness
+Requires:       hardened_malloc
 Requires:       systemd-udev
 Requires:       util-linux
 Requires:       cryptsetup

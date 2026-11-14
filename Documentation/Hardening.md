@@ -558,25 +558,40 @@ Advanced mitigations have explicit adoption or deferral decisions and release-
 specific evidence. An evaluation does not silently become a global runtime
 policy. Optional selections are not implied by the project's completed baseline.
 
-For [hardened_malloc](https://github.com/GrapheneOS/hardened_malloc), evaluation
-starts per process with a pinned OBS package delivered through verified `/usr`.
-An adopted selection records allocator variant, integration method, actual
-loading, exceptions, and tests of QEMU, swtpm, fwupd, authentication, storage,
-and maintenance. Measurements cover resident memory, map counts, startup,
-representative disk/network behavior, and pressure. `vm.max_map_count` changes
-need measured justification. A completed evaluation can conclude with deferral;
-no host-wide preload or allocator variant is assumed here.
+The host and initrd use the upstream default
+[hardened_malloc](https://github.com/GrapheneOS/hardened_malloc) variant globally
+through `/etc/ld.so.preload`. The root-owned, publicly readable configuration and
+library live in verified `/usr`; the signed initrd supplies the same policy and
+materializes only its owned root link before executing installed PID 1. An
+existing conflicting configuration blocks boot instead of being overwritten.
+The pinned allocator is built as the native OBS `particleve:allocator` flavor,
+with x86-64-v2 targeting, C++ sized-allocation checks and no build-host tuning.
+Source, recipe, patch, installed-library and initrd identities are checked together.
 
-The generic allocator selection is glibc, with no global preload. The disposable
+System preload also covers secure-execution processes, including QEMU and swtpm;
+their existing UID, capability, SELinux/MCS and seccomp restrictions remain in
+force. The library needs no setuid bit. Runtime checks reject a missing allocator
+mapping and writable executable allocator pages. Loader environment overrides
+are unsupported. Statically linked programs and runtimes with their own memory
+allocators, such as Go, retain those allocators; guest operating systems remain
+externally owned. An OS fallback resolves its loader configuration through that
+image's verified `/usr`, preserving its own allocator and writable data.
+
+Measure resident memory, map counts, startup, disk/network behavior and pressure
+with the selected image and workload budgets. `vm.max_map_count` changes need
+measured justification. Global allocation does not relax service resource limits
+or turn an allocator mapping alone into proof of successful VM I/O or recovery.
+
+The earlier disposable
 signed-image evaluation on 2026-11-11 (`45.0.2.3-0.1`, Fedora kernel
 `7.3.3-300.fc45`) loaded both hardened_malloc variants in vmspawn and its
 supervisor, while QEMU and swtpm retained their original allocators. QEMU's
 `AT_SECURE=1` execution remained intact. The scoped fwupd evaluation also
-observed higher mapping counts and resident memory. These results support
-deferral of allocator adoption; they do not establish representative guest
-performance. Adoption requires integration that reaches the intended workers
-with their existing confinement and passes the compatibility and measurement
-requirements above.
+observed higher mapping counts and resident memory. That evaluation used
+per-process environment preloading and does not establish global-loader behavior
+or representative guest performance. Global acceptance verifies actual allocator
+loading in PID 1, native helpers and confined workers, together with authentication,
+storage, maintenance, retained-image recovery and measured resource costs.
 
 Additional kernel hardening is optional and stays last in the priority order.
 Audit Fedora's effective configuration and protections before proposing changes

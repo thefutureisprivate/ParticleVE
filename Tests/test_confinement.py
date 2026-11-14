@@ -148,6 +148,9 @@ class ConfinementTests(RustDriverTests):
                 (path / "status").write_text("\n".join(f"{k}: {v}" for k, v in fields.items()))
                 (path / "limits").write_text("Max core file size 0 0 bytes\n")
                 (path / "coredump_filter").write_text("00000000\n")
+                (path / "maps").write_text(
+                    "1000-2000 r-xp 00000000 00:01 5 /usr/lib64/libhardened_malloc.so\n"
+                )
             qemu = proc / "2"
             (qemu / "cmdline").write_bytes(
                 "\0".join(["qemu", "-sandbox", SANDBOX, "-machine", PRIVACY]).encode()
@@ -156,6 +159,19 @@ class ConfinementTests(RustDriverTests):
             (qemu / "ksm_stat").write_text("ksm_zero_pages 0\nksm_merging_pages 0\n")
             identities = [{"pid": pid, "starttime": 42} for pid in (1, 2, 3)]
             self.evaluate("vm-verify-processes", proc=str(proc), processes=identities)
+            maps = proc / "3/maps"
+            original_maps = maps.read_text()
+            for invalid in (
+                "",
+                original_maps.replace("r-xp", "rwxp"),
+                original_maps.rstrip() + " (deleted)\n",
+            ):
+                maps.write_text(invalid)
+                with self.subTest(maps=invalid):
+                    self.assertIn(
+                        "error", self.request("vm-verify-processes", proc=str(proc), processes=identities)
+                    )
+            maps.write_text(original_maps)
             label = proc / "3/attr/current"
             for context in (
                 "system_u:system_r:swtpm_t:s0:c30,c40",

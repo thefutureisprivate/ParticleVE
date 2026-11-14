@@ -12,7 +12,12 @@ import re
 import subprocess
 from pathlib import Path
 
-COMPONENTS = {"mkosi": "mkosi", "fwupd-efi": "fwupd_efi"}
+COMPONENTS = {"mkosi": "mkosi", "fwupd-efi": "fwupd_efi", "hardened_malloc": "hardened_malloc"}
+SPEC_PATHS = {
+    "mkosi": ".obs/mkosi/mkosi.spec",
+    "fwupd-efi": ".obs/fwupd-efi/fwupd-efi.spec",
+    "hardened_malloc": ".obs/particleve/allocator.spec",
+}
 
 
 def sha256(path):
@@ -23,7 +28,7 @@ def sha256(path):
 def source_identity(source, component, *, rpm_sources=False):
     source = Path(source)
     pin = json.loads((source / "sources.lock.json").read_text())["sources"][COMPONENTS[component]]
-    spec_name = f".obs/{component}/{component}.spec"
+    spec_name = SPEC_PATHS[component]
 
     def path(name):
         if rpm_sources and name == spec_name:
@@ -44,7 +49,18 @@ def source_identity(source, component, *, rpm_sources=False):
     patches = [p.strip() for p in re.findall(r"^[ \t]*Patch[0-9]*[ \t]*:[ \t]*(.*)$", spec, re.M | re.I)]
     if any(not re.fullmatch(r"[A-Za-z0-9_.+-]+\.patch", name) for name in patches):
         raise ValueError("upstream patches must be explicit local filenames")
-    names = [spec_name, "Sources/particleve/package_sources.py", *(f".obs/{component}/" + p for p in patches)]
+    names = [
+        spec_name,
+        "Sources/particleve/package_sources.py",
+        *(str(Path(spec_name).parent / p) for p in patches),
+    ]
+    if component == "hardened_malloc":
+        names.extend(
+            [
+                ".obs/particleve/hardened_malloc.allowed_signers",
+                "Tests/acceptance/allocator/chacha-boundaries.c",
+            ]
+        )
     if component == "mkosi":
         names.append(".obs/mkosi/mkosi-entrypoint.py")
     for name in names:
@@ -75,6 +91,9 @@ def payload_paths(root, component):
             *root.glob("usr/lib*/pkgconfig/fwupd-efi.pc"),
         ]
         required = root / "usr/libexec/fwupd/efi/fwupdx64.efi"
+    elif component == "hardened_malloc":
+        entries = [root / "usr/lib64/libhardened_malloc.so", root / "usr/share/hardened_malloc/default.mk"]
+        required = root / "usr/lib64/libhardened_malloc.so"
     else:
         raise ValueError("unknown upstream package component")
     if not required.is_file() or required.is_symlink():

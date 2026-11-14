@@ -480,15 +480,13 @@ def main():
     require(not Path("/etc/ld.so.preload").exists(), "global preload policy is present")
     require(command(["getenforce"]) == "Enforcing", "SELinux must remain enforcing")
     here = Path(__file__).resolve().parent
-    pin = json.loads((here / "source.json").read_text())
-    require(
-        json.loads(Path("/usr/share/hardened_malloc/source.json").read_text()) == pin, "source pin mismatch"
-    )
     payload = json.loads(args.payload_record.read_text())
-    require(payload["source"] == pin, "inspection source pin mismatch")
+    pin = payload["source"]
+    installed = json.loads(Path("/usr/lib/particleve/source-identities/hardened_malloc.json").read_text())
+    require(installed["source"]["upstream"] == pin, "installed source pin mismatch")
     require(
-        set(payload["libraries"]) == {"libhardened_malloc.so", "libhardened_malloc-light.so"},
-        "inspection must identify both allocator libraries",
+        set(payload["libraries"]) == {"libhardened_malloc.so"},
+        "inspection must identify the production default library",
     )
     for name, record in payload["libraries"].items():
         require(
@@ -523,7 +521,6 @@ def main():
             variants = (
                 ("glibc", None),
                 ("default", "/usr/lib64/libhardened_malloc.so"),
-                ("light", "/usr/lib64/libhardened_malloc-light.so"),
             )
             result["variants"] = {label: [] for label, _ in variants}
             result["execution_order"] = []

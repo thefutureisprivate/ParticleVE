@@ -803,6 +803,7 @@ pub fn live_baseline(root: &Path, evidence: bool, kcore: &Path) -> Result<Value>
     baseline["lockdown"] = json!(selected[0]);
     baseline["module_sig_enforce"] = json!(enforcement);
     baseline["nested"] = Value::Object(nested);
+    baseline["allocator"] = crate::allocator::current()?;
     if !evidence {
         return Ok(baseline);
     }

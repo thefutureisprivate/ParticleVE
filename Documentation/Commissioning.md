@@ -184,6 +184,15 @@ Commissioning binds the metadata and content hashes reported by
 an old eligibility record. Account/credential contents are excluded from this
 code-origin digest and retain their separate authentication/access policy.
 
+Include the image-owned allocator preload link in the reviewed inventory.
+Prove global loading in installed PID 1, privileged authentication, ParticleVE
+helpers and confined QEMU/swtpm processes without changing their authority.
+Exercise retained-image boot and independent owner recovery with the same
+writable state. When introducing this link to a commissioned installation,
+disable automation and review the changed inventory before activation; collect
+fresh acceptance evidence and recommission. A changed startup digest never
+becomes implicitly approved just because its target is in `/usr`.
+
 Before deliberately changing a commissioned startup input, enter maintenance,
 run `particleve disable-automation`, review and apply the change as root, and
 collect new commissioning evidence. Without invalidating the old approval,

@@ -7,6 +7,7 @@ from .common import hash_file, require
 
 OVERLAY = "mkosi.initrd.conf/mkosi.extra"
 SHARED = (
+    "usr/lib/particleve/ld.so.preload",
     "usr/lib/udev/rules.d/61-particleve-boot-disk.rules",
     "usr/lib/systemd/coredump.conf.d/60-particleve.conf",
     "usr/lib/systemd/system.conf.d/60-particleve-memory.conf",

@@ -1,7 +1,7 @@
 """Inspect local allocator source/binary RPMs after normal Fedora RPM processing.
 
 Run as an ordinary user in the disposable build environment. This verifies local
-evaluation inputs and bytes, not OBS signatures or verified-image delivery.
+production inputs and bytes, not OBS signatures or verified-image delivery.
 """
 
 import argparse
@@ -11,6 +11,8 @@ import subprocess
 import tarfile
 import tempfile
 from pathlib import Path
+
+from particleve.package_sources import source_identity, verify_package
 
 
 def require(condition, message):
@@ -49,8 +51,9 @@ def main():
     parser.add_argument("--source-rpm", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True, help="new public inspection record")
     args = parser.parse_args()
-    here = Path(__file__).resolve().parent
-    pin = json.loads((here / "source.json").read_text())
+    root_source = Path(__file__).resolve().parents[3]
+    identity = source_identity(root_source, "hardened_malloc")
+    pin = identity["upstream"]
     require(not command("rpm", "-qp", "--scripts", str(args.rpm)).strip(), "unexpected RPM scriptlet")
     require(not command("rpm", "-qp", "--triggers", str(args.rpm)).strip(), "unexpected RPM trigger")
     files = command("rpm", "-qpl", str(args.rpm)).splitlines()
@@ -62,22 +65,20 @@ def main():
     with tempfile.TemporaryDirectory(prefix="particleve-allocator-inspect-") as temporary:
         root = Path(temporary)
         source = extract(args.source_rpm, root / "source")
-        for name in ("source.json", "rpm.spec", "chacha-output-pointer.patch", "chacha-boundaries.c"):
+        for name in identity["inputs"]:
+            filename = "hardened_malloc.recipe" if name.endswith("allocator.spec") else Path(name).name
             require(
-                (source / name).read_bytes() == (here / name).read_bytes(), f"source RPM mismatch: {name}"
+                (source / filename).read_bytes() == (root_source / name).read_bytes(),
+                f"source RPM mismatch: {name}",
             )
         require(
-            digest(source / f"hardened_malloc-{pin['version']}.tar.xz") == pin["archive_sha256"],
+            digest(source / (pin["revision"] + ".tar.gz")) == pin["archive_sha256"],
             "upstream source archive mismatch",
         )
         payload = extract(args.rpm, root / "binary")
-        require(
-            (payload / "usr/share/hardened_malloc/source.json").read_bytes()
-            == (here / "source.json").read_bytes(),
-            "installed source pin mismatch",
-        )
+        verify_package(payload, "hardened_malloc", identity)
         libraries = {}
-        for name in ("libhardened_malloc.so", "libhardened_malloc-light.so"):
+        for name in ("libhardened_malloc.so",):
             library = payload / "usr/lib64" / name
             header = command("readelf", "-hW", str(library))
             segments = command("readelf", "-lW", str(library))
@@ -113,7 +114,7 @@ def main():
         "files": files,
         "libraries": libraries,
         "source": pin,
-        "recipe_sha256": digest(here / "rpm.spec"),
+        "recipe_sha256": digest(root_source / ".obs/particleve/allocator.spec"),
         "global_policy_files": False,
     }
     with args.output.open("x") as output:

@@ -463,6 +463,16 @@ root/homed authentication policy and IP, Unix, vsock and socket-unit listeners.
 
 ## Persistent startup configuration
 
+The host and signed initrd select the default hardened_malloc library through
+an image-owned `/etc/ld.so.preload` link. Its publicly readable configuration
+and library reside in verified `/usr`, including for privileged authentication
+and confined VM processes. The initrd creates a missing owned link before
+starting installed PID 1; it refuses conflicting owner configuration. Do not
+replace the link or select allocators with loader environment overrides.
+Retained images resolve the link through their own `/usr` and retain their own
+allocator. See the [allocator policy](Hardening.md#advanced-userspace-and-kernel-mitigations)
+for runtime scope and resource measurements.
+
 Host executable code, upstream interpreter modules, libraries and policy normally
 come from the verified `/usr` image. Native sysext/confext and portable host-service
 activation are masked. Health checks require the visible `/usr` mount itself to

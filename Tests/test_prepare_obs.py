@@ -28,6 +28,12 @@ class PrepareObsTests(unittest.TestCase):
                 ".obs/fedora/x86-64/mkosi.conf": "[Config]\n",
                 ".obs/particleve/rpm.spec": "Name: particleve\n",
                 ".obs/particleve/_multibuild": "<multibuild/>\n",
+                ".obs/particleve/allocator.spec": "Name: hardened_malloc\n",
+                ".obs/particleve/hardened_malloc-chacha-output-pointer.patch": "allocator patch fixture\n",
+                ".obs/particleve/hardened_malloc.allowed_signers": "public signer fixture\n",
+                "sources.lock.json": "{}\n",
+                "Sources/particleve/package_sources.py": "# source identity fixture\n",
+                "Tests/acceptance/allocator/chacha-boundaries.c": "/* comparison fixture */\n",
                 "mkosi.extra/usr/lib/systemd/resolved.conf.d/50-particleve.conf": "[Resolve]\n",
                 "Sources/bin/fixture": "#!/bin/sh\nexit 0\n",
                 "Cargo.lock": "version = 4\n",
@@ -91,6 +97,10 @@ class PrepareObsTests(unittest.TestCase):
                     )
                     self.assertEqual(prepared.returncode, 0, prepared.stderr)
                     self.assertEqual(prepared.stderr, "")
+                    self.assertEqual(
+                        (output / "particleve/allocator.spec").read_bytes(),
+                        (output / "particleve/hardened_malloc.recipe").read_bytes(),
+                    )
                     listed = subprocess.run(
                         [
                             "cpio",

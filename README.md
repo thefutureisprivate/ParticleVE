@@ -144,12 +144,15 @@ behavior; ParticleVE's operating procedures are documented separately.
   disabled memory merging, and restricted core dumps form a measured baseline.
   Per-VM limits, capacity planning, and pressure checks protect host and
   maintenance headroom.
+- **Memory allocation:** GrapheneOS hardened_malloc is the global default for
+  dynamically linked host software and initrd helpers, including secure-execution
+  processes. Workload operating systems retain their own allocators.
 - **Constrained dependencies:** source pins, package origins, recipes, patches,
   installed payloads, and final signatures are checked together. Signing keys
   stay off deployed hosts; failed or incomplete builds preserve the last usable
   release. Kernel updates retain declared hardware and recovery support.
 
-Optional USB authorization, allocator, attestation, and LoadPin policies require
+Optional USB authorization, attestation, and LoadPin policies require
 their own adoption decisions; evaluation does not imply global enablement.
 See [hardening policy](Documentation/Hardening.md) for the selected controls,
 exceptions, and limits, and [release diagnostics](Documentation/ReleaseDiagnostics.md)
@@ -180,6 +183,7 @@ For boot, storage, administration, or maintenance problems, see
 | fwupd and fwupd-efi | Supervised firmware maintenance | [Source lock](sources.lock.json), [EFI helper recipe](.obs/fwupd-efi/fwupd-efi.spec), and release manifest. |
 | mkosi and OBS | Image construction, dependency rebuilds, signing, and publication | Source lock, [mkosi recipe](.obs/mkosi/mkosi.spec), and [OBS configuration](.obs/project.xml). |
 | Rust toolchain and libraries | Native ParticleVE host and initrd helpers | [Toolchain pin](rust-toolchain.toml), [Cargo manifest](Cargo.toml), [dependency lock](Cargo.lock), and [RPM recipe](.obs/particleve/rpm.spec). |
+| hardened_malloc | Global dynamic allocation in the host and initrd | [Signed source pin](sources.lock.json), [allocator recipe](.obs/particleve/allocator.spec), and [effective policy](Documentation/Hardening.md#advanced-userspace-and-kernel-mitigations). |
 
 Build tools stay outside the deployed runtime unless an upstream runtime
 dependency requires them. The [build guide](Documentation/Build.md) describes

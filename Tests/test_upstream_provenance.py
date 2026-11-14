@@ -28,13 +28,15 @@ class UpstreamProvenanceTests(unittest.TestCase):
         for name in names:
             destination = self.source / name
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(ROOT / name, destination)
+            shutil.copyfile(ROOT / name, destination, follow_symlinks=False)
         files = {
             "usr/bin/mkosi": b"console entrypoint",
             "usr/lib/python3.14/site-packages/mkosi/__init__.py": b"mkosi source",
             "usr/lib/python3.14/site-packages/mkosi/__pycache__/__init__.cpython-314.pyc": b"bytecode",
             "usr/libexec/fwupd/efi/fwupdx64.efi": b"PE executable|unsigned",
             "usr/lib64/pkgconfig/fwupd-efi.pc": b"package configuration",
+            "usr/lib64/libhardened_malloc.so": b"allocator ELF",
+            "usr/share/hardened_malloc/default.mk": b"default allocator configuration",
         }
         for name, value in files.items():
             path = self.installed / name
@@ -52,7 +54,14 @@ class UpstreamProvenanceTests(unittest.TestCase):
             sources.mkdir()
             for name in (*identity["inputs"], "sources.lock.json"):
                 target = (
-                    component + ".recipe" if name == f".obs/{component}/{component}.spec" else Path(name).name
+                    component + ".recipe"
+                    if name
+                    == (
+                        ".obs/particleve/allocator.spec"
+                        if component == "hardened_malloc"
+                        else f".obs/{component}/{component}.spec"
+                    )
+                    else Path(name).name
                 )
                 shutil.copyfile(self.source / name, sources / target)
             package_sources.record_package(
@@ -75,7 +84,7 @@ class UpstreamProvenanceTests(unittest.TestCase):
 
     def test_complete_unmodified_recipe_is_verified(self):
         for component in package_sources.COMPONENTS:
-            spec = self.source / f".obs/{component}/{component}.spec"
+            spec = self.source / package_sources.SPEC_PATHS[component]
             spec.write_text(spec.read_text().replace("Release:        1%{?dist}", "Release: 52.3"))
             self.assertNotEqual(
                 package_sources.source_identity(self.source, component), self.expected[component]
@@ -88,7 +97,7 @@ class UpstreamProvenanceTests(unittest.TestCase):
     def test_version_update_requires_matching_recipe_and_lock(self):
         for component in package_sources.COMPONENTS:
             with self.subTest(component=component):
-                spec = self.source / f".obs/{component}/{component}.spec"
+                spec = self.source / package_sources.SPEC_PATHS[component]
                 pins = json.loads((self.source / "sources.lock.json").read_text())
                 pin = pins["sources"][package_sources.COMPONENTS[component]]
                 spec.write_text(
@@ -103,7 +112,7 @@ class UpstreamProvenanceTests(unittest.TestCase):
 
     def test_patch_headers_cannot_silently_omit_source_inputs(self):
         for component in package_sources.COMPONENTS:
-            spec = self.source / f".obs/{component}/{component}.spec"
+            spec = self.source / package_sources.SPEC_PATHS[component]
             header = " \tpatch0 \t:"
             spec.write_text(spec.read_text().replace("Patch0:", header))
             before = package_sources.source_identity(self.source, component)
@@ -121,8 +130,12 @@ class UpstreamProvenanceTests(unittest.TestCase):
         for component in package_sources.COMPONENTS:
             for kind in ("pin", "recipe", "patch"):
                 with self.subTest(component=component, kind=kind):
-                    original = {p: p.read_bytes() for p in self.source.rglob("*") if p.is_file()}
-                    spec = self.source / f".obs/{component}/{component}.spec"
+                    original = {
+                        p: p.read_bytes()
+                        for p in self.source.rglob("*")
+                        if p.is_file() and not p.is_symlink()
+                    }
+                    spec = self.source / package_sources.SPEC_PATHS[component]
                     if kind == "pin":
                         pins = json.loads((self.source / "sources.lock.json").read_text())
                         pin = pins["sources"][package_sources.COMPONENTS[component]]
@@ -131,11 +144,7 @@ class UpstreamProvenanceTests(unittest.TestCase):
                         (self.source / "sources.lock.json").write_text(json.dumps(pins))
                         spec.write_text(spec.read_text().replace(old, pin["revision"]))
                     else:
-                        target = (
-                            spec
-                            if kind == "recipe"
-                            else next(self.source.glob(f".obs/{component}/{component}-*.patch"))
-                        )
+                        target = spec if kind == "recipe" else next(spec.parent.glob(f"{component}-*.patch"))
                         target.write_text(target.read_text() + "\n# reviewed change\n")
                     expected = package_sources.source_identity(self.source, component)
                     self.assertEqual(implementation_digest(self.source), implementation)
@@ -148,6 +157,7 @@ class UpstreamProvenanceTests(unittest.TestCase):
         for component, filename in (
             ("mkosi", "usr/lib/python3.14/site-packages/mkosi/__init__.py"),
             ("fwupd-efi", "usr/libexec/fwupd/efi/fwupdx64.efi"),
+            ("hardened_malloc", "usr/lib64/libhardened_malloc.so"),
         ):
             path = self.installed / filename
             original = path.read_bytes()
@@ -173,7 +183,7 @@ class UpstreamProvenanceTests(unittest.TestCase):
                 root_check(self.installed, tree=tree, source_dir=self.source)
             commands.assert_not_called()
 
-    def test_final_signing_rechecks_both_upstream_packages_before_publication(self):
+    def test_final_signing_rechecks_every_upstream_package_before_publication(self):
         for component in package_sources.COMPONENTS:
             with self.subTest(component=component):
                 output = self.base / (component + "-output")
@@ -181,7 +191,7 @@ class UpstreamProvenanceTests(unittest.TestCase):
                 for suffix in ("efi", "usr-x86-64.a.raw", "usr-x86-64-verity-sig.a.raw"):
                     (output / ("ParticleVE_45.0.1.1-52.1_x86-64." + suffix)).write_bytes(b"fixture")
                 expected = json.loads(json.dumps(self.expected))
-                expected[component]["inputs"][f".obs/{component}/{component}.spec"] = "0" * 64
+                expected[component]["inputs"][package_sources.SPEC_PATHS[component]] = "0" * 64
 
                 def extract(_image, target, expected=expected):
                     shutil.copytree(self.installed / "usr", target, symlinks=True)

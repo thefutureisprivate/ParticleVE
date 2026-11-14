@@ -169,6 +169,7 @@ def assess(
     source_matches=None,
     selection=None,
     kernel_build_policy=None,
+    allocator_build=None,
 ):
     """A pending build must become stale even when it never reports a terminal failure."""
     integer(grace_seconds, 60, "publication grace seconds")
@@ -221,6 +222,8 @@ def assess(
     build_statuses = dict(statuses)
     if kernel_build_policy is not None:
         build_statuses["kernel-build-policy"] = kernel_build_policy
+    if allocator_build is not None:
+        build_statuses["allocator"] = allocator_build
     for name, code in build_statuses.items():
         require(re.fullmatch(r"[a-z_]{1,32}", code), "invalid OBS build status")
         state = "pass" if code in {"succeeded", "published"} else "pending" if code in PENDING else "fail"
@@ -384,6 +387,10 @@ def collect(site, keyring, certificate, *, grace_seconds=7200, previous=None):
         check["name"] == "kernel-build-policy:build" for check in previous["checks"]
     )
     kernel_build_policy = build_status("Fedora_45", "kernel:build-policy", required=worker_observed)
+    allocator_observed = previous is not None and any(
+        check["name"] == "allocator:build" for check in previous["checks"]
+    )
+    allocator_build = build_status("Fedora_45", "particleve:allocator", required=allocator_observed)
     manifest = signed_manifest(feed, keyring, certificate)
     with ThreadPoolExecutor(max_workers=4) as workers:
         pending = {
@@ -411,6 +418,7 @@ def collect(site, keyring, certificate, *, grace_seconds=7200, previous=None):
             "workflow": workflow,
         },
         kernel_build_policy=kernel_build_policy,
+        allocator_build=allocator_build,
     )
     result["claims"] = (
         "OBS-signed metadata and HTTPS availability; payload bytes require normal release authentication"

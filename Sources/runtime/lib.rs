@@ -5,6 +5,7 @@ compile_error!("ParticleVE requires Linux x86-64");
 
 pub mod accounts;
 pub mod admission;
+pub mod allocator;
 pub mod bootloaders;
 pub mod cli;
 pub mod commission;

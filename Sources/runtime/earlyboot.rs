@@ -126,6 +126,7 @@ pub fn assemble() -> Result<()> {
         &mapped[0],
         "/sysroot",
     ])?;
+    crate::allocator::prepare_root(Path::new("/sysroot"))?;
     let uuid_option = format!("--uuid={swap_uuid}");
     let mut assemble = vec![
         "mdadm",

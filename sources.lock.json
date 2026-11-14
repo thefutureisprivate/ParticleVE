@@ -27,6 +27,16 @@
       "url": "https://github.com/secureblue/kernel.git",
       "revision": "c249bb9877643e9d4953f2fb503704f3f6ca9009",
       "branch": "live"
+    },
+    "hardened_malloc": {
+      "url": "https://github.com/GrapheneOS/hardened_malloc.git",
+      "revision": "c5b1ae0bacd896bff7c4d3bf4794adf7950ca4ab",
+      "version": "2026110800",
+      "tag_object": "76e8cc2b6f2bdd17d3edb22ab206e070c3bcbb74",
+      "signer": "contact@grapheneos.org",
+      "signer_fingerprint": "SHA256:AhgHif0mei+9aNyKLfMZBh2yptHdw/aN7Tlh/j2eFwM",
+      "source_epoch": 1792341149,
+      "archive_sha256": "1b713256b22218717155466b3d0a1bac57649ba2dcf738d3e4ba623d0ef9b6b3"
     }
   },
   "compatibility": "candidate inputs; image build, signing and hardware acceptance are release gates"

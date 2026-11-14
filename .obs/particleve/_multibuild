@@ -1,3 +1,4 @@
 <multibuild>
   <flavor>rpm</flavor>
+  <flavor>allocator</flavor>
 </multibuild>

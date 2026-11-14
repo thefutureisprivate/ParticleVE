@@ -66,7 +66,7 @@ class PublicationTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(Error):
                 source_workflow({"total_count": 1, "workflow_runs": [run | {key: value}]}, "a" * 40)
 
-    def observe_builds(self, worker_statuses=(), *, previous=None):
+    def observe_builds(self, worker_statuses=(), *, allocator_statuses=(), previous=None):
         site = read_json(Path(__file__).resolve().parent.parent / ".obs/site.json")
         owner = '<person userid="' + site["obs_user"] + '" role="maintainer"/>'
         builds = (
@@ -79,6 +79,9 @@ class PublicationTests(unittest.TestCase):
             + '<result repository="Fedora_45" arch="x86_64">'
             '<status package="particleve" code="excluded"/>'
             + "".join(f'<status package="kernel:build-policy" code="{code}"/>' for code in worker_statuses)
+            + "".join(
+                f'<status package="particleve:allocator" code="{code}"/>' for code in allocator_statuses
+            )
             + "</result></resultlist>"
         )
         manifest = {"sources": {"particleve": "a" * 40}, "version": "45.0.1.1-87.2", "artifacts": {}}
@@ -154,6 +157,31 @@ class PublicationTests(unittest.TestCase):
             previous=expired,
         )
         self.assertEqual(recovered["result"], "pass")
+
+    def test_allocator_failure_and_disappearance_cannot_hide_behind_a_usable_feed(self):
+        for code, expected in (("succeeded", "pass"), ("failed", "fail"), ("building", "pending")):
+            with self.subTest(code=code):
+                result, _ = self.observe_builds(allocator_statuses=(code,))
+                self.assertEqual(result["result"], expected)
+        observed, _ = self.observe_builds(allocator_statuses=("succeeded",))
+        with self.assertRaisesRegex(Error, "missing or ambiguous build observation: particleve:allocator"):
+            self.observe_builds(previous=observed)
+        now = datetime(2026, 11, 14, tzinfo=UTC)
+        arguments = (
+            "a" * 40,
+            dict.fromkeys(PACKAGES, "a" * 40),
+            dict.fromkeys(PACKAGES, "succeeded"),
+            {"sources": {"particleve": "a" * 40}, "version": "45.0.4.0-1.1"},
+        )
+        pending = assess(*arguments, now=now, grace_seconds=7200, allocator_build="building")
+        expired = assess(
+            *arguments,
+            now=now + timedelta(seconds=7201),
+            grace_seconds=7200,
+            allocator_build="signing",
+            previous=pending,
+        )
+        self.assertEqual(expired["result"], "fail")
 
     def upstreams(self):
         return {

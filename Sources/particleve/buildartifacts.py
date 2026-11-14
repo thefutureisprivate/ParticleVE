@@ -17,7 +17,7 @@ from .kernels import verify_kernel
 from .layout import TYPES, os_label
 from .provenance import verify_package, verify_upstream_package
 from .release import inspect_uki, validate
-from .security import check_privileges, kernel_baseline
+from .security import allocator_layout, check_privileges, kernel_baseline
 
 
 def verify_mount_constraints(root, version):
@@ -197,10 +197,15 @@ def postoutput():
         verify_package(view, "initrd", verification["implementation_sha256"])
         verify_package(Path("/"), "build-tools", verification["implementation_sha256"])
         verify_upstream_package(view, "fwupd-efi", verification["upstream_inputs"]["fwupd-efi"])
+        verify_upstream_package(view, "hardened_malloc", verification["upstream_inputs"]["hardened_malloc"])
         verify_upstream_package(Path("/"), "mkosi", verification["upstream_inputs"]["mkosi"])
         require(
             verification["security_baseline"]
-            == {"kernel": kernel_baseline(view), "privileged_files": check_privileges(view, image=usr[0])},
+            == {
+                "kernel": kernel_baseline(view),
+                "privileged_files": check_privileges(view, image=usr[0]),
+                "allocator": allocator_layout(view),
+            },
             "final image security metadata differs from the verified build",
         )
         kernel_verification = verify_kernel(

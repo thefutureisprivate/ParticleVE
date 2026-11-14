@@ -96,11 +96,25 @@ class InitrdAuthorityTests(unittest.TestCase):
         self.policy = {"schema": 1, "files": {}}
         self.parts = []
         directories = set()
-        for target in [*INITRD_BINARIES.values(), identity_path("initrd")]:
+        for target in [
+            *INITRD_BINARIES.values(),
+            identity_path("initrd"),
+            "usr/lib64/libhardened_malloc.so",
+            "usr/lib/particleve/source-identities/hardened_malloc.json",
+        ]:
             directories.update(str(parent) for parent in Path(target).parents if str(parent) != ".")
         self.parts.extend(member(name, mode=stat.S_IFDIR | 0o755, links=2) for name in sorted(directories))
         for target in INITRD_BINARIES.values():
             self.parts.append(member(target, (self.root / target).read_bytes(), stat.S_IFREG | 0o755))
+        for target, mode in (
+            ("usr/lib64/libhardened_malloc.so", 0o755),
+            ("usr/lib/particleve/source-identities/hardened_malloc.json", 0o644),
+        ):
+            path = self.root / target
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"independently verified allocator payload")
+            path.chmod(mode)
+            self.parts.append(member(target, path.read_bytes(), stat.S_IFREG | mode))
         self.parts.append(member(identity_path("initrd"), self.record))
 
     def reject(self, parts, message):
@@ -190,7 +204,12 @@ class InitrdAuthorityTests(unittest.TestCase):
             (member(target, (self.root / target).read_bytes(), stat.S_IFREG | 0o755, links=2), "aliased"),
         ):
             parts = list(self.parts)
-            parts[-4] = changed
+            index = next(
+                i
+                for i, part in enumerate(parts)
+                if part == member(target, (self.root / target).read_bytes(), stat.S_IFREG | 0o755)
+            )
+            parts[index] = changed
             self.reject(parts, message)
         self.reject([member("usr", b"elsewhere", stat.S_IFLNK | 0o777)], "security directory")
 

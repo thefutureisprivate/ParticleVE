@@ -43,6 +43,7 @@ for the build inputs; update their related checks and recipes together.
 | mkosi | Exact upstream commit and declared version in `sources.lock.json`, with the reviewed [OBS continuation patch](../.obs/mkosi/mkosi-obs-continuation.patch), [initrd module-index patch](../.obs/mkosi/mkosi-initrd-module-indexes.patch), [build-metadata patch](../.obs/mkosi/mkosi-build-metadata.patch), and [RPM recipe](../.obs/mkosi/mkosi.spec). The configuration's minimum version is not a substitute for this pin. |
 | fwupd EFI helper | Exact upstream commit and version in `sources.lock.json`; [recipe](../.obs/fwupd-efi/fwupd-efi.spec), [diagnostic patch](../.obs/fwupd-efi/fwupd-efi-sbom-linker-message.patch), separate PE signing, and SBAT/SBOM checks. |
 | Rust | 1.99.1 with rustfmt and Clippy; runtime and initrd native binaries. |
+| Global allocator | The `hardened_malloc` entry in `sources.lock.json`, signed GrapheneOS tag and `particleve:allocator` RPM recipe; upstream default variant, C++ sized-allocation checks, x86-64-v2, no native tuning. |
 | Source-check environment | The digest-pinned Fedora 45 container in the [source workflow](../.github/workflows/check.yml), with Rust packages selected from `rust-toolchain.toml` and native Fedora Python. Update its Fedora tag and Renovate constraint with the platform baseline. |
 | Shared runtime/build policy | [`Sources/particleve/runtime-policy.json`](../Sources/particleve/runtime-policy.json); required kernel configuration, sysctls, TPM creation policy and SELinux boolean expectations. Rust embeds the same data read by Python build checks. |
 | Python | `>=3.14` for build tools and tests; upstream Python tools retain their upstream dependency requirements. |
@@ -148,6 +149,12 @@ Installed-payload identities are recorded after normal Fedora RPM build
 transformations. EFI payload verification uses the SHA256 Authenticode digest,
 which excludes signing-related fields; attached certificate verification is a
 separate check. Other file bytes and symlink targets must match exactly.
+
+The allocator's narrow [ChaCha patch](../.obs/particleve/hardened_malloc-chacha-output-pointer.patch)
+scopes the partial-block output pointer to its iteration so GCC 16 can prove it
+is initialized. It preserves the keystream, counter and copy bounds. The RPM
+compares block boundaries and counter carry with the signed, unmodified source
+and runs upstream's corruption suite. No compiler warning is disabled.
 
 Keep runtime/initrd storage and TPM drivers, both Intel and AMD KVM support,
 microcode, and the declared firmware coverage independent of the OBS worker's

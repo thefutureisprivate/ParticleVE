@@ -140,6 +140,18 @@ def _policy_files(policy, root):
         "size": (Path(root) / identity).stat().st_size,
         "sha256": hash_file(Path(root) / identity),
     }
+    for name in (
+        "usr/lib64/libhardened_malloc.so",
+        "usr/lib/particleve/source-identities/hardened_malloc.json",
+    ):
+        path = Path(root) / name
+        require(path.is_file() and not path.is_symlink(), "verified allocator payload is missing")
+        files[name] = {
+            "kind": "file",
+            "mode": stat.S_IMODE(path.stat().st_mode),
+            "size": path.stat().st_size,
+            "sha256": hash_file(path),
+        }
     require(1 <= len(files) <= 128, "invalid initrd policy size")
     for name, item in files.items():
         require(

@@ -5,7 +5,8 @@ install -D -m 0644 "$SRCDIR/mkosi.extra/usr/lib/udev/rules.d/61-particleve-boot-
     "$BUILDROOT/usr/lib/udev/rules.d/61-particleve-boot-disk.rules"
 # Unlock credentials are sensitive before switch-root too. Reuse the same
 # reviewed policy assets; do not maintain a second authored configuration.
-for file in systemd/coredump.conf.d/60-particleve.conf \
+for file in particleve/ld.so.preload \
+            systemd/coredump.conf.d/60-particleve.conf \
             systemd/system.conf.d/60-particleve-memory.conf \
             systemd/user.conf.d/60-particleve-memory.conf \
             sysctl.d/60-particleve-memory.conf \

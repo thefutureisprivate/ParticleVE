@@ -25,6 +25,10 @@ for component, name in COMPONENTS.items():
     source = args.sources / name
     commit = git(source, "rev-parse", "HEAD").stdout.strip()
     require(commit == pin["revision"], f"{component}: checkout differs from its source pin")
+    if component == "hardened_malloc":
+        from Tools.allocator_source import check
+
+        check(source, pin, root)
     if re.fullmatch(r"\d+(?:\.\d+){0,2}", pin["version"]):
         tag = ("v" if component == "mkosi" else "") + pin["version"]
         fetch(source, pin["url"], f"refs/tags/{tag}")

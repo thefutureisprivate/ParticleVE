@@ -58,6 +58,32 @@ require(
 POLICY = Path("usr/lib/particleve/security-policy.json")
 
 
+def allocator_layout(root, source=None, *, initrd=False):
+    root = Path(root)
+    relative = "usr/lib/particleve/ld.so.preload"
+    expected = b"/usr/lib64/libhardened_malloc.so\n"
+    paths = [root / relative]
+    if source is not None:
+        paths.append(Path(source) / "mkosi.extra" / relative)
+    for path in paths:
+        require(
+            path.is_file() and not path.is_symlink() and path.read_bytes() == expected,
+            "global allocator preload differs from its reviewed source",
+        )
+        require(stat.S_IMODE(path.stat().st_mode) == 0o644, "allocator preload must be publicly readable")
+    library = root / "usr/lib64/libhardened_malloc.so"
+    require(
+        library.is_file() and not library.is_symlink() and stat.S_IMODE(library.stat().st_mode) == 0o755,
+        "allocator library is absent or has unexpected permissions",
+    )
+    link = root / ("etc/ld.so.preload" if initrd else "usr/share/factory/etc/ld.so.preload")
+    require(
+        link.is_symlink() and link.readlink() == Path("/usr/lib/particleve/ld.so.preload"),
+        "global allocator needs the image-owned loader link",
+    )
+    return {"implementation": "hardened_malloc", "variant": "default", "library_sha256": hash_file(library)}
+
+
 def write_tpm_profile(root):
     """Publish creation policy for explicit native provisioning, without opening any TPM state."""
     path = Path(root) / "usr/lib/particleve/tpm-profile.json"

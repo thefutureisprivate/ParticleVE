@@ -17,10 +17,17 @@ pub fn evaluate(request: &Value) -> Option<Result<Value>> {
             | "security-usr-backing-disks"
             | "security-firmware-evidence"
             | "compatibility-approved"
+            | "allocator-prepare-root"
+            | "allocator-current"
     ) {
         return None;
     }
     Some((|| match operation {
+        "allocator-prepare-root" => {
+            particleve::allocator::prepare_root(Path::new(text(field(request, "root")?)?))?;
+            Ok(Value::Null)
+        }
+        "allocator-current" => particleve::allocator::current(),
         "config-ssh-key" => Ok(json!(particleve::config::ssh_key(field(request, "key")?))),
         "consoles-baseline" => particleve::consoles::baseline(
             field(request, "config")?,
