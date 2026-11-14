@@ -19,15 +19,32 @@ pub fn evaluate(request: &Value) -> Option<Result<Value>> {
             | "compatibility-approved"
             | "allocator-prepare-root"
             | "allocator-current"
+            | "allocator-host-policy"
+            | "allocator-native-prepare-root"
     ) {
         return None;
     }
     Some((|| match operation {
         "allocator-prepare-root" => {
+            let mut labeled = false;
+            particleve::allocator::prepare_root_with(
+                Path::new(text(field(request, "root")?)?),
+                |_| {
+                    if request.get("label_failure") == Some(&Value::Bool(true)) {
+                        return Err(particleve::common::Error::new("injected labeling failure"));
+                    }
+                    labeled = true;
+                    Ok(())
+                },
+            )?;
+            Ok(json!({"labeled":labeled}))
+        }
+        "allocator-current" => particleve::allocator::current(),
+        "allocator-host-policy" => particleve::allocator::host_policy(),
+        "allocator-native-prepare-root" => {
             particleve::allocator::prepare_root(Path::new(text(field(request, "root")?)?))?;
             Ok(Value::Null)
         }
-        "allocator-current" => particleve::allocator::current(),
         "config-ssh-key" => Ok(json!(particleve::config::ssh_key(field(request, "key")?))),
         "consoles-baseline" => particleve::consoles::baseline(
             field(request, "config")?,

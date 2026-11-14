@@ -527,6 +527,7 @@ checkout. These probes call the compiled Rust implementation:
 
 | Probe | Required compiled input and fixture |
 | --- | --- |
+| [`allocator/global-policy.py`](../Tests/acceptance/allocator/global-policy.py) | `--runtime-driver` staged under `/run` and `--fixture-uuid`; a disposable SELinux-enforcing QEMU host with the selected allocator. Exercises native initrd preload-link labeling, idempotence and preservation of conflicting owner files on temporary roots. Actual signed-image boot ordering and process mappings remain separate checks. |
 | [`management-network.py`](../Tests/acceptance/management-network.py) | `--runtime-driver /run/particleve-tests/runtime-contract-driver`; a disposable installed host, native networking, node_exporter and reviewed VM state. Checks real IPv4/IPv6 scrapes and denied source, interface, destination and loopback paths. `--component-fixture` records component coverage without claiming installed-image acceptance. |
 | [`storage-service.py`](../Tests/acceptance/storage-service.py) | The storage-watch service file as its positional argument and `--runtime-driver`; a disposable installed systemd/firmware-witness fixture. Includes a private inaccessible Btrfs submount: monitoring must succeed while shutdown's full inventory still refuses it. |
 | [`storage-member-counters.py`](../Tests/acceptance/storage-member-counters.py) | `--runtime-driver`; a disposable root fixture with Btrfs-backed `/var/tmp` and loop/device-mapper support. |

@@ -1,6 +1,6 @@
 %global _buildshell /bin/bash
 Name:           particleve
-Version:        45.0.4.0
+Version:        45.0.4.1
 Release:        1%{?dist}
 Summary:        ParticleVE host installation and maintenance coordinator
 # Project sources are LGPL; statically linked crates select MIT where dual

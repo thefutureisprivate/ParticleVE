@@ -51,7 +51,7 @@ class AllocatorTests(RustDriverTests):
             directory = root / "etc"
             directory.mkdir(mode=0o755)
             link = directory / "ld.so.preload"
-            self.evaluate("allocator-prepare-root", root=str(root))
+            self.assertEqual(self.evaluate("allocator-prepare-root", root=str(root)), {"labeled": True})
             self.assertEqual(link.readlink(), Path(CONFIGURATION))
             # A new active image can supply a different /usr without rewriting /etc.
             self.evaluate("allocator-prepare-root", root=str(root))
@@ -62,7 +62,10 @@ class AllocatorTests(RustDriverTests):
                 self.assertEqual(str(link.readlink()), target)
             link.unlink()
             link.write_text("owner configuration\n")
-            self.assertIn("error", self.request("allocator-prepare-root", root=str(root)))
+            self.assertIn(
+                "image-owned preload link",
+                self.request("allocator-prepare-root", root=str(root), label_failure=True)["error"],
+            )
             self.assertEqual(link.read_text(), "owner configuration\n")
             link.unlink()
             link.symlink_to("/var/lib/preload")
@@ -72,3 +75,12 @@ class AllocatorTests(RustDriverTests):
             directory.chmod(0o777)
             self.assertIn("error", self.request("allocator-prepare-root", root=str(root)))
             self.assertFalse(link.exists() or link.is_symlink())
+
+    @unittest.skipUnless(os.geteuid() == 0, "owned-root mutation needs the native root namespace")
+    def test_early_root_label_failure_preserves_the_link_and_blocks_completion(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "etc").mkdir(mode=0o755)
+            result = self.request("allocator-prepare-root", root=str(root), label_failure=True)
+            self.assertIn("injected labeling failure", result["error"])
+            self.assertEqual((root / "etc/ld.so.preload").readlink(), Path(CONFIGURATION))

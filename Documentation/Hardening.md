@@ -564,6 +564,10 @@ through `/etc/ld.so.preload`. The root-owned, publicly readable configuration an
 library live in verified `/usr`; the signed initrd supplies the same policy and
 materializes only its owned root link before executing installed PID 1. An
 existing conflicting configuration blocks boot instead of being overwritten.
+The initrd assigns Fedora's `etc_t` label to that symlink before switching root;
+boot health verifies the label so confined services and authentication helpers
+can read the preload policy. A labeling failure blocks boot without widening
+SELinux permissions or relabeling retained user data.
 The pinned allocator is built as the native OBS `particleve:allocator` flavor,
 with x86-64-v2 targeting, C++ sized-allocation checks and no build-host tuning.
 Source, recipe, patch, installed-library and initrd identities are checked together.
