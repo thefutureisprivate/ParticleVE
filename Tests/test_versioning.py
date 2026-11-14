@@ -83,8 +83,8 @@ class OBSSourceIdentityTests(unittest.TestCase):
         self.source.mkdir()
         (self.source / "particleve.version").write_text("45.0.1.2\n")
         self.bridge = self.outer / "_scmsync.obsinfo"
-        self.recipe = self.outer / "rpm.spec"
-        self.archive_recipe = self.source / ".obs/particleve/rpm.spec"
+        self.recipe = self.outer / "particleve.spec"
+        self.archive_recipe = self.source / ".obs/particleve/particleve.spec"
         self.archive_recipe.parent.mkdir(parents=True)
         self.bridge.write_text("commit: " + "a" * 40 + "\n")
         (self.outer / "particleve.obsinfo").write_text("commit: " + "b" * 40 + "\n")

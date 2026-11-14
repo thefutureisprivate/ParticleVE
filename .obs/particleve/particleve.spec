@@ -1,4 +1,3 @@
-# Native OBS rpm flavor; the default build consumes these RPMs for the image.
 %global _buildshell /bin/bash
 Name:           particleve
 Version:        45.0.4.0

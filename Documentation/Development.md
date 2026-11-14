@@ -555,7 +555,7 @@ revision, package identities, configuration, and diagnostics when reproducing it
 | Build or check | Coverage and local entry points |
 | --- | --- |
 | [GitHub source checks](../.github/workflows/check.yml) | Digest-pinned Fedora container, pinned Rust packages and Ruff, native Fedora Python, `make check`, upstream pin/patch verification and resolved image configuration. A passing `main` push can select system changes for OBS. |
-| [Host, initrd and build-tools RPMs](../.obs/particleve/rpm.spec) | Offline locked Rust build, strict formatting/Clippy, Rust and Python tests, SELinux policy compilation, and final ELF payload identity after normal RPM transformations. |
+| [Host, initrd and build-tools RPMs](../.obs/particleve/particleve.spec) | Offline locked Rust build, strict formatting/Clippy, Rust and Python tests, SELinux policy compilation, and final ELF payload identity after normal RPM transformations. |
 | [Pinned mkosi RPM](../.obs/mkosi/mkosi.spec) | Exact upstream, recipe, and patch identity; installed-payload records; shell syntax checks for the OBS signing continuation. |
 | [fwupd EFI helper RPM](../.obs/fwupd-efi/fwupd-efi.spec) | Compiler diagnostics, retained SBAT/SBOM sections, payload identity, and separate PE signing. |
 | [Allocator RPM](../.obs/particleve/allocator.spec) | Signed GrapheneOS source pin, archive/patch identity, ChaCha boundary equivalence, upstream corruption tests, default C++ allocator and final library identity. Global-loader and resource probes are described above. |

@@ -55,11 +55,6 @@ printf '/run/particleve-ca-trust(/.*)? system_u:object_r:cert_t:s0\n/usr/libexec
 # Resolved reads these root-owned, immutable-in-its-namespace policy views as
 # ordinary systemd configuration, without access to generic runtime files.
 printf '/run/particleve-dns-policy(/.*)? system_u:object_r:systemd_conf_t:s0\n' >>/etc/selinux/targeted/contexts/files/file_contexts.local
-# Build the narrow EFI-write policy into the image, never the worker's kernel.
-semodule --noreload --install /usr/lib/particleve/particleve_boot.cil
-semodule --noreload --install /usr/lib/particleve/particleve_witness.pp
-semodule --noreload --install /usr/lib/particleve/particleve_vmspawn.pp
-semodule --noreload --install /usr/lib/particleve/particleve_runtime.cil
 # Compile audit defaults before making the factory configuration read-only.
 augenrules
 # Capture the newly compiled policy and audit configuration in mkosi.finalize;

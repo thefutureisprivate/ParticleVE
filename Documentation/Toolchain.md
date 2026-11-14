@@ -156,6 +156,13 @@ is initialized. It preserves the keystream, counter and copy bounds. The RPM
 compares block boundaries and counter carry with the signed, unmodified source
 and runs upstream's corruption suite. No compiler warning is disabled.
 
+SELinux policy compilation runs in mkosi's Fedora tools tree against the image's
+policy root, after its configuration is complete and before factory capture.
+The compiler uses the tools tree's allocator, keeping build-time policy linking
+independent of the delivered OS allocator's mapping overhead. All four project
+modules are installed in one transaction with `--noreload`; the worker's kernel
+policy is never changed. The host and initrd retain global hardened_malloc.
+
 Keep runtime/initrd storage and TPM drivers, both Intel and AMD KVM support,
 microcode, and the declared firmware coverage independent of the OBS worker's
 hardware. Do not use build-host CPU optimization or host-only module pruning.

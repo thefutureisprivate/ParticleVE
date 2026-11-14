@@ -146,7 +146,7 @@ class OBSRefreshTests(unittest.TestCase):
         kernel.write_text("reviewed kernel inputs\n")
         worker = kernel.parent / "build-policy.spec"
         worker.write_text("Name: particleve-kernel-build\nVersion: 1\n")
-        host = self.root / ".obs/particleve/rpm.spec"
+        host = self.root / ".obs/particleve/particleve.spec"
         host.parent.mkdir()
         host.write_text("Name: particleve\nVersion: 45.0.3.5\n")
         cargo = self.root / "Cargo.lock"

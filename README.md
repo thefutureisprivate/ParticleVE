@@ -182,7 +182,7 @@ For boot, storage, administration, or maintenance problems, see
 | chrony, resolved, and nftables | Authenticated time, name resolution, and networking | Image profile and [operations](Documentation/Operations.md). |
 | fwupd and fwupd-efi | Supervised firmware maintenance | [Source lock](sources.lock.json), [EFI helper recipe](.obs/fwupd-efi/fwupd-efi.spec), and release manifest. |
 | mkosi and OBS | Image construction, dependency rebuilds, signing, and publication | Source lock, [mkosi recipe](.obs/mkosi/mkosi.spec), and [OBS configuration](.obs/project.xml). |
-| Rust toolchain and libraries | Native ParticleVE host and initrd helpers | [Toolchain pin](rust-toolchain.toml), [Cargo manifest](Cargo.toml), [dependency lock](Cargo.lock), and [RPM recipe](.obs/particleve/rpm.spec). |
+| Rust toolchain and libraries | Native ParticleVE host and initrd helpers | [Toolchain pin](rust-toolchain.toml), [Cargo manifest](Cargo.toml), [dependency lock](Cargo.lock), and [RPM recipe](.obs/particleve/particleve.spec). |
 | hardened_malloc | Global dynamic allocation in the host and initrd | [Signed source pin](sources.lock.json), [allocator recipe](.obs/particleve/allocator.spec), and [effective policy](Documentation/Hardening.md#advanced-userspace-and-kernel-mitigations). |
 
 Build tools stay outside the deployed runtime unless an upstream runtime

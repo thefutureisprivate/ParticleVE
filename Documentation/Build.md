@@ -21,7 +21,7 @@ again before publishing a manifest. A failed or delayed independent source webho
 therefore cannot publish new implementation inputs with an old coordinator or
 signing helper. Documentation-only changes retain the same implementation identity.
 
-The shared [RPM recipe](../.obs/particleve/rpm.spec) produces three components:
+The shared [RPM recipe](../.obs/particleve/particleve.spec) produces three components:
 
 | RPM | Installed role |
 | --- | --- |
@@ -237,6 +237,13 @@ for example `45.0.2.0-1.2`. The check-in counter starts at 1 for each new source
 version; dependency rebuilds can advance the image counters without changing
 the source version or Git revision. Local mkosi configuration uses the `-0.0`
 suffix until the builder supplies its counters.
+
+The default `particleve.spec` exposes the PVE source version to OBS's native
+check-in tracking and builds the host, initrd and build-tools RPMs in
+`Fedora_45`. The same source package builds the image in `Fedora_45_images`,
+whose build type is mkosi. Only the allocator needs a separate flavor. Keep the
+default RPM recipe under the source package's name so multiple recipes do not
+hide its version or prevent OBS from rewriting its release metadata.
 
 Use [`Tools/version.py`](../Tools/version.py) to advance a patch for fixes or a
 minor for substantial features. PVE major changes require the owner's explicit

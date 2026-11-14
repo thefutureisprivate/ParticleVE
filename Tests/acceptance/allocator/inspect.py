@@ -54,9 +54,18 @@ def main():
     root_source = Path(__file__).resolve().parents[3]
     identity = source_identity(root_source, "hardened_malloc")
     pin = identity["upstream"]
-    require(not command("rpm", "-qp", "--scripts", str(args.rpm)).strip(), "unexpected RPM scriptlet")
-    require(not command("rpm", "-qp", "--triggers", str(args.rpm)).strip(), "unexpected RPM trigger")
-    files = command("rpm", "-qpl", str(args.rpm)).splitlines()
+    # These are metadata queries, not signature authentication. An unknown-key
+    # warning must not become scriptlet or pathname data. Verify OBS signatures
+    # separately against the project key; this inspector checks package digests.
+    require(
+        not command("rpm", "--nosignature", "-qp", "--scripts", str(args.rpm)).strip(),
+        "unexpected RPM scriptlet",
+    )
+    require(
+        not command("rpm", "--nosignature", "-qp", "--triggers", str(args.rpm)).strip(),
+        "unexpected RPM trigger",
+    )
+    files = command("rpm", "--nosignature", "-qpl", str(args.rpm)).splitlines()
     require(files and all(name.startswith("/usr/") for name in files), "payload outside /usr")
     require(
         not any(word in name for name in files for word in ("preload", "sysctl", "systemd")),
@@ -110,7 +119,7 @@ def main():
         "source_rpm_sha256": digest(args.source_rpm),
         "rpm_digest_check": command("rpm", "--checksig", "--nosignature", str(args.rpm)),
         "source_rpm_digest_check": command("rpm", "--checksig", "--nosignature", str(args.source_rpm)),
-        "metadata": command("rpm", "-qp", "--qf", "%{NEVRA}\n%{LICENSE}\n", str(args.rpm)),
+        "metadata": command("rpm", "--nosignature", "-qp", "--qf", "%{NEVRA}\n%{LICENSE}\n", str(args.rpm)),
         "files": files,
         "libraries": libraries,
         "source": pin,

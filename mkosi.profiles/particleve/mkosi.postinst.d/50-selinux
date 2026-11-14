@@ -1,0 +1,12 @@
+#!/bin/bash
+# SPDX-License-Identifier: LGPL-2.1-or-later
+set -euo pipefail
+
+# Compile from the tools tree after the image's configuration is complete.
+# The delivered OS keeps its global allocator; the build-only compiler uses
+# Fedora's allocator and never reloads policy into the worker's kernel.
+semodule --noreload --path "$BUILDROOT" \
+    --install "$BUILDROOT/usr/lib/particleve/particleve_boot.cil" \
+    --install "$BUILDROOT/usr/lib/particleve/particleve_witness.pp" \
+    --install "$BUILDROOT/usr/lib/particleve/particleve_vmspawn.pp" \
+    --install "$BUILDROOT/usr/lib/particleve/particleve_runtime.cil"

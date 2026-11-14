@@ -82,11 +82,10 @@ atomic_write(
     b"Prefer: -systemd-standalone-repart -systemd-boot-unsigned\n"
     b'%if "%_repository" == "Fedora_45"\n'
     b"BuildFlags: onlybuild:mkosi onlybuild:fwupd-efi onlybuild:kernel "
-    b"onlybuild:kernel:build-policy onlybuild:particleve:rpm onlybuild:particleve:allocator\n"
+    b"onlybuild:kernel:build-policy onlybuild:particleve onlybuild:particleve:allocator\n"
     b"%endif\n"
     b'%if "%_repository" == "Fedora_45_images"\n'
-    b"BuildFlags: onlybuild:particleve excludebuild:particleve:rpm "
-    b"excludebuild:particleve:allocator\nType: mkosi\n"
+    b"BuildFlags: onlybuild:particleve excludebuild:particleve:allocator\nType: mkosi\n"
     b"Repotype: checksumsfile:rawsig staticlinks\nPatterntype: none\n"
     b"%endif\n",
     0o644,

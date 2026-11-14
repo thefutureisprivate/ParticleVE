@@ -8,7 +8,7 @@ NUMBER = r"(?:0|[1-9][0-9]{0,5})"
 SOURCE_VERSION = re.compile(rf"({NUMBER})\.({NUMBER})\.({NUMBER})\.({NUMBER})\Z")
 OBS_COUNTERS = re.compile(rf"({NUMBER})\.({NUMBER})\Z")
 VERSION = re.compile(rf"({NUMBER})\.({NUMBER})\.({NUMBER})\.({NUMBER})-({NUMBER})\.({NUMBER})\Z")
-OBS_RECIPE = Path(".obs/particleve/rpm.spec")
+OBS_RECIPE = Path(".obs/particleve/particleve.spec")
 
 
 def image_version():

@@ -21,6 +21,7 @@ lint: rust-check
 	for script in mkosi.postinst.chroot \
 		mkosi.finalize \
 		mkosi.profiles/particleve/mkosi.postinst.chroot \
+		mkosi.profiles/particleve/mkosi.postinst.d/50-selinux \
 		mkosi.profiles/particleve/mkosi.finalize \
 		mkosi.initrd.conf/mkosi.postinst \
 		mkosi.initrd.conf/mkosi.finalize \

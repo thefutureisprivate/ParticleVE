@@ -18,7 +18,7 @@ from Tools import kernel_freshness, publication_inputs
 from Tools.trust import system_tls_context
 
 PACKAGES = {
-    "particleve": ("Fedora_45", "particleve:rpm", "particleve"),
+    "particleve": ("Fedora_45", "particleve", "particleve"),
     "mkosi": ("Fedora_45", "mkosi", "particleve-build-inputs"),
     "fwupd-efi": ("Fedora_45", "fwupd-efi", "particleve-build-inputs"),
     "kernel": ("Fedora_45", "kernel", "particleve-kernel-inputs"),

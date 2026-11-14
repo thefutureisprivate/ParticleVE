@@ -26,7 +26,7 @@ class PrepareObsTests(unittest.TestCase):
             files = {
                 "particleve.version": "45.0.1.10\n",
                 ".obs/fedora/x86-64/mkosi.conf": "[Config]\n",
-                ".obs/particleve/rpm.spec": "Name: particleve\n",
+                ".obs/particleve/particleve.spec": "Name: particleve\n",
                 ".obs/particleve/_multibuild": "<multibuild/>\n",
                 ".obs/particleve/allocator.spec": "Name: hardened_malloc\n",
                 ".obs/particleve/hardened_malloc-chacha-output-pointer.patch": "allocator patch fixture\n",

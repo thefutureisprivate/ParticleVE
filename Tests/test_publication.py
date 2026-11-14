@@ -66,18 +66,27 @@ class PublicationTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(Error):
                 source_workflow({"total_count": 1, "workflow_runs": [run | {key: value}]}, "a" * 40)
 
-    def observe_builds(self, worker_statuses=(), *, allocator_statuses=(), previous=None):
+    def observe_builds(
+        self, worker_statuses=(), *, allocator_statuses=(), previous=None, runtime_code="succeeded"
+    ):
         site = read_json(Path(__file__).resolve().parent.parent / ".obs/site.json")
         owner = '<person userid="' + site["obs_user"] + '" role="maintainer"/>'
         builds = (
             "<resultlist>"
             + "".join(
                 f'<result repository="{repository}" arch="x86_64">'
-                f'<status package="{package}" code="succeeded"/></result>'
-                for repository, package, _ in PACKAGES.values()
+                f'<status package="{package}" code="{code}"/></result>'
+                for repository, package, code in (
+                    ("Fedora_45", "particleve", runtime_code),
+                    ("Fedora_45", "mkosi", "succeeded"),
+                    ("Fedora_45", "fwupd-efi", "succeeded"),
+                    ("Fedora_45", "kernel", "succeeded"),
+                    ("Fedora_45_images", "particleve", "succeeded"),
+                )
+                if code is not None
             )
             + '<result repository="Fedora_45" arch="x86_64">'
-            '<status package="particleve" code="excluded"/>'
+            '<status package="particleve:rpm" code="succeeded"/>'
             + "".join(f'<status package="kernel:build-policy" code="{code}"/>' for code in worker_statuses)
             + "".join(
                 f'<status package="particleve:allocator" code="{code}"/>' for code in allocator_statuses
@@ -117,6 +126,12 @@ class PublicationTests(unittest.TestCase):
         )
         self.assertFalse(any("/image/" in call.args[0] for call in requests.call_args_list))
         self.assertFalse(any("/particleve:rpm/" in call.args[0] for call in requests.call_args_list))
+
+    def test_retired_rpm_flavor_cannot_hide_a_missing_or_failed_base_package(self):
+        result, _ = self.observe_builds(runtime_code="failed")
+        self.assertEqual(result["result"], "fail")
+        with self.assertRaisesRegex(Error, "missing or ambiguous build observation: particleve"):
+            self.observe_builds(runtime_code=None)
 
     def test_kernel_worker_policy_failure_is_not_hidden_by_other_successful_builds(self):
         for code, expected in (("succeeded", "pass"), ("failed", "fail"), ("building", "pending")):
